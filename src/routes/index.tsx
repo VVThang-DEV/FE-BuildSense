@@ -274,7 +274,7 @@ function PMDashboard() {
                   const isOpen = expanded === po.id;
                   const isApproved = approved.has(po.id);
                   return (
-                    <>
+                    <Fragment key={po.id}>
                       <tr key={po.id} className="border-b last:border-b-0">
                         <td className="px-4 py-3">
                           <button
@@ -349,7 +349,7 @@ function PMDashboard() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>
