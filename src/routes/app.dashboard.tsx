@@ -5,7 +5,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+
 import { aiAlerts, kpis, projects } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
