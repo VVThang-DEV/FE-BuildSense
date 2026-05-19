@@ -1,84 +1,116 @@
 # BuildSense AI — Full Product Prototype
 
-Transform the current 3-tab demo into a realistic, multi-role SaaS product modeled exactly on the capstone proposal (5 roles) and the mentor's material/PO workflow. Adds a real login screen, role selection, persistent session (localStorage), a role-aware app shell with sidebar, and detailed modules for every role.
+A realistic SaaS prototype that mirrors the capstone proposal (SU26SE079) module-for-module and implements the mentor's material/PO workflow end-to-end. Adds a real login + role selection, persistent session, and a role-aware app shell with sidebar.
 
-## Roles (from proposal)
+## Roles (exactly as listed in the proposal §3.1)
 
-1. **Admin** — WBS, budgets, inventory thresholds, procurement workflow, baseline schedule
-2. **Manager (Project Manager)** — executive dashboard, PO approvals, schedule variance, exports
-3. **Staff (System Staff)** — user/access control, alert thresholds, automated report scheduler
-4. **Field Engineer (Site)** — daily progress %, site reports, material requests, attendance — mobile-first
-5. **Customer (Homeowner)** — read-only portal: progress, milestones, photos
+| Role | Default landing | Scope |
+|---|---|---|
+| **Admin** | `/app/admin/wbs` | WBS, budgets per work package, team roles, inventory thresholds, procurement workflow config, baseline schedule, plan-vs-actual variance |
+| **Manager** | `/app/dashboard` | Executive KPI dashboard, PO approvals, schedule variance, critical-path risk, PDF/Excel exports |
+| **Staff** | `/app/staff/users` | User & access control, system-wide alert thresholds, notification rules, automated stakeholder report scheduler |
+| **Field Engineer** | `/app/site` (mobile-first) | Daily task % updates, site reports, material requests, attendance, view assigned materials, receive AI alerts |
+| **Customer** | `/app/portal` | Read-only: progress %, milestones, photo updates, AI-surfaced delay notices |
 
-## New flow
+A **separate `/ai` panel** is available to Admin / Manager / Staff and acts as the proposal's "AI Agent" (NL Q&A, anomaly detection, auto-draft procurement emails & daily briefings).
+
+## Mentor-driven workflow (the spine of the demo)
 
 ```text
-/login  →  pick role + demo credentials  →  /app  (role-aware shell)
-                                              ├── sidebar nav (role-filtered)
-                                              ├── topbar (project switcher, role badge, logout)
-                                              └── module pages
+1. Supplier-side seeding
+   Admin opens Material Catalog and seeds the tree:
+     Steel ─ Concrete Steel (sắt đổ bê tông) ─ Phi 5 / Phi 10 / Phi 20
+           ─ Box Steel / Sheet Steel / Angle Steel (sắt hộp / sắt lá / sắt lờ)
+     Cement ─ OPC 53 / PPC
+     Aggregates ─ M-Sand / 20mm Gravel
+   Supplier (mocked) pushes stock updates → catalog shows on-hand qty.
+
+2. Project creation
+   Admin/Manager creates a house project →
+     • Uploads/edits Gantt-style Task List (WBS)
+     • Uploads time-phased Material Plan: per material variant + required-at date
+       (e.g. Phi 10 — 480 kg — needed at Foundation; Lights — needed at Finishing)
+
+3. Daily run
+   Each day a scheduler check (mocked "Run daily check" button) compares
+   on-hand vs. what each project needs in the next N days.
+   • If shortage → auto-create a PO request per house.
+   • AI consolidates requests across houses
+     (House A 500 + House B 300 + House C 200 = 1,000 bricks → one PO).
+
+4. Manager approves PO inbox → status flips to "Ordered" → on delivery, Field
+   Engineer marks "Received" → stock rises, project material checklist ticks.
+
+5. Field Engineer updates daily task % and site report; AI re-forecasts the
+   schedule and raises a delay alert that surfaces to Manager and Customer.
 ```
 
-Session stored in `localStorage` (`bs.session = {role, name, projectId}`). `/app/*` routes redirect to `/login` if no session. A "Switch role" action returns to `/login`.
+## Login + session
 
-## Modules (matrix)
+- `/login` — branded split-screen. Left: hero + product blurb. Right: 5 role cards (Admin, Manager, Staff, Field Engineer, Customer), each with a demo user (name + email). Click → "Sign in as …" → writes `localStorage.bs.session` and navigates to that role's default page.
+- `/app` layout component reads session; if missing → redirect to `/login`. Topbar shows logged-in user + "Switch role / Sign out".
+- No real auth; clearly labeled "Demo prototype — no real authentication".
 
-| Module | Admin | Manager | Staff | Engineer | Customer |
-|---|---|---|---|---|---|
-| Executive Dashboard (KPIs, AI alerts) | ✓ | ✓ | ✓ | — | — |
-| Projects & WBS / Gantt | ✓ | ✓ | — | view | — |
-| Material Catalog (Steel→Concrete Steel→Phi 5/10/20, Cement→OPC53/PPC, …) | ✓ edit | view | — | view | — |
-| Time-Phased Material Plan (per project, per phase) | ✓ | view | — | view | — |
-| Inventory & Thresholds | ✓ | view | — | view | — |
-| Procurement / PO Inbox (AI consolidates 500+300+200=1000 bricks) | view | ✓ approve | — | request | — |
-| Daily Progress Log + Site Report | — | view | — | ✓ | — |
-| Attendance (check-in/out, geo) | view | view | — | ✓ | — |
-| Photo / Document upload | — | view | — | ✓ | — |
-| AI Agent (NL Q&A, anomaly, drafts emails) | ✓ | ✓ | ✓ | — | — |
-| Reports & Exports (PDF/Excel mock) | ✓ | ✓ | ✓ schedule | — | — |
-| User & Access Control | view | — | ✓ | — | — |
-| Alert Threshold Config | ✓ | — | ✓ | — | — |
-| Customer Portal (progress, milestones, gallery, updates) | — | — | — | — | ✓ |
+## Modules (full matrix mapped to proposal §3.1 + §3.2)
+
+| Module | Proposal line | Admin | Mgr | Staff | Eng | Cust |
+|---|---|---|---|---|---|---|
+| Executive Dashboard (cost, progress, workforce KPIs) | Manager.1 | view | ✓ | view | — | — |
+| Projects & WBS (define WBS, assign budgets, team roles) | Admin.1 | ✓ | ✓ | — | view | — |
+| Gantt / Baseline vs. Actual schedule | Admin.3, Mgr.3 | ✓ | ✓ | — | view | — |
+| Material Catalog with variants (Steel→Phi 5/10/20 etc.) | mentor | ✓ | view | — | view | — |
+| Inventory & Thresholds (alert thresholds, procurement) | Admin.2 | ✓ | view | view | view | — |
+| Time-Phased Material Plan per project | mentor | ✓ | view | — | view | — |
+| Daily Check & Auto-PO generator | mentor | ✓ trigger | ✓ trigger | — | — | — |
+| Procurement / PO Inbox (AI-consolidated approvals) | Mgr.2 | view | ✓ | — | request | — |
+| Daily Progress % + Site Report | Eng.1 | — | view | — | ✓ | — |
+| Attendance (on-site check-in) | Eng.4 | view | view | — | ✓ | — |
+| Material Assignment view & shortage request | Eng.2, Eng.3 | view | view | — | ✓ | — |
+| AI Agent (NL Q&A, anomaly, draft emails, briefings) | AI.1–4 | ✓ | ✓ | ✓ | — | — |
+| Plan-vs-Actual Reports & PDF/Excel export | Mgr.4, deliv. | ✓ | ✓ | schedule | — | — |
+| User & Access Control | Staff.1 | view | — | ✓ | — | — |
+| Alert Thresholds & Notification Rules | Staff.2 | view | — | ✓ | — | — |
+| Automated Stakeholder Report Scheduler | Staff.3 | view | view | ✓ | — | — |
+| Customer Portal (progress, photos, AI alerts) | Cust.1–3 | — | — | — | — | ✓ |
 
 ## Pages to build
 
-- `/login` — branded split-screen, role picker cards (5 roles, each with demo user), "Continue as …" button
-- `/app/` — role-routed home (redirects to default module for role)
-- `/app/dashboard` — KPI grid, AI Action Center, multi-project Gantt, variance chart
-- `/app/projects` — project list + drill-in `/app/projects/$id` (WBS tabs: Tasks, Gantt, Materials, Team, Documents)
-- `/app/materials` — catalog tree (Steel ▸ Concrete Steel ▸ Phi 5/10/20), inventory levels, threshold edit
-- `/app/procurement` — PO inbox with AI-consolidated rows, approve/reject, history
-- `/app/site` — engineer home: today's tasks, sliders, shortage request, attendance check-in
+- `/login`
+- `/app` layout (sidebar + topbar + outlet, role-filtered nav)
+- `/app/dashboard` — KPIs, AI Action Center, multi-project Gantt, cost/schedule variance chart
+- `/app/projects` and `/app/projects/$id` (tabs: Overview · WBS/Gantt · Material Plan · Team · Documents · Reports)
+- `/app/materials` — catalog tree editor + stock levels, "Supplier delivered" action
+- `/app/procurement` — PO inbox (AI-consolidated rows show source houses 500+300+200=1000), Approve / Reject / History
+- `/app/check` — "Run daily check" page that surfaces generated POs (the mentor's daily scheduler, manually triggerable)
+- `/app/site` — Engineer home: today's tasks with sliders, attendance, quick shortage request
 - `/app/site/report` — daily site report form (weather, headcount, work done, blockers, photos)
-- `/app/attendance` — list + map placeholder
-- `/app/ai` — AI Agent: chat box, suggested prompts ("Why is Villa 12 delayed?"), draft-email panel
-- `/app/reports` — report templates, schedule, download buttons (mock)
-- `/app/admin/users` — table, role chips, invite modal
-- `/app/admin/thresholds` — alert config (cement variance %, stock min, lead-time)
-- `/app/portal` — customer view (current `/customer` redesigned)
+- `/app/site/attendance` — check-in/out log
+- `/app/ai` — chat-style AI Agent with suggested prompts and draft-email panel
+- `/app/reports` — templates + scheduler + mock download
+- `/app/admin/wbs` — WBS / baseline editor
+- `/app/admin/thresholds` — inventory & alert thresholds
+- `/app/staff/users` — users + roles table, invite modal
+- `/app/staff/notifications` — notification rules
+- `/app/portal` — Customer portal (redesign of current `/customer`)
 
-## App shell
-
-- `src/components/app-shell.tsx` — sidebar (role-filtered nav items, collapsible) + topbar (project switcher, search, notifications popover, role/avatar menu)
-- `src/lib/session.ts` — `useSession()`, `login()`, `logout()`, role helpers
-- `src/lib/nav.ts` — module list with `roles: Role[]` filter
-- Route guard: `/app` layout route (`src/routes/app.tsx`) checks session in component (no SSR auth)
+Existing `/`, `/site`, `/customer` routes become redirects into the new flow.
 
 ## Mock data extensions (`src/lib/mock-data.ts`)
 
-Add: users[], attendance[], dailyReports[], inventory levels per material leaf, alertThresholds, aiChatSeed[], reportTemplates[], scheduledReports[], procurementHistory[]. Keep existing PO and material tree intact.
+Add: `users[]` (one per role), `supplierStock` keyed by material leaf, `projectMaterialPlan` (variant + required qty + needed-by phase/date), `attendance[]`, `dailyReports[]`, `alertThresholds`, `notificationRules`, `aiChatSeed[]` (with mentor-style queries: "Why is Villa 12 delayed?", "Draft PO email for 1000 bricks"), `reportTemplates[]`, `scheduledReports[]`, `procurementHistory[]`. Keep existing PO + material tree intact and extend it.
 
 ## Styling
 
-Keep current tokens (construction palette already in `src/styles.css`). Use shadcn sidebar (`components/ui/sidebar.tsx`), table, tabs, dialog, sheet, chart (Recharts is in shadcn chart wrapper) for variance/burn-down charts. No new deps.
+Keep the construction palette already in `src/styles.css`. Use shadcn `sidebar`, `table`, `tabs`, `dialog`, `sheet`, `chart` (Recharts wrapper) for variance/burn-down. No new dependencies.
 
-## Out of scope
+## Out of scope (prototype boundaries)
 
-No real backend, no real auth (localStorage only), no real file upload (UI only), no real PDF/Excel export (download triggers a generated blob with a stub). No Lovable Cloud yet — kept as prototype per original request.
+No backend / Lovable Cloud yet — `localStorage` session only. No real file upload, no real PDF/Excel (download is a stub blob). No real AI calls — responses are pre-seeded but realistic. No mobile-native build; engineer view is mobile-responsive web.
 
 ## Technical notes
 
-- Keep the existing `/`, `/site`, `/customer` routes as redirects to `/login` (or `/app/...`) so old links work.
-- Use TanStack file-routing dot convention: `app.tsx` (layout w/ Outlet), `app.dashboard.tsx`, `app.projects.tsx`, `app.projects.$id.tsx`, `app.materials.tsx`, etc.
-- Role guard inside `app.tsx` component (not `beforeLoad`) — no SSR auth context available.
-- All forms use local React state; toast on submit via existing `sonner`.
+- TanStack file-routing with dot convention: `app.tsx` (layout w/ `<Outlet/>`), `app.dashboard.tsx`, `app.projects.tsx`, `app.projects.$id.tsx`, `app.materials.tsx`, `app.procurement.tsx`, `app.check.tsx`, `app.site.tsx`, `app.site.report.tsx`, `app.site.attendance.tsx`, `app.ai.tsx`, `app.reports.tsx`, `app.admin.wbs.tsx`, `app.admin.thresholds.tsx`, `app.staff.users.tsx`, `app.staff.notifications.tsx`, `app.portal.tsx`.
+- `src/lib/session.ts` — `useSession`, `login(role)`, `logout()`, role guard hook.
+- `src/lib/nav.ts` — nav items with `roles: Role[]` filter; sidebar derives from this.
+- Role guard inside `app.tsx` component (SSR-safe; no auth context).
+- Old routes (`/`, `/site`, `/customer`) become small redirect components into `/login` or `/app/...`.
