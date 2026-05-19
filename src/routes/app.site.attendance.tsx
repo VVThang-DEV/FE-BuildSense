@@ -11,11 +11,13 @@ export const Route = createFileRoute("/app/site/attendance")({
 function AttendancePage() {
   const total = attendance.reduce((s, a) => s + a.hours, 0).toFixed(1);
   return (
-    <div className="space-y-5 max-w-2xl mx-auto">
-      <div>
-        <h1 className="text-xl font-semibold">Attendance</h1>
-        <p className="text-sm text-muted-foreground">Geo-tagged check-in/out · Villa 12 site</p>
+    <div className="max-w-2xl mx-auto">
+      <div className="mb-6">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-primary mb-1">Field</p>
+        <h1 className="text-[22px] font-bold tracking-tight">Attendance</h1>
+        <p className="text-sm text-muted-foreground mt-1">Geo-tagged check-in / out · Villa 12 site</p>
       </div>
+      <div className="space-y-5">
 
       <div className="grid grid-cols-3 gap-3">
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">This week</p><p className="text-xl font-semibold">{total}h</p></CardContent></Card>
@@ -45,6 +47,7 @@ function AttendancePage() {
           </Table>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

@@ -16,11 +16,13 @@ export const Route = createFileRoute("/app/site/report")({
 
 function ReportPage() {
   return (
-    <div className="space-y-5 max-w-2xl mx-auto pb-12">
-      <div>
-        <h1 className="text-xl font-semibold">Daily site report</h1>
-        <p className="text-sm text-muted-foreground">Submitted to PM. Visible in customer feed (filtered).</p>
+    <div className="max-w-2xl mx-auto pb-12">
+      <div className="mb-6">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-primary mb-1">Field</p>
+        <h1 className="text-[22px] font-bold tracking-tight">Daily Site Report</h1>
+        <p className="text-sm text-muted-foreground mt-1">Submitted to PM · Visible in customer feed (filtered).</p>
       </div>
+      <div className="space-y-5">
 
       <Card>
         <CardContent className="p-4 space-y-3">
@@ -61,6 +63,7 @@ function ReportPage() {
           ))}
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

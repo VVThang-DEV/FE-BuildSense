@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { customerProject, customerUpdates, galleryPhotos, milestones } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/portal")({
   head: () => ({ meta: [{ title: "My House — BuildSense AI" }] }),
@@ -17,28 +18,37 @@ function PortalPage() {
   const radius = 38;
   const c = 2 * Math.PI * radius;
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Hero */}
-      <Card className="overflow-hidden">
-        <div className="grid md:grid-cols-[1fr_auto] gap-4 p-6 items-center">
-          <div>
-            <Badge variant="secondary">{customerProject.community}</Badge>
-            <h1 className="text-2xl font-semibold mt-2">{customerProject.house}</h1>
-            <p className="text-sm text-muted-foreground mt-1">PM · {customerProject.pm} · Handover {customerProject.handover}</p>
+    <div className="max-w-5xl mx-auto">
+      <PageHeader
+        section="Customer Portal"
+        title={customerProject.house}
+        description={`${customerProject.community} · PM: ${customerProject.pm} · Handover ${customerProject.handover}`}
+      />
+
+      {/* Progress hero card */}
+      <Card className="shadow-sm mb-6">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-center gap-5">
+              <svg width={88} height={88} viewBox="0 0 100 100" className="shrink-0">
+                <circle cx={50} cy={50} r={radius} stroke="oklch(0.88 0.05 100)" strokeWidth={8} fill="none" />
+                <circle cx={50} cy={50} r={radius} stroke="oklch(0.60 0.17 148)" strokeWidth={8} fill="none"
+                  strokeDasharray={`${(customerProject.percent / 100) * c} ${c}`} strokeLinecap="round"
+                  transform="rotate(-90 50 50)" />
+                <text x={50} y={56} textAnchor="middle" fontSize={20} fontWeight={700} fill="currentColor">{customerProject.percent}%</text>
+              </svg>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-primary">Build Progress</p>
+                <p className="text-2xl font-bold tabular-nums mt-0.5">{customerProject.percent}%</p>
+                <p className="text-xs text-muted-foreground mt-1">On track · Handover {customerProject.handover}</p>
+              </div>
+            </div>
+            <Badge variant="secondary" className="text-sm px-3 py-1">{customerProject.community}</Badge>
           </div>
-          <div className="flex items-center gap-4">
-            <svg width={100} height={100} viewBox="0 0 100 100">
-              <circle cx={50} cy={50} r={radius} stroke="hsl(var(--muted))" strokeWidth={8} fill="none" />
-              <circle cx={50} cy={50} r={radius} stroke="oklch(0.65 0.16 150)" strokeWidth={8} fill="none"
-                strokeDasharray={`${(customerProject.percent / 100) * c} ${c}`} strokeLinecap="round"
-                transform="rotate(-90 50 50)" />
-              <text x={50} y={56} textAnchor="middle" fontSize={20} fontWeight={600} fill="currentColor">{customerProject.percent}%</text>
-            </svg>
-          </div>
-        </div>
+        </CardContent>
       </Card>
 
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid lg:grid-cols-3 gap-4 mb-6">
         {/* Milestones */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2"><CardTitle className="text-base">Milestones</CardTitle></CardHeader>
@@ -69,7 +79,7 @@ function PortalPage() {
                 <p>{u.text}</p>
               </div>
             ))}
-            <div className="mt-3 rounded-md bg-ai/5 border border-ai/30 p-3 text-xs">
+            <div className="mt-3 rounded-xl bg-ai/8 border border-ai/20 p-3 text-xs">
               <p className="flex items-center gap-1 text-ai font-medium"><Sparkles className="h-3 w-3" /> AI heads-up</p>
               <p className="mt-1">Forecast handover is on track for {customerProject.handover}.</p>
             </div>

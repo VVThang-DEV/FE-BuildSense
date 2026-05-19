@@ -36,57 +36,80 @@ function AiAgent() {
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-4 max-w-[1400px] mx-auto h-[calc(100vh-12rem)]">
-      <Card className="flex flex-col">
-        <CardHeader className="pb-3 border-b">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-ai" /> AI Agent
-            <Badge variant="outline" className="bg-ai/10 text-ai border-ai/30 text-[10px]">Connected to project DB</Badge>
-          </CardTitle>
+      <Card className="flex flex-col shadow-sm">
+        <CardHeader className="pb-3 border-b shrink-0">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-[14px] font-semibold flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-ai/10">
+                <Sparkles className="h-3.5 w-3.5 text-ai" />
+              </div>
+              AI Agent
+            </CardTitle>
+            <Badge variant="outline" className="bg-ai/10 text-ai border-ai/25 text-[10px]">● Connected</Badge>
+          </div>
         </CardHeader>
-        <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
+        <CardContent className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
           {messages.map((m, i) => (
             <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+              {m.role === "ai" && (
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ai/10 mr-2 mt-0.5">
+                  <Sparkles className="h-3 w-3 text-ai" />
+                </div>
+              )}
               <div className={cn(
-                "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm",
-                m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                "max-w-[78%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed",
+                m.role === "user"
+                  ? "bg-primary text-primary-foreground rounded-br-sm"
+                  : "bg-ai/8 border border-ai/15 text-foreground rounded-bl-sm",
               )}>
                 {m.text}
               </div>
             </div>
           ))}
         </CardContent>
-        <div className="border-t p-3 flex gap-2">
+        <div className="border-t p-3 flex gap-2 shrink-0">
           <Input
+            className="h-10 text-[13px]"
             placeholder="Ask anything about your projects…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send(input)}
           />
-          <Button onClick={() => send(input)}><Send className="h-4 w-4" /></Button>
+          <Button className="h-10 px-3" onClick={() => send(input)}><Send className="h-4 w-4" /></Button>
         </div>
       </Card>
 
       <div className="space-y-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Try asking</CardTitle></CardHeader>
-          <CardContent className="space-y-1.5">
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2 border-b">
+            <CardTitle className="text-[13px] font-semibold">Try asking</CardTitle>
+          </CardHeader>
+          <CardContent className="p-2 space-y-1">
             {SUGGESTIONS.map((s) => (
-              <button key={s} onClick={() => send(s)} className="block text-left w-full text-xs p-2 rounded-md hover:bg-muted">
+              <button key={s} onClick={() => send(s)}
+                className="block text-left w-full text-[12px] px-3 py-2 rounded-lg hover:bg-primary/8 hover:text-primary transition-colors">
                 {s}
               </button>
             ))}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Mail className="h-3.5 w-3.5" /> Drafted emails</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-xs">
-            <div className="p-2 rounded-md border">
-              <p className="font-medium">Consolidated PO — 1,000 Bricks</p>
-              <p className="text-muted-foreground line-clamp-2 mt-1">To BuildMart… delivery Oct 24–26…</p>
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2 border-b">
+            <CardTitle className="text-[13px] font-semibold flex items-center gap-2">
+              <div className="flex h-5 w-5 items-center justify-center rounded-md bg-muted">
+                <Mail className="h-3 w-3" />
+              </div>
+              Drafted emails
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 space-y-2">
+            <div className="p-3 rounded-xl border bg-muted/30">
+              <p className="text-[12px] font-semibold">Consolidated PO — 1,000 Bricks</p>
+              <p className="text-[11px] text-muted-foreground line-clamp-2 mt-1">To BuildMart… delivery Oct 24–26…</p>
             </div>
-            <div className="p-2 rounded-md border">
-              <p className="font-medium">Daily Briefing — Manager group</p>
-              <p className="text-muted-foreground line-clamp-2 mt-1">5 sites updated, 1 delay forecast, 3 POs pending…</p>
+            <div className="p-3 rounded-xl border bg-muted/30">
+              <p className="text-[12px] font-semibold">Daily Briefing — Manager group</p>
+              <p className="text-[11px] text-muted-foreground line-clamp-2 mt-1">5 sites updated, 1 delay forecast, 3 POs pending…</p>
             </div>
           </CardContent>
         </Card>

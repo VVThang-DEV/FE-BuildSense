@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { siteTasks } from "@/lib/mock-data";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/site")({
   head: () => ({ meta: [{ title: "Today on Site — BuildSense AI" }] }),
@@ -22,9 +23,11 @@ function SitePage() {
   const [checkedIn, setCheckedIn] = useState(true);
 
   return (
-    <div className="space-y-5 max-w-2xl mx-auto pb-12">
+    <div className="max-w-2xl mx-auto pb-12">
+      <PageHeader section="Field" title="Today on Site" description="Track attendance, submit progress and request materials." />
+      <div className="space-y-4">
       {/* Attendance */}
-      <Card className="border-primary/30">
+      <Card className="border-primary/25 shadow-sm">
         <CardContent className="p-4 flex items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -45,8 +48,8 @@ function SitePage() {
       </Card>
 
       {/* Tasks */}
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Today's tasks</CardTitle></CardHeader>
+      <Card className="shadow-sm">
+        <CardHeader className="pb-2 border-b"><CardTitle className="text-[14px] font-semibold">Today's tasks</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {tasks.map((t, i) => (
             <div key={t.id} className="space-y-2">
@@ -62,8 +65,8 @@ function SitePage() {
               />
             </div>
           ))}
-          <Button className="w-full" onClick={() => toast.success("Progress submitted to PM")}>
-            <Send className="h-4 w-4" /> Submit today's progress
+          <Button className="w-full h-9 text-sm" onClick={() => toast.success("Progress submitted to PM")}>
+            <Send className="h-4 w-4 mr-1" /> Submit today's progress
           </Button>
         </CardContent>
       </Card>
@@ -117,6 +120,7 @@ function SitePage() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

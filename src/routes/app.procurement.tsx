@@ -8,19 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { consolidatedPOs } from "@/lib/mock-data";
-import { cn } from "@/lib/utils";
+import { cn, statusConfig } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/procurement")({
   head: () => ({ meta: [{ title: "Procurement — BuildSense AI" }] }),
   component: ProcurementPage,
 });
-
-const statusClass = {
-  pending: "bg-warning/20 text-warning-foreground border-warning/40",
-  approved: "bg-primary/15 text-primary border-primary/30",
-  ordered: "bg-ai/15 text-ai border-ai/30",
-  delivered: "bg-success/15 text-success border-success/30",
-} as const;
 
 function ProcurementPage() {
   const [expanded, setExpanded] = useState<string | null>("po-001");
@@ -32,24 +26,20 @@ function ProcurementPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto">
-      <div className="flex justify-between items-end flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Procurement</h1>
-          <p className="text-sm text-muted-foreground">
-            AI consolidates material requests across houses into single vendor POs.
-          </p>
-        </div>
-        <Button
-          size="sm"
-          onClick={() => {
+    <div className="max-w-[1400px] mx-auto">
+      <PageHeader
+        section="Operations"
+        title="Procurement"
+        description="AI consolidates material requests across houses into single vendor POs."
+        actions={
+          <Button size="sm" className="h-8 text-xs" onClick={() => {
             setPos((p) => p.map((x) => (x.status === "pending" ? { ...x, status: "approved" } : x)));
             toast.success("All pending POs approved");
-          }}
-        >
-          <Check className="h-3.5 w-3.5" /> Approve all pending
-        </Button>
-      </div>
+          }}>
+            <Check className="h-3.5 w-3.5 mr-1" /> Approve all pending
+          </Button>
+        }
+      />
 
       <Tabs defaultValue="inbox">
         <TabsList>
@@ -86,7 +76,7 @@ function ProcurementPage() {
                         <TableCell className="text-right tabular-nums">{po.totalQty} {po.unit}</TableCell>
                         <TableCell>{po.vendor}</TableCell>
                         <TableCell className="text-right text-success tabular-nums">{po.estSavings}</TableCell>
-                        <TableCell><Badge variant="outline" className={cn(statusClass[po.status])}>{po.status}</Badge></TableCell>
+                        <TableCell><Badge variant="outline" className={cn(statusConfig[po.status].cls)}>{statusConfig[po.status].label}</Badge></TableCell>
                         <TableCell className="text-right">
                           {po.status === "pending" && (
                             <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>

@@ -43,11 +43,20 @@ function subscribe(cb: () => void) {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }
+
+// Cache the last parsed snapshot so useSyncExternalStore gets a stable
+// object reference when nothing has changed (avoids infinite-loop warning).
+let _cachedRaw: string | null = undefined as unknown as string | null;
+let _cachedSession: Session | null = null;
+
 function snapshot(): Session | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Session) : null;
+    if (raw === _cachedRaw) return _cachedSession;
+    _cachedRaw = raw;
+    _cachedSession = raw ? (JSON.parse(raw) as Session) : null;
+    return _cachedSession;
   } catch {
     return null;
   }

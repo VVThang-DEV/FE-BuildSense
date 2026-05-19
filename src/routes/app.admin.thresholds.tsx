@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { alertThresholds } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/admin/thresholds")({
   head: () => ({ meta: [{ title: "Inventory Thresholds — BuildSense AI" }] }),
@@ -20,12 +21,13 @@ const sev = {
 
 function ThresholdsPage() {
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto">
-      <div>
-        <h1 className="text-2xl font-semibold">Inventory & Alert Thresholds</h1>
-        <p className="text-sm text-muted-foreground">When breached, AI raises an alert and a notification rule fires.</p>
-      </div>
-      <Card>
+    <div className="max-w-[1400px] mx-auto">
+      <PageHeader
+        section="Admin"
+        title="Inventory & Alert Thresholds"
+        description="When breached, AI raises an alert and a notification rule fires."
+      />
+      <Card className="shadow-sm">
         <CardContent className="p-0">
           <Table>
             <TableHeader><TableRow>

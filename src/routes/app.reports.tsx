@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { reportTemplates, scheduledReports } from "@/lib/mock-data";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/reports")({
   head: () => ({ meta: [{ title: "Reports — BuildSense AI" }] }),
@@ -23,11 +24,12 @@ function ReportsPage() {
     toast.success(`${n} downloaded`);
   };
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto">
-      <div>
-        <h1 className="text-2xl font-semibold">Reports & Exports</h1>
-        <p className="text-sm text-muted-foreground">Plan vs Actual reports, exports for clients and investors.</p>
-      </div>
+    <div className="max-w-[1400px] mx-auto">
+      <PageHeader
+        section="Analytics"
+        title="Reports & Exports"
+        description="Plan vs Actual reports, exports for clients and investors."
+      />
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card>

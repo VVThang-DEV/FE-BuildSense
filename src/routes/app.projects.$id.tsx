@@ -6,18 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { projects, projectMaterialPlan, wbsRows } from "@/lib/mock-data";
-import { cn } from "@/lib/utils";
+import { cn, healthConfig } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/projects/$id")({
   head: () => ({ meta: [{ title: "Project — BuildSense AI" }] }),
   component: ProjectDetail,
 });
-
-const healthClass = {
-  "on-track": "bg-success/15 text-success border-success/30",
-  "at-risk": "bg-warning/20 text-warning-foreground border-warning/40",
-  delayed: "bg-destructive/15 text-destructive border-destructive/30",
-} as const;
 
 function ProjectDetail() {
   const { id } = Route.useParams();
@@ -25,27 +20,26 @@ function ProjectDetail() {
   const plan = projectMaterialPlan[id] ?? projectMaterialPlan["p1"];
 
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto">
-      <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link to="/app/projects"><ArrowLeft className="h-3.5 w-3.5" /> Back to projects</Link>
+    <div className="max-w-[1400px] mx-auto">
+      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
+        <Link to="/app/projects"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back to projects</Link>
       </Button>
 
-      <div className="flex justify-between items-end flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-3">
-            {project.name}
-            <Badge variant="outline" className={cn(healthClass[project.health])}>{project.health}</Badge>
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Customer · {project.customer} · {project.start} → {project.end}
-          </p>
-        </div>
-        <div className="flex gap-4 text-right">
-          <div><p className="text-xs text-muted-foreground">Budget</p><p className="font-semibold tabular-nums">₹{(project.budget / 100000).toFixed(1)}L</p></div>
-          <div><p className="text-xs text-muted-foreground">Spent</p><p className="font-semibold tabular-nums">₹{(project.spent / 100000).toFixed(1)}L</p></div>
-          <div><p className="text-xs text-muted-foreground">Progress</p><p className="font-semibold">{project.percent}%</p></div>
-        </div>
-      </div>
+      <PageHeader
+        section="Project Detail"
+        title={project.name}
+        description={`Customer · ${project.customer} · ${project.start} → ${project.end}`}
+        actions={
+          <div className="flex items-center gap-5">
+            <Badge variant="outline" className={cn(healthConfig[project.health].cls)}>{healthConfig[project.health].label}</Badge>
+            <div className="flex gap-4 text-right">
+              <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Budget</p><p className="font-semibold tabular-nums text-[13px]">₹{(project.budget / 100000).toFixed(1)}L</p></div>
+              <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Spent</p><p className="font-semibold tabular-nums text-[13px]">₹{(project.spent / 100000).toFixed(1)}L</p></div>
+              <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Progress</p><p className="font-semibold text-[13px]">{project.percent}%</p></div>
+            </div>
+          </div>
+        }
+      />
 
       <Tabs defaultValue="overview">
         <TabsList>

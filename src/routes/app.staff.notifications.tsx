@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { notificationRules } from "@/lib/mock-data";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/staff/notifications")({
   head: () => ({ meta: [{ title: "Notification Rules — BuildSense AI" }] }),
@@ -12,12 +13,13 @@ export const Route = createFileRoute("/app/staff/notifications")({
 
 function NotificationsPage() {
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto">
-      <div>
-        <h1 className="text-2xl font-semibold">Notification Rules</h1>
-        <p className="text-sm text-muted-foreground">System-wide rules. Customer-facing alerts always route through the customer portal.</p>
-      </div>
-      <Card>
+    <div className="max-w-[1400px] mx-auto">
+      <PageHeader
+        section="Staff"
+        title="Notification Rules"
+        description="System-wide rules. Customer-facing alerts always route through the customer portal."
+      />
+      <Card className="shadow-sm">
         <CardContent className="p-0">
           <Table>
             <TableHeader><TableRow>

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { materialTree, type MaterialNode } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/materials")({
   head: () => ({ meta: [{ title: "Material Catalog — BuildSense AI" }] }),
@@ -15,18 +16,15 @@ export const Route = createFileRoute("/app/materials")({
 
 function MaterialsPage() {
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto">
-      <div className="flex justify-between items-end flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Material Catalog</h1>
-          <p className="text-sm text-muted-foreground">
-            Suppliers update stock here. Variants are tracked individually — e.g. Steel ▸ Concrete Steel ▸ Phi 5 / 10 / 20.
-          </p>
-        </div>
-        <Button size="sm"><PackagePlus className="h-3.5 w-3.5" /> Add material</Button>
-      </div>
+    <div className="max-w-[1400px] mx-auto">
+      <PageHeader
+        section="Inventory"
+        title="Material Catalog"
+        description="Suppliers update stock here. Variants tracked individually — e.g. Steel ▸ Concrete Steel ▸ Phi 5 / 10 / 20."
+        actions={<Button size="sm" className="h-8 text-xs"><PackagePlus className="h-3.5 w-3.5 mr-1" /> Add material</Button>}
+      />
 
-      <div className="grid lg:grid-cols-2 gap-4">
+      <div className="grid lg:grid-cols-2 gap-4 space-y-0">
         {materialTree.map((root) => (
           <Card key={root.id}>
             <CardHeader className="pb-2">

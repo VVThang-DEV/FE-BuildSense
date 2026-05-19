@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { wbsRows } from "@/lib/mock-data";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/app/admin/wbs")({
   head: () => ({ meta: [{ title: "WBS & Baseline — BuildSense AI" }] }),
@@ -11,21 +12,20 @@ export const Route = createFileRoute("/app/admin/wbs")({
 
 function WbsPage() {
   return (
-    <div className="space-y-6 max-w-[1400px] mx-auto">
-      <div className="flex justify-between items-end flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">WBS & Baseline</h1>
-          <p className="text-sm text-muted-foreground">
-            Define work breakdown, assign budgets per work package and lock the baseline schedule.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm">Import BOQ</Button>
-          <Button size="sm">Lock baseline</Button>
-        </div>
-      </div>
+    <div className="max-w-[1400px] mx-auto">
+      <PageHeader
+        section="Admin"
+        title="WBS & Baseline"
+        description="Define work breakdown, assign budgets per work package and lock the baseline schedule."
+        actions={
+          <>
+            <Button variant="outline" size="sm" className="h-8 text-xs">Import BOQ</Button>
+            <Button size="sm" className="h-8 text-xs">Lock baseline</Button>
+          </>
+        }
+      />
 
-      <Card>
+      <Card className="shadow-sm">
         <CardContent className="p-0">
           <Table>
             <TableHeader><TableRow>
