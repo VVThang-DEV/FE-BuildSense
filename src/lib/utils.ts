@@ -13,9 +13,10 @@ export const healthConfig = {
 } as const;
 
 /** Shared PO status badge config */
-export const statusConfig = {
+export const statusConfig: Record<string, { label: string; cls: string }> = {
   pending:   { label: "Pending",   cls: "bg-warning/15 text-warning-foreground border-warning/35" },
   approved:  { label: "Approved",  cls: "bg-primary/12 text-primary border-primary/30" },
   ordered:   { label: "Ordered",   cls: "bg-ai/12 text-ai border-ai/30" },
   delivered: { label: "Delivered", cls: "bg-success/12 text-success border-success/30" },
-} as const;
+  rejected:  { label: "Rejected",  cls: "bg-destructive/12 text-destructive border-destructive/30" },
+};

@@ -33,7 +33,7 @@ export const NAV: NavItem[] = [
   { to: "/app/procurement", label: "Procurement", icon: ShoppingCart, roles: ["manager", "admin"], group: "Operations" },
   { to: "/app/check", label: "Daily Check", icon: ScanLine, roles: ["manager", "admin"], group: "Operations" },
 
-  { to: "/app/site", label: "Today on Site", icon: HardHat, roles: ["engineer"], group: "Field" },
+  { to: "/app/site/", label: "Today on Site", icon: HardHat, roles: ["engineer"], group: "Field" },
   { to: "/app/site/report", label: "Daily Report", icon: ClipboardList, roles: ["engineer"], group: "Field" },
   { to: "/app/site/attendance", label: "Attendance", icon: CalendarCheck2, roles: ["engineer"], group: "Field" },
 

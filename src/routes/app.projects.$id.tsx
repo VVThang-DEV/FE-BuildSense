@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Upload } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -153,15 +154,66 @@ function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="team">
-          <Card><CardContent className="p-6 text-sm text-muted-foreground">
-            Team roster — Engineer: Rahul Kumar · PM: {project.customer === "Meera Nair" ? "Ananya Rao" : "Karthik Iyer"} · Supervisor: 2 assigned
-          </CardContent></Card>
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader><TableRow>
+                  <TableHead>Name</TableHead><TableHead>Role</TableHead><TableHead>Contact</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {[
+                    { name: "Ananya Rao", role: "Project Manager", email: "ananya.pm@buildsense.ai" },
+                    { name: "Rahul Kumar", role: "Field Engineer", email: "rahul.site@buildsense.ai" },
+                    { name: "Sunita Devi", role: "Field Engineer", email: "sunita.site@buildsense.ai" },
+                    { name: project.customer, role: "Customer", email: "—" },
+                  ].map((m) => (
+                    <TableRow key={m.name}>
+                      <TableCell>
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-[11px] font-bold">
+                            {m.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                          </span>
+                          <span className="font-medium text-[13px]">{m.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell><Badge variant="secondary" className="text-[10px]">{m.role}</Badge></TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{m.email}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="docs">
-          <Card><CardContent className="p-6 text-sm text-muted-foreground">
-            Drawings, BOQ, contracts — drag & drop to upload (demo).
-          </CardContent></Card>
+          <Card className="shadow-sm">
+            <CardContent className="p-5 space-y-4">
+              <div
+                className="border-2 border-dashed rounded-xl p-8 text-center text-sm text-muted-foreground hover:border-primary/50 transition-colors cursor-pointer"
+                onClick={() => toast.info("File picker — demo mode")}
+              >
+                <Upload className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                <p className="font-medium">Drag & drop or click to upload</p>
+                <p className="text-xs mt-1">Drawings, BOQ, contracts, permits</p>
+              </div>
+              <div className="divide-y">
+                {[
+                  { name: "Architectural Drawings v3.pdf", size: "4.2 MB", date: "Sep 12" },
+                  { name: "BOQ — Foundation Phase.xlsx", size: "1.1 MB", date: "Aug 28" },
+                  { name: "Contractor Agreement.pdf", size: "820 KB", date: "Jun 5" },
+                ].map((f) => (
+                  <div key={f.name} className="flex items-center justify-between py-2.5">
+                    <div>
+                      <p className="text-[13px] font-medium">{f.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{f.size} · uploaded {f.date}</p>
+                    </div>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => toast.info("Download — demo mode")}>Download</Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

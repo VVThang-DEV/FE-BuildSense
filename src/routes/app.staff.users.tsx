@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, MoreHorizontal } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,10 +8,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { users } from "@/lib/mock-data";
+import { users as initialUsers } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/staff/users")({
@@ -27,6 +28,15 @@ const statusClass = {
 
 function UsersPage() {
   const [open, setOpen] = useState(false);
+  const [users, setUsers] = useState(initialUsers);
+  const [inviteName, setInviteName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("engineer");
+  const deactivate = (id: string) => {
+    setUsers((u) => u.map((x) => x.id === id ? { ...x, status: "disabled" as const } : x));
+    toast.success("User deactivated");
+  };
+  const resend = (id: string) => { void id; toast.success("Invitation resent"); };
   return (
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
@@ -41,11 +51,11 @@ function UsersPage() {
             <DialogContent>
               <DialogHeader><DialogTitle>Invite teammate</DialogTitle></DialogHeader>
               <div className="space-y-3">
-                <div><Label>Name</Label><Input /></div>
-                <div><Label>Email</Label><Input type="email" /></div>
+                <div><Label>Name</Label><Input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Full name" /></div>
+                <div><Label>Email</Label><Input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="email@company.com" /></div>
                 <div>
                   <Label>Role</Label>
-                  <Select defaultValue="engineer">
+                  <Select value={inviteRole} onValueChange={setInviteRole}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="admin">Admin</SelectItem>
@@ -58,7 +68,12 @@ function UsersPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button onClick={() => { setOpen(false); toast.success("Invitation sent"); }}>Send invite</Button>
+                <Button onClick={() => {
+                  if (!inviteName.trim() || !inviteEmail.trim()) { toast.error("Name and email are required"); return; }
+                  setOpen(false);
+                  setInviteName(""); setInviteEmail(""); setInviteRole("engineer");
+                  toast.success(`Invitation sent to ${inviteEmail}`);
+                }}>Send invite</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -70,7 +85,7 @@ function UsersPage() {
           <Table>
             <TableHeader><TableRow>
               <TableHead>Name</TableHead><TableHead>Email</TableHead>
-              <TableHead>Role</TableHead><TableHead>Project scope</TableHead><TableHead>Status</TableHead>
+              <TableHead>Role</TableHead><TableHead>Project scope</TableHead><TableHead>Status</TableHead><TableHead></TableHead>
             </TableRow></TableHeader>
             <TableBody>
               {users.map((u) => (
@@ -90,6 +105,24 @@ function UsersPage() {
                   <TableCell className="text-xs text-muted-foreground">{u.project}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className={cn(statusClass[u.status], "capitalize text-[10px]")}>{u.status}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-3.5 w-3.5" /></Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {u.status === "invited" && (
+                          <DropdownMenuItem onClick={() => resend(u.id)}>Resend invite</DropdownMenuItem>
+                        )}
+                        {u.status === "active" && (
+                          <DropdownMenuItem className="text-destructive" onClick={() => deactivate(u.id)}>Deactivate</DropdownMenuItem>
+                        )}
+                        {u.status === "disabled" && (
+                          <DropdownMenuItem onClick={() => { setUsers((x) => x.map((y) => y.id === u.id ? { ...y, status: "active" as const } : y)); toast.success("User reactivated"); }}>Reactivate</DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}

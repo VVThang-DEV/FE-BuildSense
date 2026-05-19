@@ -27,6 +27,7 @@ import { Route as AppAiRouteImport } from './routes/app.ai'
 import { Route as AppStaffUsersRouteImport } from './routes/app.staff.users'
 import { Route as AppStaffNotificationsRouteImport } from './routes/app.staff.notifications'
 import { Route as AppSiteReportRouteImport } from './routes/app.site.report'
+import { Route as AppSiteIndexRouteImport } from './routes/app.site.index'
 import { Route as AppSiteAttendanceRouteImport } from './routes/app.site.attendance'
 import { Route as AppProjectsIdRouteImport } from './routes/app.projects.$id'
 import { Route as AppAdminWbsRouteImport } from './routes/app.admin.wbs'
@@ -127,6 +128,11 @@ const AppSiteAttendanceRoute = AppSiteAttendanceRouteImport.update({
   path: '/attendance',
   getParentRoute: () => AppSiteRoute,
 } as any)
+const AppSiteIndexRoute = AppSiteIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSiteRoute,
+} as any)
 const AppProjectsIdRoute = AppProjectsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
   '/app/': typeof AppIndexRoute
+  '/app/site/': typeof AppSiteIndexRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
@@ -182,6 +189,7 @@ export interface FileRoutesByTo {
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
   '/app': typeof AppIndexRoute
+  '/app/site/': typeof AppSiteIndexRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
@@ -207,6 +215,7 @@ export interface FileRoutesById {
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
   '/app/': typeof AppIndexRoute
+  '/app/site/': typeof AppSiteIndexRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
@@ -236,6 +245,7 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/wbs'
     | '/app/projects/$id'
+    | '/app/site/'
     | '/app/site/attendance'
     | '/app/site/report'
     | '/app/staff/notifications'
@@ -259,6 +269,7 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/wbs'
     | '/app/projects/$id'
+    | '/app/site/'
     | '/app/site/attendance'
     | '/app/site/report'
     | '/app/staff/notifications'
@@ -283,6 +294,7 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/wbs'
     | '/app/projects/$id'
+    | '/app/site/'
     | '/app/site/attendance'
     | '/app/site/report'
     | '/app/staff/notifications'
@@ -425,6 +437,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSiteReportRouteImport
       parentRoute: typeof AppSiteRoute
     }
+    '/app/site/': {
+      id: '/app/site/'
+      path: '/'
+      fullPath: '/app/site/'
+      preLoaderRoute: typeof AppSiteIndexRouteImport
+      parentRoute: typeof AppSiteRoute
+    }
     '/app/site/attendance': {
       id: '/app/site/attendance'
       path: '/attendance'
@@ -469,11 +488,13 @@ const AppProjectsRouteWithChildren = AppProjectsRoute._addFileChildren(
 )
 
 interface AppSiteRouteChildren {
+  AppSiteIndexRoute: typeof AppSiteIndexRoute
   AppSiteAttendanceRoute: typeof AppSiteAttendanceRoute
   AppSiteReportRoute: typeof AppSiteReportRoute
 }
 
 const AppSiteRouteChildren: AppSiteRouteChildren = {
+  AppSiteIndexRoute: AppSiteIndexRoute,
   AppSiteAttendanceRoute: AppSiteAttendanceRoute,
   AppSiteReportRoute: AppSiteReportRoute,
 }

@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { wbsRows } from "@/lib/mock-data";
 import { PageHeader } from "@/components/page-header";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/admin/wbs")({
   head: () => ({ meta: [{ title: "WBS & Baseline — BuildSense AI" }] }),
@@ -19,8 +20,8 @@ function WbsPage() {
         description="Define work breakdown, assign budgets per work package and lock the baseline schedule."
         actions={
           <>
-            <Button variant="outline" size="sm" className="h-8 text-xs">Import BOQ</Button>
-            <Button size="sm" className="h-8 text-xs">Lock baseline</Button>
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => toast.info("BOQ import — file picker (demo)")}>Import BOQ</Button>
+            <Button size="sm" className="h-8 text-xs" onClick={() => toast.success("Baseline locked for this revision")}>Lock baseline</Button>
           </>
         }
       />

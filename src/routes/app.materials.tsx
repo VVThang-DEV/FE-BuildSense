@@ -21,7 +21,7 @@ function MaterialsPage() {
         section="Inventory"
         title="Material Catalog"
         description="Suppliers update stock here. Variants tracked individually — e.g. Steel ▸ Concrete Steel ▸ Phi 5 / 10 / 20."
-        actions={<Button size="sm" className="h-8 text-xs"><PackagePlus className="h-3.5 w-3.5 mr-1" /> Add material</Button>}
+        actions={<Button size="sm" className="h-8 text-xs" onClick={() => toast.info("Add material dialog (demo — connect to form)")}><PackagePlus className="h-3.5 w-3.5 mr-1" /> Add material</Button>}
       />
 
       <div className="grid lg:grid-cols-2 gap-4 space-y-0">

@@ -162,7 +162,7 @@ export function AppShell({ session }: { session: Session }) {
   return (
     <div className="min-h-screen flex bg-background">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex w-[220px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+      <aside className="hidden lg:flex w-[220px] shrink-0 flex-col h-screen sticky top-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground overflow-hidden">
         <SidebarContent />
       </aside>
 

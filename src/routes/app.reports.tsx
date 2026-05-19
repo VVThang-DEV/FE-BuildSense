@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { Download, Calendar, FileText, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +16,9 @@ export const Route = createFileRoute("/app/reports")({
 });
 
 function ReportsPage() {
+  const [schedEnabled, setSchedEnabled] = useState<Record<string, boolean>>(
+    Object.fromEntries(scheduledReports.map((s) => [s.id, s.enabled]))
+  );
   const download = (n: string) => {
     const blob = new Blob([`BuildSense AI demo report: ${n}\nGenerated ${new Date().toISOString()}`], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -65,7 +69,7 @@ function ReportsPage() {
                     <TableCell className="font-medium text-sm">{s.name}</TableCell>
                     <TableCell className="text-xs">{s.cadence}</TableCell>
                     <TableCell className="text-xs">{s.recipients}</TableCell>
-                    <TableCell><Switch defaultChecked={s.enabled} /></TableCell>
+                    <TableCell><Switch checked={schedEnabled[s.id]} onCheckedChange={(v) => { setSchedEnabled((p) => ({ ...p, [s.id]: v })); toast.success(v ? "Schedule enabled" : "Schedule paused"); }} /></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -74,7 +78,7 @@ function ReportsPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="mt-4 shadow-sm">
         <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-medium">Custom report</p>

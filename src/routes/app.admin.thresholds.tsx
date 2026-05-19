@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 import { alertThresholds } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -20,6 +22,9 @@ const sev = {
 } as const;
 
 function ThresholdsPage() {
+  const [values, setValues] = useState<Record<string, number>>(
+    Object.fromEntries(alertThresholds.map((t) => [t.id, t.value]))
+  );
   return (
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
@@ -39,12 +44,21 @@ function ThresholdsPage() {
                   <TableCell className="font-medium">{t.metric}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Input defaultValue={t.value} className="h-8 w-20" />
+                      <Input
+                        value={values[t.id]}
+                        onChange={(e) => setValues((v) => ({ ...v, [t.id]: Number(e.target.value) }))}
+                        className="h-8 w-20"
+                        type="number"
+                      />
                       <span className="text-xs text-muted-foreground">{t.unit}</span>
                     </div>
                   </TableCell>
-                  <TableCell><Badge variant="outline" className={cn(sev[t.severity as keyof typeof sev])}>{t.severity}</Badge></TableCell>
-                  <TableCell className="text-right"><Button size="sm" variant="ghost">Save</Button></TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={cn(sev[t.severity as keyof typeof sev], "capitalize")}>{t.severity}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => toast.success(`Threshold for “${t.metric}” saved`)}>Save</Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

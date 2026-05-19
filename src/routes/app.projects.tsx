@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,7 @@ function ProjectsList() {
         section="Overview"
         title="Projects"
         description="All active and planned house builds across the community."
-        actions={<Button size="sm" className="h-8 text-xs"><Plus className="h-3.5 w-3.5 mr-1" /> New project</Button>}
+        actions={<Button size="sm" className="h-8 text-xs" onClick={() => toast.info("New project wizard (demo)")}><Plus className="h-3.5 w-3.5 mr-1" /> New project</Button>}
       />
 
       <Card className="shadow-sm">

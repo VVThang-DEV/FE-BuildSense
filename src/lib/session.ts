@@ -29,7 +29,7 @@ export const ROLE_HOME: Record<Role, string> = {
   admin: "/app/admin/wbs",
   manager: "/app/dashboard",
   staff: "/app/staff/users",
-  engineer: "/app/site",
+  engineer: "/app/site/",
   customer: "/app/portal",
 };
 
