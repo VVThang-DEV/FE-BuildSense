@@ -8,7 +8,6 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
-import { RoleNav } from "@/components/role-nav";
 
 import appCss from "../styles.css?url";
 
@@ -88,7 +87,6 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <div className="min-h-screen bg-background">
-        <RoleNav />
         <Outlet />
         <Toaster richColors position="top-right" />
       </div>

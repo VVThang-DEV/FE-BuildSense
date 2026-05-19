@@ -10,12 +10,36 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SiteRouteImport } from './routes/site'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as CustomerRouteImport } from './routes/customer'
+import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppSiteRouteImport } from './routes/app.site'
+import { Route as AppReportsRouteImport } from './routes/app.reports'
+import { Route as AppProjectsRouteImport } from './routes/app.projects'
+import { Route as AppProcurementRouteImport } from './routes/app.procurement'
+import { Route as AppPortalRouteImport } from './routes/app.portal'
+import { Route as AppMaterialsRouteImport } from './routes/app.materials'
+import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
+import { Route as AppCheckRouteImport } from './routes/app.check'
+import { Route as AppAiRouteImport } from './routes/app.ai'
+import { Route as AppStaffUsersRouteImport } from './routes/app.staff.users'
+import { Route as AppStaffNotificationsRouteImport } from './routes/app.staff.notifications'
+import { Route as AppSiteReportRouteImport } from './routes/app.site.report'
+import { Route as AppSiteAttendanceRouteImport } from './routes/app.site.attendance'
+import { Route as AppProjectsIdRouteImport } from './routes/app.projects.$id'
+import { Route as AppAdminWbsRouteImport } from './routes/app.admin.wbs'
+import { Route as AppAdminThresholdsRouteImport } from './routes/app.admin.thresholds'
 
 const SiteRoute = SiteRouteImport.update({
   id: '/site',
   path: '/site',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CustomerRoute = CustomerRouteImport.update({
@@ -23,39 +47,253 @@ const CustomerRoute = CustomerRouteImport.update({
   path: '/customer',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppRoute = AppRouteImport.update({
+  id: '/app',
+  path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSiteRoute = AppSiteRouteImport.update({
+  id: '/site',
+  path: '/site',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProjectsRoute = AppProjectsRouteImport.update({
+  id: '/projects',
+  path: '/projects',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProcurementRoute = AppProcurementRouteImport.update({
+  id: '/procurement',
+  path: '/procurement',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPortalRoute = AppPortalRouteImport.update({
+  id: '/portal',
+  path: '/portal',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMaterialsRoute = AppMaterialsRouteImport.update({
+  id: '/materials',
+  path: '/materials',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCheckRoute = AppCheckRouteImport.update({
+  id: '/check',
+  path: '/check',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAiRoute = AppAiRouteImport.update({
+  id: '/ai',
+  path: '/ai',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStaffUsersRoute = AppStaffUsersRouteImport.update({
+  id: '/staff/users',
+  path: '/staff/users',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStaffNotificationsRoute = AppStaffNotificationsRouteImport.update({
+  id: '/staff/notifications',
+  path: '/staff/notifications',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSiteReportRoute = AppSiteReportRouteImport.update({
+  id: '/report',
+  path: '/report',
+  getParentRoute: () => AppSiteRoute,
+} as any)
+const AppSiteAttendanceRoute = AppSiteAttendanceRouteImport.update({
+  id: '/attendance',
+  path: '/attendance',
+  getParentRoute: () => AppSiteRoute,
+} as any)
+const AppProjectsIdRoute = AppProjectsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AppProjectsRoute,
+} as any)
+const AppAdminWbsRoute = AppAdminWbsRouteImport.update({
+  id: '/admin/wbs',
+  path: '/admin/wbs',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAdminThresholdsRoute = AppAdminThresholdsRouteImport.update({
+  id: '/admin/thresholds',
+  path: '/admin/thresholds',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/app': typeof AppRouteWithChildren
   '/customer': typeof CustomerRoute
+  '/login': typeof LoginRoute
   '/site': typeof SiteRoute
+  '/app/ai': typeof AppAiRoute
+  '/app/check': typeof AppCheckRoute
+  '/app/dashboard': typeof AppDashboardRoute
+  '/app/materials': typeof AppMaterialsRoute
+  '/app/portal': typeof AppPortalRoute
+  '/app/procurement': typeof AppProcurementRoute
+  '/app/projects': typeof AppProjectsRouteWithChildren
+  '/app/reports': typeof AppReportsRoute
+  '/app/site': typeof AppSiteRouteWithChildren
+  '/app/': typeof AppIndexRoute
+  '/app/admin/thresholds': typeof AppAdminThresholdsRoute
+  '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/projects/$id': typeof AppProjectsIdRoute
+  '/app/site/attendance': typeof AppSiteAttendanceRoute
+  '/app/site/report': typeof AppSiteReportRoute
+  '/app/staff/notifications': typeof AppStaffNotificationsRoute
+  '/app/staff/users': typeof AppStaffUsersRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/customer': typeof CustomerRoute
+  '/login': typeof LoginRoute
   '/site': typeof SiteRoute
+  '/app/ai': typeof AppAiRoute
+  '/app/check': typeof AppCheckRoute
+  '/app/dashboard': typeof AppDashboardRoute
+  '/app/materials': typeof AppMaterialsRoute
+  '/app/portal': typeof AppPortalRoute
+  '/app/procurement': typeof AppProcurementRoute
+  '/app/projects': typeof AppProjectsRouteWithChildren
+  '/app/reports': typeof AppReportsRoute
+  '/app/site': typeof AppSiteRouteWithChildren
+  '/app': typeof AppIndexRoute
+  '/app/admin/thresholds': typeof AppAdminThresholdsRoute
+  '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/projects/$id': typeof AppProjectsIdRoute
+  '/app/site/attendance': typeof AppSiteAttendanceRoute
+  '/app/site/report': typeof AppSiteReportRoute
+  '/app/staff/notifications': typeof AppStaffNotificationsRoute
+  '/app/staff/users': typeof AppStaffUsersRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/app': typeof AppRouteWithChildren
   '/customer': typeof CustomerRoute
+  '/login': typeof LoginRoute
   '/site': typeof SiteRoute
+  '/app/ai': typeof AppAiRoute
+  '/app/check': typeof AppCheckRoute
+  '/app/dashboard': typeof AppDashboardRoute
+  '/app/materials': typeof AppMaterialsRoute
+  '/app/portal': typeof AppPortalRoute
+  '/app/procurement': typeof AppProcurementRoute
+  '/app/projects': typeof AppProjectsRouteWithChildren
+  '/app/reports': typeof AppReportsRoute
+  '/app/site': typeof AppSiteRouteWithChildren
+  '/app/': typeof AppIndexRoute
+  '/app/admin/thresholds': typeof AppAdminThresholdsRoute
+  '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/projects/$id': typeof AppProjectsIdRoute
+  '/app/site/attendance': typeof AppSiteAttendanceRoute
+  '/app/site/report': typeof AppSiteReportRoute
+  '/app/staff/notifications': typeof AppStaffNotificationsRoute
+  '/app/staff/users': typeof AppStaffUsersRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/customer' | '/site'
+  fullPaths:
+    | '/'
+    | '/app'
+    | '/customer'
+    | '/login'
+    | '/site'
+    | '/app/ai'
+    | '/app/check'
+    | '/app/dashboard'
+    | '/app/materials'
+    | '/app/portal'
+    | '/app/procurement'
+    | '/app/projects'
+    | '/app/reports'
+    | '/app/site'
+    | '/app/'
+    | '/app/admin/thresholds'
+    | '/app/admin/wbs'
+    | '/app/projects/$id'
+    | '/app/site/attendance'
+    | '/app/site/report'
+    | '/app/staff/notifications'
+    | '/app/staff/users'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/customer' | '/site'
-  id: '__root__' | '/' | '/customer' | '/site'
+  to:
+    | '/'
+    | '/customer'
+    | '/login'
+    | '/site'
+    | '/app/ai'
+    | '/app/check'
+    | '/app/dashboard'
+    | '/app/materials'
+    | '/app/portal'
+    | '/app/procurement'
+    | '/app/projects'
+    | '/app/reports'
+    | '/app/site'
+    | '/app'
+    | '/app/admin/thresholds'
+    | '/app/admin/wbs'
+    | '/app/projects/$id'
+    | '/app/site/attendance'
+    | '/app/site/report'
+    | '/app/staff/notifications'
+    | '/app/staff/users'
+  id:
+    | '__root__'
+    | '/'
+    | '/app'
+    | '/customer'
+    | '/login'
+    | '/site'
+    | '/app/ai'
+    | '/app/check'
+    | '/app/dashboard'
+    | '/app/materials'
+    | '/app/portal'
+    | '/app/procurement'
+    | '/app/projects'
+    | '/app/reports'
+    | '/app/site'
+    | '/app/'
+    | '/app/admin/thresholds'
+    | '/app/admin/wbs'
+    | '/app/projects/$id'
+    | '/app/site/attendance'
+    | '/app/site/report'
+    | '/app/staff/notifications'
+    | '/app/staff/users'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
   CustomerRoute: typeof CustomerRoute
+  LoginRoute: typeof LoginRoute
   SiteRoute: typeof SiteRoute
 }
 
@@ -68,11 +306,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SiteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/customer': {
       id: '/customer'
       path: '/customer'
       fullPath: '/customer'
       preLoaderRoute: typeof CustomerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -82,12 +334,194 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/': {
+      id: '/app/'
+      path: '/'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/site': {
+      id: '/app/site'
+      path: '/site'
+      fullPath: '/app/site'
+      preLoaderRoute: typeof AppSiteRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/reports': {
+      id: '/app/reports'
+      path: '/reports'
+      fullPath: '/app/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/projects': {
+      id: '/app/projects'
+      path: '/projects'
+      fullPath: '/app/projects'
+      preLoaderRoute: typeof AppProjectsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/procurement': {
+      id: '/app/procurement'
+      path: '/procurement'
+      fullPath: '/app/procurement'
+      preLoaderRoute: typeof AppProcurementRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/portal': {
+      id: '/app/portal'
+      path: '/portal'
+      fullPath: '/app/portal'
+      preLoaderRoute: typeof AppPortalRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/materials': {
+      id: '/app/materials'
+      path: '/materials'
+      fullPath: '/app/materials'
+      preLoaderRoute: typeof AppMaterialsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/dashboard': {
+      id: '/app/dashboard'
+      path: '/dashboard'
+      fullPath: '/app/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/check': {
+      id: '/app/check'
+      path: '/check'
+      fullPath: '/app/check'
+      preLoaderRoute: typeof AppCheckRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/ai': {
+      id: '/app/ai'
+      path: '/ai'
+      fullPath: '/app/ai'
+      preLoaderRoute: typeof AppAiRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/staff/users': {
+      id: '/app/staff/users'
+      path: '/staff/users'
+      fullPath: '/app/staff/users'
+      preLoaderRoute: typeof AppStaffUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/staff/notifications': {
+      id: '/app/staff/notifications'
+      path: '/staff/notifications'
+      fullPath: '/app/staff/notifications'
+      preLoaderRoute: typeof AppStaffNotificationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/site/report': {
+      id: '/app/site/report'
+      path: '/report'
+      fullPath: '/app/site/report'
+      preLoaderRoute: typeof AppSiteReportRouteImport
+      parentRoute: typeof AppSiteRoute
+    }
+    '/app/site/attendance': {
+      id: '/app/site/attendance'
+      path: '/attendance'
+      fullPath: '/app/site/attendance'
+      preLoaderRoute: typeof AppSiteAttendanceRouteImport
+      parentRoute: typeof AppSiteRoute
+    }
+    '/app/projects/$id': {
+      id: '/app/projects/$id'
+      path: '/$id'
+      fullPath: '/app/projects/$id'
+      preLoaderRoute: typeof AppProjectsIdRouteImport
+      parentRoute: typeof AppProjectsRoute
+    }
+    '/app/admin/wbs': {
+      id: '/app/admin/wbs'
+      path: '/admin/wbs'
+      fullPath: '/app/admin/wbs'
+      preLoaderRoute: typeof AppAdminWbsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/admin/thresholds': {
+      id: '/app/admin/thresholds'
+      path: '/admin/thresholds'
+      fullPath: '/app/admin/thresholds'
+      preLoaderRoute: typeof AppAdminThresholdsRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
+interface AppProjectsRouteChildren {
+  AppProjectsIdRoute: typeof AppProjectsIdRoute
+}
+
+const AppProjectsRouteChildren: AppProjectsRouteChildren = {
+  AppProjectsIdRoute: AppProjectsIdRoute,
+}
+
+const AppProjectsRouteWithChildren = AppProjectsRoute._addFileChildren(
+  AppProjectsRouteChildren,
+)
+
+interface AppSiteRouteChildren {
+  AppSiteAttendanceRoute: typeof AppSiteAttendanceRoute
+  AppSiteReportRoute: typeof AppSiteReportRoute
+}
+
+const AppSiteRouteChildren: AppSiteRouteChildren = {
+  AppSiteAttendanceRoute: AppSiteAttendanceRoute,
+  AppSiteReportRoute: AppSiteReportRoute,
+}
+
+const AppSiteRouteWithChildren =
+  AppSiteRoute._addFileChildren(AppSiteRouteChildren)
+
+interface AppRouteChildren {
+  AppAiRoute: typeof AppAiRoute
+  AppCheckRoute: typeof AppCheckRoute
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppMaterialsRoute: typeof AppMaterialsRoute
+  AppPortalRoute: typeof AppPortalRoute
+  AppProcurementRoute: typeof AppProcurementRoute
+  AppProjectsRoute: typeof AppProjectsRouteWithChildren
+  AppReportsRoute: typeof AppReportsRoute
+  AppSiteRoute: typeof AppSiteRouteWithChildren
+  AppIndexRoute: typeof AppIndexRoute
+  AppAdminThresholdsRoute: typeof AppAdminThresholdsRoute
+  AppAdminWbsRoute: typeof AppAdminWbsRoute
+  AppStaffNotificationsRoute: typeof AppStaffNotificationsRoute
+  AppStaffUsersRoute: typeof AppStaffUsersRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppAiRoute: AppAiRoute,
+  AppCheckRoute: AppCheckRoute,
+  AppDashboardRoute: AppDashboardRoute,
+  AppMaterialsRoute: AppMaterialsRoute,
+  AppPortalRoute: AppPortalRoute,
+  AppProcurementRoute: AppProcurementRoute,
+  AppProjectsRoute: AppProjectsRouteWithChildren,
+  AppReportsRoute: AppReportsRoute,
+  AppSiteRoute: AppSiteRouteWithChildren,
+  AppIndexRoute: AppIndexRoute,
+  AppAdminThresholdsRoute: AppAdminThresholdsRoute,
+  AppAdminWbsRoute: AppAdminWbsRoute,
+  AppStaffNotificationsRoute: AppStaffNotificationsRoute,
+  AppStaffUsersRoute: AppStaffUsersRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
   CustomerRoute: CustomerRoute,
+  LoginRoute: LoginRoute,
   SiteRoute: SiteRoute,
 }
 export const routeTree = rootRouteImport

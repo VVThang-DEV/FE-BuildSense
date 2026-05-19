@@ -1,11 +1,11 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { ROLE_HOME, useSession, useMounted } from "@/lib/session";
 
-export const Route = createFileRoute("/")({
-  component: IndexRedirect,
+export const Route = createFileRoute("/app/")({
+  component: AppIndex,
 });
 
-function IndexRedirect() {
+function AppIndex() {
   const session = useSession();
   const mounted = useMounted();
   if (!mounted) return null;
