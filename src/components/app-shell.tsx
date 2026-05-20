@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
-  ChevronRight, HardHat, LogOut, Search, Bell, Sparkles,
+  ChevronRight, LogOut, Search, Bell, Sparkles,
   Menu, X, ChevronDown,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { ROLE_LABELS, logout, type Session } from "@/lib/session";
 import { navForRole } from "@/lib/nav";
 import { aiAlerts, projects } from "@/lib/mock-data";
+import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
 const ROLE_BADGE_STYLE: Record<string, string> = {
   admin:    "bg-destructive/15 text-destructive border-destructive/30",
@@ -59,9 +60,7 @@ export function AppShell({ session }: { session: Session }) {
     <>
       {/* Logo */}
       <div className="flex h-[60px] items-center gap-2.5 px-4 border-b border-sidebar-border shrink-0">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
-          <HardHat className="h-4 w-4 text-sidebar-primary-foreground" />
-        </div>
+        <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-8 w-8 rounded-md object-cover" />
         <div className="leading-tight min-w-0">
           <p className="text-[13.5px] font-bold tracking-tight text-sidebar-foreground">BuildSense AI</p>
           <p className="text-[10px] font-medium text-sidebar-primary/80">Construction PM</p>
@@ -196,9 +195,7 @@ export function AppShell({ session }: { session: Session }) {
 
           {/* Mobile brand */}
           <div className="lg:hidden flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
-              <HardHat className="h-3.5 w-3.5 text-primary-foreground" />
-            </div>
+            <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-7 w-7 rounded-md object-cover" />
             <p className="text-sm font-bold">BuildSense</p>
           </div>
 
@@ -217,7 +214,7 @@ export function AppShell({ session }: { session: Session }) {
             {/* Desktop project selector (already in sidebar, keep small one here for context) */}
             {session.role !== "customer" && session.role !== "staff" && (
               <Select value={project} onValueChange={setProject}>
-                <SelectTrigger className="h-8 w-[160px] hidden xl:flex text-xs">
+                <SelectTrigger className="h-8 w-40 hidden xl:flex text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

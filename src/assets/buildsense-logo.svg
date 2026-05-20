@@ -1,0 +1,74 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#070D15"/>
+      <stop offset="0.6" stop-color="#081625"/>
+      <stop offset="1" stop-color="#06121E"/>
+    </linearGradient>
+    <linearGradient id="stripeGrad" x1="0" y1="0" x2="1024" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B1C2E" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#153049" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#0B1C2E" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="steelGrad" x1="386" y1="350" x2="584" y2="610" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#A8C0D4"/>
+      <stop offset="1" stop-color="#7492A8"/>
+    </linearGradient>
+    <linearGradient id="aiGrad" x1="560" y1="368" x2="560" y2="610" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#27B4FF"/>
+      <stop offset="1" stop-color="#1E8AE6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bgGrad)"/>
+
+  <g opacity="0.35">
+    <rect x="95" y="0" width="72" height="1024" fill="url(#stripeGrad)"/>
+    <rect x="255" y="0" width="72" height="1024" fill="url(#stripeGrad)"/>
+    <rect x="415" y="0" width="72" height="1024" fill="url(#stripeGrad)"/>
+    <rect x="575" y="0" width="72" height="1024" fill="url(#stripeGrad)"/>
+    <rect x="735" y="0" width="72" height="1024" fill="url(#stripeGrad)"/>
+    <rect x="895" y="0" width="72" height="1024" fill="url(#stripeGrad)"/>
+  </g>
+
+  <g>
+    <path d="M392 500V612H364V528L392 500Z" fill="url(#steelGrad)"/>
+    <path d="M430 460V612H402V488L430 460Z" fill="url(#steelGrad)"/>
+    <path d="M468 420V612H440V448L468 420Z" fill="url(#steelGrad)"/>
+    <path d="M506 382V612H478V410L506 382Z" fill="url(#steelGrad)"/>
+
+    <path d="M534 370L562 394V612H534V370Z" fill="url(#steelGrad)"/>
+    <path d="M562 394L588 418V612H562V394Z" fill="url(#steelGrad)"/>
+
+    <path d="M602 500V612H574V470L602 500Z" fill="url(#steelGrad)"/>
+
+    <path d="M534 370L562 394L588 418" stroke="#9DB6C9" stroke-width="5" stroke-linecap="round"/>
+  </g>
+
+  <g fill="none" stroke="url(#aiGrad)" stroke-width="4" stroke-linecap="round">
+    <path d="M560 410V596"/>
+    <path d="M560 430L582 430"/>
+    <path d="M560 458L544 470"/>
+    <path d="M560 486L584 498"/>
+    <path d="M560 514L538 528"/>
+    <path d="M560 542L586 556"/>
+    <path d="M560 570L548 586"/>
+  </g>
+
+  <g fill="url(#aiGrad)">
+    <circle cx="582" cy="430" r="8"/>
+    <circle cx="544" cy="470" r="7"/>
+    <circle cx="584" cy="498" r="8"/>
+    <circle cx="538" cy="528" r="7"/>
+    <circle cx="586" cy="556" r="8"/>
+    <circle cx="548" cy="586" r="7"/>
+    <circle cx="592" cy="446" r="6"/>
+    <circle cx="594" cy="476" r="5"/>
+    <circle cx="594" cy="536" r="5"/>
+  </g>
+
+  <g>
+    <text x="170" y="740" fill="#5E7391" font-size="100" font-family="Segoe UI, Arial, sans-serif" font-weight="600">buildSense</text>
+    <text x="742" y="740" fill="#2CB3FF" font-size="100" font-family="Segoe UI, Arial, sans-serif" font-weight="700">AI</text>
+  </g>
+</svg>

@@ -1,11 +1,12 @@
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import {
-  HardHat, ShieldCheck, ArrowRight, Sparkles, BarChart3,
+  ShieldCheck, ArrowRight, Sparkles, BarChart3,
   Users, Package, Brain, CheckCircle2, Building2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { DEMO_USERS, ROLE_HOME, ROLE_LABELS, login, useSession, useMounted, type Role } from "@/lib/session";
+import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -84,9 +85,7 @@ function LoginPage() {
 
         {/* Logo bar */}
         <div className="relative z-10 flex items-center gap-3 p-10">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: "oklch(0.67 0.20 52)" }}>
-            <HardHat className="h-5 w-5" style={{ color: "oklch(0.155 0.022 265)" }} />
-          </div>
+          <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-11 w-11 rounded-xl object-cover" />
           <div>
             <p className="text-[15px] font-bold tracking-tight" style={{ color: "oklch(0.96 0.006 80)" }}>BuildSense AI</p>
             <p className="text-[11px] font-medium" style={{ color: "oklch(0.67 0.20 52)" }}>Construction PM Platform</p>
@@ -149,9 +148,7 @@ function LoginPage() {
       <div className="flex-1 flex flex-col justify-center px-6 py-10 sm:px-12 xl:px-16 overflow-y-auto">
         {/* Mobile header */}
         <div className="lg:hidden mb-8 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary">
-            <HardHat className="h-4 w-4 text-primary-foreground" />
-          </div>
+          <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-9 w-9 rounded-xl object-cover" />
           <div>
             <p className="font-bold text-sm">BuildSense AI</p>
             <p className="text-[10px] text-muted-foreground">SP26SE157</p>
@@ -174,7 +171,7 @@ function LoginPage() {
               <button
                 key={role}
                 onClick={() => signIn(role)}
-                className={`group w-full text-left rounded-xl border bg-card px-4 py-3.5 transition-all duration-150 hover:shadow-md hover:-translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer`}
+                className={`group w-full text-left rounded-xl border bg-card px-4 py-3.5 transition-all duration-150 hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer`}
               >
                 <div className="flex items-center gap-3.5">
                   <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${c.bg} ${c.text}`}>
