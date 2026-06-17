@@ -30,3 +30,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Project documents
+src/AI-Integrated Construction Project Management System/

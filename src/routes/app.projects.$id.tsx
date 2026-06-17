@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { projects, projectMaterialPlan, wbsRows } from "@/lib/mock-data";
 import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+import { useSession } from "@/lib/session";
+import { projectsApi } from "@/api/projects";
+
+const STATUS_HEALTH: Record<string, keyof typeof healthConfig> = {
+  PLANNING: "on-track", IN_PROGRESS: "on-track", COMPLETED: "on-track", DELAYED: "delayed",
+};
 
 export const Route = createFileRoute("/app/projects/$id")({
   head: () => ({ meta: [{ title: "Project — BuildSense AI" }] }),
@@ -17,8 +24,41 @@ export const Route = createFileRoute("/app/projects/$id")({
 
 function ProjectDetail() {
   const { id } = Route.useParams();
+  const session = useSession();
+  const isLive = !!session?.token;
+
+  const { data: liveProject, isLoading } = useQuery({
+    queryKey: ["project", id],
+    queryFn: async () => {
+      const r = await projectsApi.getById(Number(id));
+      if (!r.isSuccess) throw new Error(r.errorMessage ?? "Failed");
+      return r.result;
+    },
+    enabled: isLive,
+    staleTime: 30_000,
+  });
+
   const project = projects.find((p) => p.id === id) ?? projects[0];
   const plan = projectMaterialPlan[id] ?? projectMaterialPlan["p1"];
+
+  const title = isLive && liveProject ? liveProject.projectName : project.name;
+  const healthKey: keyof typeof healthConfig = isLive && liveProject
+    ? (STATUS_HEALTH[liveProject.status] ?? "on-track")
+    : project.health;
+  const description = isLive && liveProject
+    ? `Address · ${liveProject.address ?? "—"} · Started ${new Date(liveProject.startDate).toLocaleDateString()}`
+    : `Customer · ${project.customer} · ${project.start} → ${project.end}`;
+
+  if (isLive && isLoading) {
+    return (
+      <div className="max-w-[1400px] mx-auto">
+        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
+          <Link to="/app/projects"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back to projects</Link>
+        </Button>
+        <div className="p-8 text-center text-sm text-muted-foreground">Loading project…</div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[1400px] mx-auto">
@@ -28,16 +68,23 @@ function ProjectDetail() {
 
       <PageHeader
         section="Project Detail"
-        title={project.name}
-        description={`Customer · ${project.customer} · ${project.start} → ${project.end}`}
+        title={title}
+        description={description}
         actions={
           <div className="flex items-center gap-5">
-            <Badge variant="outline" className={cn(healthConfig[project.health].cls)}>{healthConfig[project.health].label}</Badge>
-            <div className="flex gap-4 text-right">
-              <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Budget</p><p className="font-semibold tabular-nums text-[13px]">₹{(project.budget / 100000).toFixed(1)}L</p></div>
-              <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Spent</p><p className="font-semibold tabular-nums text-[13px]">₹{(project.spent / 100000).toFixed(1)}L</p></div>
-              <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Progress</p><p className="font-semibold text-[13px]">{project.percent}%</p></div>
-            </div>
+            <Badge variant="outline" className={cn(healthConfig[healthKey].cls)}>{healthConfig[healthKey].label}</Badge>
+            {isLive && liveProject ? (
+              <div className="flex gap-4 text-right">
+                <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Status</p><p className="font-semibold text-[13px]">{liveProject.status.replace("_", " ")}</p></div>
+                <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Created</p><p className="font-semibold text-[13px]">{new Date(liveProject.createdDate).toLocaleDateString()}</p></div>
+              </div>
+            ) : (
+              <div className="flex gap-4 text-right">
+                <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Budget</p><p className="font-semibold tabular-nums text-[13px]">₹{(project.budget / 100000).toFixed(1)}L</p></div>
+                <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Spent</p><p className="font-semibold tabular-nums text-[13px]">₹{(project.spent / 100000).toFixed(1)}L</p></div>
+                <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Progress</p><p className="font-semibold text-[13px]">{project.percent}%</p></div>
+              </div>
+            )}
           </div>
         }
       />
@@ -55,17 +102,33 @@ function ProjectDetail() {
           <Card>
             <CardHeader><CardTitle className="text-base">Timeline</CardTitle></CardHeader>
             <CardContent>
-              <div className="relative h-7 rounded-md bg-muted overflow-hidden">
-                {project.phases.map((ph, i) => (
-                  <div key={ph.name}
-                    className={cn("absolute top-0 bottom-0 flex items-center px-2 text-xs text-white/95",
-                      i === 0 ? "bg-primary/70" : i === 1 ? "bg-primary/85" : "bg-primary")}
-                    style={{ left: `${ph.start}%`, width: `${ph.end - ph.start}%` }}>
-                    {ph.name}
-                  </div>
-                ))}
-                <div className="absolute top-0 bottom-0 w-0.5 bg-ai" style={{ left: `${project.percent}%` }} />
-              </div>
+              {isLive && liveProject ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: "Status", value: liveProject.status.replace(/_/g, " ") },
+                    { label: "Start Date", value: new Date(liveProject.startDate).toLocaleDateString() },
+                    { label: "Created", value: new Date(liveProject.createdDate).toLocaleDateString() },
+                    { label: "Address", value: liveProject.address ?? "—" },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-md border p-3">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{item.label}</p>
+                      <p className="text-sm font-semibold">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="relative h-7 rounded-md bg-muted overflow-hidden">
+                  {project.phases.map((ph, i) => (
+                    <div key={ph.name}
+                      className={cn("absolute top-0 bottom-0 flex items-center px-2 text-xs text-white/95",
+                        i === 0 ? "bg-primary/70" : i === 1 ? "bg-primary/85" : "bg-primary")}
+                      style={{ left: `${ph.start}%`, width: `${ph.end - ph.start}%` }}>
+                      {ph.name}
+                    </div>
+                  ))}
+                  <div className="absolute top-0 bottom-0 w-0.5 bg-ai" style={{ left: `${project.percent}%` }} />
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

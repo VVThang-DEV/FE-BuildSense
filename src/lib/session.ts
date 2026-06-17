@@ -7,6 +7,10 @@ export type Session = {
   name: string;
   email: string;
   avatar: string;
+  /** JWT from real backend login — absent for demo sessions */
+  token?: string;
+  /** Numeric user ID from backend */
+  userId?: number;
 };
 
 export const DEMO_USERS: Record<Role, Session> = {
@@ -32,6 +36,20 @@ export const ROLE_HOME: Record<Role, string> = {
   engineer: "/app/site/",
   customer: "/app/portal",
 };
+
+/** Maps backend Role enum string/number → frontend Role */
+const BACKEND_ROLE_MAP: Record<string, Role> = {
+  ADMIN: "admin", PM: "manager", ENGINEER: "engineer",
+  "0": "admin",  "1": "manager", "2": "engineer",
+};
+
+function decodeJwt(token: string): Record<string, string> {
+  try {
+    return JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+  } catch {
+    return {};
+  }
+}
 
 const KEY = "bs.session.v1";
 
@@ -67,6 +85,28 @@ export function login(role: Role) {
   window.localStorage.setItem(KEY, JSON.stringify(s));
   emit();
   return s;
+}
+
+/** Create a real session from a JWT returned by POST /api/auth/login */
+export function loginWithToken(token: string): Session {
+  const c = decodeJwt(token);
+  const roleRaw =
+    c["Role"] ??
+    c["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"] ?? "";
+  const role: Role = BACKEND_ROLE_MAP[roleRaw] ?? "manager";
+  const fullName = c["FullName"] ?? "";
+  const email    = c["Email"]    ?? "";
+  const userId   = parseInt(c["UserId"] ?? "0", 10);
+  const avatar   = fullName.split(" ").filter(Boolean).map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U";
+  const session: Session = { role, name: fullName, email, avatar, token, userId };
+  window.localStorage.setItem(KEY, JSON.stringify(session));
+  emit();
+  return session;
+}
+
+/** Returns stored JWT or null (null = demo session) */
+export function getToken(): string | null {
+  return snapshot()?.token ?? null;
 }
 
 export function logout() {

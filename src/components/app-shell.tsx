@@ -1,7 +1,7 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   ChevronRight, LogOut, Search, Bell, Sparkles,
-  Menu, X, ChevronDown,
+  Menu, X, ChevronDown, User,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -287,6 +287,9 @@ export function AppShell({ session }: { session: Session }) {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => navigate({ to: "/app/profile" })}>
+                  <User className="h-3.5 w-3.5 mr-2" /> My Profile
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate({ to: "/login" })}>
                   Switch role
                 </DropdownMenuItem>
@@ -315,6 +318,8 @@ function Breadcrumbs({ pathname }: { pathname: string }) {
     ai: "AI Agent", reports: "Reports", admin: "Admin",
     wbs: "WBS & Baseline", thresholds: "Thresholds", staff: "Staff",
     users: "Users", notifications: "Notifications", portal: "My House",
+    profile: "My Profile", verify: "Verify Email",
+    warehouses: "Warehouses", suppliers: "Suppliers",
   };
   const parts = pathname.split("/").filter(Boolean);
   return (

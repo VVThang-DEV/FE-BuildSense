@@ -14,6 +14,8 @@ import {
   Home,
   ClipboardList,
   ScanLine,
+  Warehouse,
+  Truck,
 } from "lucide-react";
 import type { Role } from "./session";
 
@@ -42,6 +44,8 @@ export const NAV: NavItem[] = [
 
   { to: "/app/admin/wbs", label: "WBS & Baseline", icon: FolderKanban, roles: ["admin"], group: "Admin" },
   { to: "/app/admin/thresholds", label: "Inventory Thresholds", icon: SlidersHorizontal, roles: ["admin", "staff"], group: "Admin" },
+  { to: "/app/admin/warehouses", label: "Warehouses", icon: Warehouse, roles: ["admin", "manager"], group: "Admin" },
+  { to: "/app/admin/suppliers", label: "Suppliers", icon: Truck, roles: ["admin", "manager"], group: "Admin" },
   { to: "/app/staff/users", label: "Users & Access", icon: Users, roles: ["staff"], group: "Admin" },
   { to: "/app/staff/notifications", label: "Notification Rules", icon: BellRing, roles: ["staff"], group: "Admin" },
 

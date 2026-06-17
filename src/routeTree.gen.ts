@@ -30,9 +30,23 @@ import { Route as AppSiteReportRouteImport } from './routes/app.site.report'
 import { Route as AppSiteIndexRouteImport } from './routes/app.site.index'
 import { Route as AppSiteAttendanceRouteImport } from './routes/app.site.attendance'
 import { Route as AppProjectsIdRouteImport } from './routes/app.projects.$id'
+import { Route as VerifyRouteImport } from './routes/verify'
+import { Route as AppProfileRouteImport } from './routes/app.profile'
 import { Route as AppAdminWbsRouteImport } from './routes/app.admin.wbs'
+import { Route as AppAdminWarehousesRouteImport } from './routes/app.admin.warehouses'
 import { Route as AppAdminThresholdsRouteImport } from './routes/app.admin.thresholds'
+import { Route as AppAdminSuppliersRouteImport } from './routes/app.admin.suppliers'
 
+const VerifyRoute = VerifyRouteImport.update({
+  id: '/verify',
+  path: '/verify',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppProfileRoute = AppProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AppRoute,
+} as any)
 const SiteRoute = SiteRouteImport.update({
   id: '/site',
   path: '/site',
@@ -143,9 +157,19 @@ const AppAdminWbsRoute = AppAdminWbsRouteImport.update({
   path: '/admin/wbs',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminWarehousesRoute = AppAdminWarehousesRouteImport.update({
+  id: '/admin/warehouses',
+  path: '/admin/warehouses',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAdminThresholdsRoute = AppAdminThresholdsRouteImport.update({
   id: '/admin/thresholds',
   path: '/admin/thresholds',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAdminSuppliersRoute = AppAdminSuppliersRouteImport.update({
+  id: '/admin/suppliers',
+  path: '/admin/suppliers',
   getParentRoute: () => AppRoute,
 } as any)
 
@@ -155,6 +179,8 @@ export interface FileRoutesByFullPath {
   '/customer': typeof CustomerRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
+  '/verify': typeof VerifyRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -168,6 +194,8 @@ export interface FileRoutesByFullPath {
   '/app/site/': typeof AppSiteIndexRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/admin/warehouses': typeof AppAdminWarehousesRoute
+  '/app/admin/suppliers': typeof AppAdminSuppliersRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -179,6 +207,8 @@ export interface FileRoutesByTo {
   '/customer': typeof CustomerRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
+  '/verify': typeof VerifyRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -192,6 +222,8 @@ export interface FileRoutesByTo {
   '/app/site/': typeof AppSiteIndexRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/admin/warehouses': typeof AppAdminWarehousesRoute
+  '/app/admin/suppliers': typeof AppAdminSuppliersRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -205,6 +237,8 @@ export interface FileRoutesById {
   '/customer': typeof CustomerRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
+  '/verify': typeof VerifyRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -218,6 +252,8 @@ export interface FileRoutesById {
   '/app/site/': typeof AppSiteIndexRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/admin/warehouses': typeof AppAdminWarehousesRoute
+  '/app/admin/suppliers': typeof AppAdminSuppliersRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -232,6 +268,8 @@ export interface FileRouteTypes {
     | '/customer'
     | '/login'
     | '/site'
+    | '/verify'
+    | '/app/profile'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
@@ -244,6 +282,8 @@ export interface FileRouteTypes {
     | '/app/'
     | '/app/admin/thresholds'
     | '/app/admin/wbs'
+    | '/app/admin/warehouses'
+    | '/app/admin/suppliers'
     | '/app/projects/$id'
     | '/app/site/'
     | '/app/site/attendance'
@@ -256,6 +296,8 @@ export interface FileRouteTypes {
     | '/customer'
     | '/login'
     | '/site'
+    | '/verify'
+    | '/app/profile'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
@@ -268,6 +310,8 @@ export interface FileRouteTypes {
     | '/app'
     | '/app/admin/thresholds'
     | '/app/admin/wbs'
+    | '/app/admin/warehouses'
+    | '/app/admin/suppliers'
     | '/app/projects/$id'
     | '/app/site/'
     | '/app/site/attendance'
@@ -281,6 +325,8 @@ export interface FileRouteTypes {
     | '/customer'
     | '/login'
     | '/site'
+    | '/verify'
+    | '/app/profile'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
@@ -293,6 +339,8 @@ export interface FileRouteTypes {
     | '/app/'
     | '/app/admin/thresholds'
     | '/app/admin/wbs'
+    | '/app/admin/warehouses'
+    | '/app/admin/suppliers'
     | '/app/projects/$id'
     | '/app/site/'
     | '/app/site/attendance'
@@ -307,6 +355,7 @@ export interface RootRouteChildren {
   CustomerRoute: typeof CustomerRoute
   LoginRoute: typeof LoginRoute
   SiteRoute: typeof SiteRoute
+  VerifyRoute: typeof VerifyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -465,11 +514,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminWbsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/admin/warehouses': {
+      id: '/app/admin/warehouses'
+      path: '/admin/warehouses'
+      fullPath: '/app/admin/warehouses'
+      preLoaderRoute: typeof AppAdminWarehousesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/admin/thresholds': {
       id: '/app/admin/thresholds'
       path: '/admin/thresholds'
       fullPath: '/app/admin/thresholds'
       preLoaderRoute: typeof AppAdminThresholdsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/admin/suppliers': {
+      id: '/app/admin/suppliers'
+      path: '/admin/suppliers'
+      fullPath: '/app/admin/suppliers'
+      preLoaderRoute: typeof AppAdminSuppliersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/verify': {
+      id: '/verify'
+      path: '/verify'
+      fullPath: '/verify'
+      preLoaderRoute: typeof VerifyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/profile': {
+      id: '/app/profile'
+      path: '/profile'
+      fullPath: '/app/profile'
+      preLoaderRoute: typeof AppProfileRouteImport
       parentRoute: typeof AppRoute
     }
   }
@@ -515,6 +592,9 @@ interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppAdminThresholdsRoute: typeof AppAdminThresholdsRoute
   AppAdminWbsRoute: typeof AppAdminWbsRoute
+  AppAdminWarehousesRoute: typeof AppAdminWarehousesRoute
+  AppAdminSuppliersRoute: typeof AppAdminSuppliersRoute
+  AppProfileRoute: typeof AppProfileRoute
   AppStaffNotificationsRoute: typeof AppStaffNotificationsRoute
   AppStaffUsersRoute: typeof AppStaffUsersRoute
 }
@@ -532,6 +612,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppAdminThresholdsRoute: AppAdminThresholdsRoute,
   AppAdminWbsRoute: AppAdminWbsRoute,
+  AppAdminWarehousesRoute: AppAdminWarehousesRoute,
+  AppAdminSuppliersRoute: AppAdminSuppliersRoute,
+  AppProfileRoute: AppProfileRoute,
   AppStaffNotificationsRoute: AppStaffNotificationsRoute,
   AppStaffUsersRoute: AppStaffUsersRoute,
 }
@@ -544,6 +627,7 @@ const rootRouteChildren: RootRouteChildren = {
   CustomerRoute: CustomerRoute,
   LoginRoute: LoginRoute,
   SiteRoute: SiteRoute,
+  VerifyRoute: VerifyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

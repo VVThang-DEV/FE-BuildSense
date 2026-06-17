@@ -6,6 +6,7 @@ import {
   BarChart3, CheckCircle2, AlertCircle,
 } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { useSession } from "@/lib/session";
 import { aiAlerts, kpis, projects, users, notificationRules, alertThresholds } from "@/lib/mock-data";
 import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+import { usersApi } from "@/api/users";
 
 export const Route = createFileRoute("/app/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — BuildSense AI" }] }),
@@ -156,6 +158,16 @@ function ManagerDashboard() {
 }
 
 function AdminDashboard() {
+  const session = useSession();
+  const isLive = !!session?.token;
+
+  const { data: liveUserCount } = useQuery({
+    queryKey: ["user-count"],
+    queryFn: async () => { const r = await usersApi.countUsers(); return r.result ?? null; },
+    enabled: isLive,
+    staleTime: 60_000,
+  });
+
   const activeUsers = users.filter((u) => u.status === "active").length;
   const invitedUsers = users.filter((u) => u.status === "invited").length;
   const highThresholds = alertThresholds.filter((t) => t.severity === "high").length;
@@ -165,8 +177,11 @@ function AdminDashboard() {
     "delayed": projects.filter((p) => p.health === "delayed").length,
   };
 
+  const totalUsersValue = isLive && liveUserCount != null ? String(liveUserCount) : String(users.length);
+  const totalUsersSub = isLive && liveUserCount != null ? `${liveUserCount} registered accounts` : `${activeUsers} active · ${invitedUsers} pending`;
+
   const adminKpis = [
-    { label: "Total Users", value: String(users.length), icon: Users, sub: `${activeUsers} active · ${invitedUsers} pending`, accent: "text-primary", bg: "bg-primary/8" },
+    { label: "Total Users", value: totalUsersValue, icon: Users, sub: totalUsersSub, accent: "text-primary", bg: "bg-primary/8" },
     { label: "Projects On Track", value: `${healthCounts["on-track"]}/${projects.length}`, icon: CheckCircle2, sub: `${healthCounts["at-risk"]} at-risk · ${healthCounts["delayed"]} delayed`, accent: "text-success", bg: "bg-success/10" },
     { label: "Critical Thresholds", value: String(highThresholds), icon: SlidersHorizontal, sub: `${alertThresholds.length} total rules configured`, accent: "text-destructive", bg: "bg-destructive/8" },
     { label: "AI Alerts Active", value: String(kpis.aiAlerts), icon: Sparkles, sub: "Pending PM review", accent: "text-ai", bg: "bg-ai/8" },
