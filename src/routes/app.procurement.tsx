@@ -20,6 +20,7 @@ import { purchaseOrdersApi } from "@/api/purchaseOrders";
 import { projectsApi } from "@/api/projects";
 import { suppliersApi } from "@/api/suppliers";
 import { warehousesApi } from "@/api/warehouses";
+import { MockDataBanner } from "@/components/mock-banner";
 
 const completedPOs = [
   { id: "po-089", item: "TMT Steel Phi 10", qty: "2 400 kg", vendor: "SteelMart", approved: "Oct 01, 2025", delivered: "Oct 05, 2025", amount: "₹1,44,000", onTime: true },
@@ -232,6 +233,7 @@ function ProcurementPage() {
             </CardContent></Card>
           ) : (
             <Card>
+              <MockDataBanner message="Demo data — AI-consolidated POs below are sample data. Sign in for live purchase orders." />
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4 text-ai" /> AI-consolidated POs</CardTitle>
               </CardHeader>
@@ -324,6 +326,7 @@ function ProcurementPage() {
             </CardContent></Card>
           ) : (
             <>
+              <MockDataBanner message="Demo data — summary stats and completed POs below are sample data." />
               <div className="grid grid-cols-3 gap-3 mb-4">
                 {[{ label: "Total POs closed", value: "142" }, { label: "Avg. approval time", value: "6 h" }, { label: "On-time delivery", value: "98%" }].map((s) => (
                   <Card key={s.label} className="shadow-sm">

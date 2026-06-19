@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { attendance } from "@/lib/mock-data";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/site/attendance")({
   head: () => ({ meta: [{ title: "Attendance — BuildSense AI" }] }),
@@ -47,6 +48,7 @@ function AttendancePage() {
           </Button>
         }
       />
+      <MockDataBanner message="Demo data — all attendance records and charts are sample data." />
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">

@@ -12,6 +12,7 @@ import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
+import { MockDataBanner } from "@/components/mock-banner";
 
 const STATUS_HEALTH: Record<string, keyof typeof healthConfig> = {
   PLANNING: "on-track", IN_PROGRESS: "on-track", COMPLETED: "on-track", DELAYED: "delayed",
@@ -117,6 +118,8 @@ function ProjectDetail() {
                   ))}
                 </div>
               ) : (
+                <>
+                <MockDataBanner message="Demo data — timeline phases and budget figures are sample data." />
                 <div className="relative h-7 rounded-md bg-muted overflow-hidden">
                   {project.phases.map((ph, i) => (
                     <div key={ph.name}
@@ -128,6 +131,7 @@ function ProjectDetail() {
                   ))}
                   <div className="absolute top-0 bottom-0 w-0.5 bg-ai" style={{ left: `${project.percent}%` }} />
                 </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -135,6 +139,7 @@ function ProjectDetail() {
 
         <TabsContent value="wbs">
           <Card>
+            <MockDataBanner message="Demo data — WBS rows, budgets and actuals are sample data. No backend endpoint for WBS." />
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
@@ -171,6 +176,7 @@ function ProjectDetail() {
 
         <TabsContent value="materials">
           <Card>
+            <MockDataBanner message="Demo data — material plan is sample data. No backend endpoint for project materials." />
             <CardHeader>
               <CardTitle className="text-base">Time-phased material plan</CardTitle>
               <p className="text-xs text-muted-foreground">
@@ -218,6 +224,7 @@ function ProjectDetail() {
 
         <TabsContent value="team">
           <Card className="shadow-sm">
+            <MockDataBanner message="Demo data — team members are sample data." />
             <CardContent className="p-0">
               <Table>
                 <TableHeader><TableRow>
@@ -251,6 +258,7 @@ function ProjectDetail() {
 
         <TabsContent value="docs">
           <Card className="shadow-sm">
+            <MockDataBanner message="Demo data — document list is sample data. Upload is simulated." />
             <CardContent className="p-5 space-y-4">
               <div
                 className="border-2 border-dashed rounded-xl p-8 text-center text-sm text-muted-foreground hover:border-primary/50 transition-colors cursor-pointer"

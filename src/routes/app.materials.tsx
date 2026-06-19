@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/page-header";
 import { useSession } from "@/lib/session";
 import { materialsApi } from "@/api/materials";
 import { catalogsApi } from "@/api/catalogs";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/materials")({
   head: () => ({ meta: [{ title: "Material Catalog — BuildSense AI" }] }),
@@ -154,6 +155,9 @@ function MaterialsPage() {
         )
       ) : (
         <div className="grid lg:grid-cols-2 gap-4 space-y-0">
+          <div className="lg:col-span-2">
+            <MockDataBanner message="Demo data — material tree and stock levels are sample data. Sign in for live catalog." />
+          </div>
           {materialTree.map((root) => (
             <Card key={root.id}>
               <CardHeader className="pb-2">

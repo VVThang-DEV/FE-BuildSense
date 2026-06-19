@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { upcomingNeeds } from "@/lib/mock-data";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/check")({
   head: () => ({ meta: [{ title: "Daily Check — BuildSense AI" }] }),
@@ -30,6 +31,7 @@ function DailyCheck() {
       />
 
       <div className="space-y-4">
+        <MockDataBanner message="Demo data — material needs and AI-drafted POs are sample data. No backend endpoint for daily checks." />
         <Card className="shadow-sm">
           <CardContent className="p-5 flex flex-wrap justify-between items-center gap-4">
             <div>

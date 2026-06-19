@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { siteTasks } from "@/lib/mock-data";
 import { PageHeader } from "@/components/page-header";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/site/")({
   head: () => ({ meta: [{ title: "Today on Site — BuildSense AI" }] }),
@@ -32,6 +33,7 @@ function SitePage() {
     <div className="max-w-2xl mx-auto pb-12">
       <PageHeader section="Field" title="Today on Site" description="Track attendance, submit progress and request materials." />
       <div className="space-y-4">
+      <MockDataBanner message="Demo data — tasks, attendance and material requests are sample data. Submissions are simulated." />
       {/* Attendance */}
       <Card className="border-primary/25 shadow-sm">
         <CardContent className="p-4 flex items-center justify-between gap-3">

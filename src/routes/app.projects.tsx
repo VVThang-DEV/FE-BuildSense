@@ -15,6 +15,7 @@ import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/projects")({
   head: () => ({ meta: [{ title: "Projects — BuildSense AI" }] }),
@@ -127,6 +128,8 @@ function ProjectsList() {
               </Table>
             )
           ) : (
+            <>
+            <MockDataBanner message="Demo data — projects below are sample data. Sign in with a real account for live data." />
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Project</TableHead><TableHead>Customer</TableHead>
@@ -157,6 +160,7 @@ function ProjectsList() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { notificationRules } from "@/lib/mock-data";
 import { PageHeader } from "@/components/page-header";
 import { toast } from "sonner";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/staff/notifications")({
   head: () => ({ meta: [{ title: "Notification Rules — BuildSense AI" }] }),
@@ -31,6 +32,7 @@ function NotificationsPage() {
         title="Notification Rules"
         description="System-wide rules. Customer-facing alerts always route through the customer portal."
       />
+      <MockDataBanner message="Demo data — notification rules are sample data. Toggle changes are not persisted." />
       <Card className="shadow-sm">
         <CardContent className="p-0">
           <Table>

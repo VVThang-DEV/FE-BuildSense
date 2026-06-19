@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { aiChatSeed } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/ai")({
   head: () => ({ meta: [{ title: "AI Agent — BuildSense AI" }] }),
@@ -45,10 +46,11 @@ function AiAgent() {
               </div>
               AI Agent
             </CardTitle>
-            <Badge variant="outline" className="bg-ai/10 text-ai border-ai/25 text-[10px]">● Connected</Badge>
+            <Badge variant="outline" className="bg-warning/15 text-warning-foreground border-warning/30 text-[10px]">● Demo Mode</Badge>
           </div>
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+          <MockDataBanner message="Demo AI — responses are pre-scripted. No backend AI endpoint connected." />
           {messages.map((m, i) => (
             <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
               {m.role === "ai" && (

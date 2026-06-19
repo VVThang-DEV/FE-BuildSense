@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { wbsRows } from "@/lib/mock-data";
 import { PageHeader } from "@/components/page-header";
 import { toast } from "sonner";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/admin/wbs")({
   head: () => ({ meta: [{ title: "WBS & Baseline — BuildSense AI" }] }),
@@ -25,6 +26,7 @@ function WbsPage() {
           </>
         }
       />
+      <MockDataBanner message="Demo data — WBS, budgets and actuals are sample data. Actions are simulated." />
 
       <Card className="shadow-sm">
         <CardContent className="p-0">

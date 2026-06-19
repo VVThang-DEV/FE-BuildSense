@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { customerProject, customerUpdates, galleryPhotos, milestones } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/portal")({
   head: () => ({ meta: [{ title: "My House — BuildSense AI" }] }),
@@ -24,6 +25,7 @@ function PortalPage() {
         title={customerProject.house}
         description={`${customerProject.community} · PM: ${customerProject.pm} · Handover ${customerProject.handover}`}
       />
+      <MockDataBanner message="Demo data — project progress, milestones, updates and photos are sample data." />
 
       {/* Progress hero card */}
       <Card className="shadow-sm mb-6">

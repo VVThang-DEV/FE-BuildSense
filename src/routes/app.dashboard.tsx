@@ -16,6 +16,7 @@ import { aiAlerts, kpis, projects, users, notificationRules, alertThresholds } f
 import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { usersApi } from "@/api/users";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — BuildSense AI" }] }),
@@ -34,6 +35,7 @@ function ManagerDashboard() {
   const visibleAlerts = aiAlerts.filter((a) => !dismissed.has(a.id));
   return (
     <div className="space-y-6 max-w-[1440px] mx-auto">
+      <MockDataBanner message="Demo data — KPIs, AI alerts, projects and cost charts are sample data for demonstration." />
       <PageHeader
         section="Overview"
         title="Executive Dashboard"
@@ -189,6 +191,7 @@ function AdminDashboard() {
 
   return (
     <div className="space-y-6 max-w-[1440px] mx-auto">
+      <MockDataBanner message="Demo data — user roster, thresholds and portfolio health are sample data. Only Total Users KPI may be live." />
       <PageHeader
         section="Admin"
         title="System Dashboard"
@@ -311,6 +314,7 @@ function StaffDashboard() {
 
   return (
     <div className="space-y-6 max-w-[1440px] mx-auto">
+      <MockDataBanner message="Demo data — user accounts, notification rules and platform health are sample data." />
       <PageHeader
         section="Staff"
         title="Operations Dashboard"

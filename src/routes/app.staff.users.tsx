@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Plus, MoreHorizontal } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/session";
 import { usersApi, BACKEND_ROLE_LABEL } from "@/api/users";
 import { authApi } from "@/api/auth";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/staff/users")({
   head: () => ({ meta: [{ title: "Users & Access  BuildSense AI" }] }),
@@ -32,7 +33,7 @@ const statusClass = {
 
 function UsersPage() {
   const session = useSession();
-  const isLive = !!session?.token && session.role === "manager";
+  const isLive = !!session?.token;
 
   const { data: liveUsers, refetch } = useQuery({
     queryKey: ["users"],
@@ -192,6 +193,8 @@ function UsersPage() {
               </TableBody>
             </Table>
           ) : (
+            <>
+            <MockDataBanner message="Demo data — users below are sample data. Sign in with a real account for live user management." />
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Name</TableHead><TableHead>Email</TableHead>
@@ -229,6 +232,7 @@ function UsersPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

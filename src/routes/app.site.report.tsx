@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { dailyReports } from "@/lib/mock-data";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/site/report")({
   head: () => ({ meta: [{ title: "Daily Report — BuildSense AI" }] }),
@@ -62,6 +63,7 @@ function ReportPage() {
       />
 
       <div className="space-y-5">
+        <MockDataBanner message="Demo data — report form and past reports are for demonstration. Submissions are not stored." />
         {submitted && (
           <div className="rounded-xl border border-success/30 bg-success/8 p-4 flex items-center gap-3">
             <div className="h-8 w-8 rounded-full bg-success/15 flex items-center justify-center text-success text-lg">✓</div>

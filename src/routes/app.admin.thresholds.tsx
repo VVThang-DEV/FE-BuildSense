@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { alertThresholds } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/admin/thresholds")({
   head: () => ({ meta: [{ title: "Inventory Thresholds — BuildSense AI" }] }),
@@ -32,6 +33,7 @@ function ThresholdsPage() {
         title="Inventory & Alert Thresholds"
         description="When breached, AI raises an alert and a notification rule fires."
       />
+      <MockDataBanner message="Demo data — all thresholds are sample data. Changes are not persisted." />
       <Card className="shadow-sm">
         <CardContent className="p-0">
           <Table>
