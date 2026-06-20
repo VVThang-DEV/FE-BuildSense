@@ -18,6 +18,12 @@ const STATUS_HEALTH: Record<string, keyof typeof healthConfig> = {
   PLANNING: "on-track", IN_PROGRESS: "on-track", COMPLETED: "on-track", DELAYED: "delayed",
 };
 
+function formatDate(value: string): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString();
+}
+
 export const Route = createFileRoute("/app/projects/$id")({
   head: () => ({ meta: [{ title: "Project — BuildSense AI" }] }),
   component: ProjectDetail,
@@ -47,7 +53,7 @@ function ProjectDetail() {
     ? (STATUS_HEALTH[liveProject.status] ?? "on-track")
     : project.health;
   const description = isLive && liveProject
-    ? `Address · ${liveProject.address ?? "—"} · Started ${new Date(liveProject.startDate).toLocaleDateString()}`
+    ? `Address · ${liveProject.address ?? "—"} · Started ${formatDate(liveProject.startDate)}`
     : `Customer · ${project.customer} · ${project.start} → ${project.end}`;
 
   if (isLive && isLoading) {
@@ -77,7 +83,7 @@ function ProjectDetail() {
             {isLive && liveProject ? (
               <div className="flex gap-4 text-right">
                 <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Status</p><p className="font-semibold text-[13px]">{liveProject.status.replace("_", " ")}</p></div>
-                <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Created</p><p className="font-semibold text-[13px]">{new Date(liveProject.createdDate).toLocaleDateString()}</p></div>
+                <div><p className="text-[10px] text-muted-foreground uppercase tracking-wide">Created</p><p className="font-semibold text-[13px]">{formatDate(liveProject.createdDate)}</p></div>
               </div>
             ) : (
               <div className="flex gap-4 text-right">
@@ -107,8 +113,8 @@ function ProjectDetail() {
                 <div className="grid grid-cols-2 gap-3">
                   {[
                     { label: "Status", value: liveProject.status.replace(/_/g, " ") },
-                    { label: "Start Date", value: new Date(liveProject.startDate).toLocaleDateString() },
-                    { label: "Created", value: new Date(liveProject.createdDate).toLocaleDateString() },
+                    { label: "Start Date", value: formatDate(liveProject.startDate) },
+                    { label: "Created", value: formatDate(liveProject.createdDate) },
                     { label: "Address", value: liveProject.address ?? "—" },
                   ].map((item) => (
                     <div key={item.label} className="rounded-md border p-3">

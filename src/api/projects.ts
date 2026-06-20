@@ -1,17 +1,71 @@
 import { apiClient } from "./client";
 
+type ProjectStatus = "PLANNING" | "IN_PROGRESS" | "COMPLETED" | "DELAYED";
+
+type RawProjectResponse = Omit<Partial<ProjectResponse>, "status"> & {
+  baselineStart?: string;
+  status?: ProjectStatus | number | string;
+};
+
 export type ProjectResponse = {
   projectId: number;
   projectName: string;
   address: string | null;
   startDate: string;
-  status: "PLANNING" | "IN_PROGRESS" | "COMPLETED" | "DELAYED";
+  status: ProjectStatus;
   createdDate: string;
 };
 
+const STATUS_BY_NUMBER: Record<number, ProjectStatus> = {
+  0: "PLANNING",
+  1: "IN_PROGRESS",
+  2: "COMPLETED",
+  3: "DELAYED",
+};
+
+function normalizeStatus(status: RawProjectResponse["status"]): ProjectStatus {
+  if (typeof status === "number") return STATUS_BY_NUMBER[status] ?? "PLANNING";
+  if (typeof status === "string") {
+    const numeric = Number(status);
+    if (Number.isInteger(numeric)) return STATUS_BY_NUMBER[numeric] ?? "PLANNING";
+    const upper = status.toUpperCase();
+    if (upper === "IN_PROGRESS" || upper === "COMPLETED" || upper === "DELAYED") return upper;
+  }
+  return "PLANNING";
+}
+
+function normalizeDate(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) || date.getFullYear() <= 1901 ? "" : value;
+}
+
+function normalizeProject(project: RawProjectResponse): ProjectResponse {
+  return {
+    projectId: project.projectId ?? 0,
+    projectName: project.projectName ?? "Untitled project",
+    address: project.address ?? null,
+    startDate: normalizeDate(project.startDate ?? project.baselineStart),
+    status: normalizeStatus(project.status),
+    createdDate: normalizeDate(project.createdDate),
+  };
+}
+
 export const projectsApi = {
-  getAll:  ()            => apiClient.get<ProjectResponse[]>("/api/projects"),
-  getById: (id: number)  => apiClient.get<ProjectResponse>(`/api/projects/${id}`),
+  getAll: async () => {
+    const response = await apiClient.get<RawProjectResponse[]>("/api/projects");
+    return {
+      ...response,
+      result: (response.result ?? []).map(normalizeProject),
+    };
+  },
+  getById: async (id: number) => {
+    const response = await apiClient.get<RawProjectResponse>(`/api/projects/${id}`);
+    return {
+      ...response,
+      result: response.result ? normalizeProject(response.result) : response.result,
+    };
+  },
   create:  (body: { projectName: string; address?: string; startDate: string }) =>
     apiClient.post<string>("/api/projects", body),
 };

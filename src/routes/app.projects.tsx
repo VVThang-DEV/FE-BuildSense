@@ -26,6 +26,12 @@ const STATUS_HEALTH: Record<string, "on-track" | "at-risk" | "delayed"> = {
   PLANNING: "on-track", IN_PROGRESS: "on-track", COMPLETED: "on-track", DELAYED: "delayed",
 };
 
+function formatDate(value: string): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString();
+}
+
 function ProjectsList() {
   const session = useSession();
   const isLive = !!session?.token;
@@ -120,8 +126,8 @@ function ProjectsList() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{p.address ?? "—"}</TableCell>
                       <TableCell><Badge variant="outline" className={cn(healthConfig[STATUS_HEALTH[p.status] ?? "on-track"].cls)}>{p.status.replace("_", " ")}</Badge></TableCell>
-                      <TableCell className="text-sm">{new Date(p.startDate).toLocaleDateString()}</TableCell>
-                      <TableCell className="text-sm">{new Date(p.createdDate).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-sm">{formatDate(p.startDate)}</TableCell>
+                      <TableCell className="text-sm">{formatDate(p.createdDate)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

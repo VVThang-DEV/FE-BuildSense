@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ChevronRight, Package, PackagePlus, AlertCircle, Tags } from "lucide-react";
+import { ChevronRight, Package, PackagePlus, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
@@ -15,7 +15,6 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { useSession } from "@/lib/session";
 import { materialsApi } from "@/api/materials";
-import { catalogsApi } from "@/api/catalogs";
 import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/materials")({
@@ -52,19 +51,6 @@ function MaterialsPage() {
     } else toast.error(r.errorMessage ?? "Create failed");
   };
 
-  // Add Catalog dialog
-  const [catOpen, setCatOpen] = useState(false);
-  const [catName, setCatName] = useState("");
-  const submitCatalog = async () => {
-    if (!catName.trim()) { toast.error("Category name required"); return; }
-    const r = await catalogsApi.create({ categoryName: catName });
-    if (r.isSuccess) {
-      toast.success(`Category "${catName}" created`);
-      setCatOpen(false);
-      setCatName("");
-    } else toast.error(r.errorMessage ?? "Create failed");
-  };
-
   return (
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
@@ -72,14 +58,9 @@ function MaterialsPage() {
         description={isLive ? "Live material catalog from backend." : "Suppliers update stock here. Variants tracked individually."}
         actions={
           isLive ? (
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setCatOpen(true)}>
-                <Tags className="h-3.5 w-3.5 mr-1" /> New category
-              </Button>
-              <Button size="sm" className="h-8 text-xs" onClick={() => setMatOpen(true)}>
-                <PackagePlus className="h-3.5 w-3.5 mr-1" /> Add material
-              </Button>
-            </div>
+            <Button size="sm" className="h-8 text-xs" onClick={() => setMatOpen(true)}>
+              <PackagePlus className="h-3.5 w-3.5 mr-1" /> Add material
+            </Button>
           ) : (
             <Button size="sm" className="h-8 text-xs" onClick={() => toast.info("Add material — sign in to use real API")}>
               <PackagePlus className="h-3.5 w-3.5 mr-1" /> Add material
@@ -106,21 +87,6 @@ function MaterialsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setMatOpen(false)}>Cancel</Button>
             <Button onClick={submitMaterial}>Add material</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Catalog/Category dialog */}
-      <Dialog open={catOpen} onOpenChange={setCatOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>New Category</DialogTitle></DialogHeader>
-          <div>
-            <Label>Category name</Label>
-            <Input value={catName} onChange={(e) => setCatName(e.target.value)} placeholder="Structural Materials" />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCatOpen(false)}>Cancel</Button>
-            <Button onClick={submitCatalog}>Create category</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
