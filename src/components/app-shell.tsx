@@ -41,6 +41,7 @@ export function AppShell({ session }: { session: Session }) {
   const [project, setProject] = useState(projects[0].id);
   const [mobileOpen, setMobileOpen] = useState(false);
   const items = useMemo(() => navForRole(session.role), [session.role]);
+  const canOpenAi = items.some((item) => item.to === "/app/ai");
   const grouped = useMemo(() => {
     const m = new Map<string, typeof items>();
     items.forEach((i) => {
@@ -123,22 +124,24 @@ export function AppShell({ session }: { session: Session }) {
 
       {/* AI insight card */}
       <div className="p-3 border-t border-sidebar-border shrink-0">
-        <div className="rounded-xl p-3 space-y-2" style={{ background: "oklch(0.22 0.022 265 / 0.80)", border: "1px solid oklch(0.67 0.20 52 / 0.20)" }}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "oklch(0.67 0.20 52)" }}>
-              <Sparkles className="h-3 w-3" />
-              AI Insight
+        {canOpenAi && (
+          <div className="rounded-xl p-3 space-y-2" style={{ background: "oklch(0.22 0.022 265 / 0.80)", border: "1px solid oklch(0.67 0.20 52 / 0.20)" }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "oklch(0.67 0.20 52)" }}>
+                <Sparkles className="h-3 w-3" />
+                AI Insight
+              </div>
+              <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />
             </div>
-            <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />
+            <p className="text-[11px] text-sidebar-foreground/70 leading-snug line-clamp-2">{aiAlerts[0].title}</p>
+            <Button asChild size="sm" className="w-full h-7 text-[11px] font-medium bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90">
+              <Link to="/app/ai">Open AI Agent →</Link>
+            </Button>
           </div>
-          <p className="text-[11px] text-sidebar-foreground/70 leading-snug line-clamp-2">{aiAlerts[0].title}</p>
-          <Button asChild size="sm" className="w-full h-7 text-[11px] font-medium bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90">
-            <Link to="/app/ai">Open AI Agent →</Link>
-          </Button>
-        </div>
+        )}
 
         {/* User row */}
-        <div className="mt-2.5 flex items-center gap-2.5 px-1">
+        <div className={cn("flex items-center gap-2.5 px-1", canOpenAi ? "mt-2.5" : "mt-0")}>
           <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold border", ROLE_BADGE_STYLE[session.role])}>
             {session.avatar}
           </div>
@@ -254,11 +257,13 @@ export function AppShell({ session }: { session: Session }) {
                     </div>
                   ))}
                 </div>
-                <div className="p-2 border-t">
-                  <Button asChild variant="ghost" className="w-full h-7 text-xs">
-                    <Link to="/app/ai">View all in AI Agent</Link>
-                  </Button>
-                </div>
+                {canOpenAi && (
+                  <div className="p-2 border-t">
+                    <Button asChild variant="ghost" className="w-full h-7 text-xs">
+                      <Link to="/app/ai">View all in AI Agent</Link>
+                    </Button>
+                  </div>
+                )}
               </PopoverContent>
             </Popover>
 

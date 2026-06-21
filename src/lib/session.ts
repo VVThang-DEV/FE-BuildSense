@@ -14,10 +14,10 @@ export type Session = {
 };
 
 export const DEMO_USERS: Record<Role, Session> = {
-  admin: { role: "admin", name: "Priya Mehta", email: "priya.admin@buildsense.ai", avatar: "PM" },
-  manager: { role: "manager", name: "Ananya Rao", email: "ananya.pm@buildsense.ai", avatar: "AR" },
+  admin: { role: "admin", name: "Admin User", email: "admin@cpms.local", avatar: "AU" },
+  manager: { role: "manager", name: "Project Manager", email: "pm@cpms.local", avatar: "PM" },
   staff: { role: "staff", name: "Vikram Shah", email: "vikram.staff@buildsense.ai", avatar: "VS" },
-  engineer: { role: "engineer", name: "Rahul Kumar", email: "rahul.site@buildsense.ai", avatar: "RK" },
+  engineer: { role: "engineer", name: "Site Engineer", email: "engineer@cpms.local", avatar: "SE" },
   customer: { role: "customer", name: "Meera Nair", email: "meera.client@gmail.com", avatar: "MN" },
 };
 
@@ -30,7 +30,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export const ROLE_HOME: Record<Role, string> = {
-  admin: "/app/admin/wbs",
+  admin: "/app/dashboard",
   manager: "/app/dashboard",
   staff: "/app/staff/users",
   engineer: "/app/site/",
@@ -39,7 +39,7 @@ export const ROLE_HOME: Record<Role, string> = {
 
 /** Maps backend Role enum string/number → frontend Role */
 const BACKEND_ROLE_MAP: Record<string, Role> = {
-  ADMIN: "admin", PM: "manager", ENGINEER: "engineer",
+  ADMIN: "admin", PM: "manager", MANAGER: "manager", ENGINEER: "engineer",
   "0": "admin",  "1": "manager", "2": "engineer",
 };
 

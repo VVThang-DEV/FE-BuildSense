@@ -55,7 +55,7 @@ export const usersApi = {
       result: response.result ? normalizeAccount(response.result) : response.result,
     };
   },
-  /** Manager only */
+  /** Admin only */
   getAll: async () => {
     const response = await apiClient.get<RawAccountResponse[]>("/api/useraccount/GetAllAccountAsync");
     return {
@@ -63,7 +63,7 @@ export const usersApi = {
       result: (response.result ?? []).map(normalizeAccount),
     };
   },
-  /** Manager only */
+  /** Admin only */
   countUsers:    () =>
     apiClient.get<number>("/api/useraccount/CountUser"),
   getUserId: async () => {
@@ -77,7 +77,7 @@ export const usersApi = {
   },
   updateProfile: (body: { firstName?: string; lastName?: string; phoneNumber?: string }) =>
     apiClient.put<string>("/api/useraccount/UpdateUserProfile", body),
-  /** Manager only */
+  /** Admin only */
   updateRole:    (id: number, body: { role: number }) =>
     apiClient.put<string>(`/api/useraccount/UpdateUserRoleProfile/${id}`, body),
 };

@@ -41,7 +41,7 @@ const ROLE_COLORS: Record<Role, { bg: string; text: string; border: string; dot:
   customer: { bg: "bg-ai/10",           text: "text-ai",                 border: "border-ai/25",           dot: "bg-ai" },
 };
 
-const ORDER: Role[] = ["admin", "manager", "staff", "engineer", "customer"];
+const ORDER: Role[] = ["admin", "manager", "engineer"];
 
 const HERO_STATS = [
   { value: "12",    label: "Active Projects" },

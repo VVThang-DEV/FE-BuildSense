@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useMatch } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -19,7 +19,7 @@ import { MockDataBanner } from "@/components/mock-banner";
 
 export const Route = createFileRoute("/app/projects")({
   head: () => ({ meta: [{ title: "Projects — BuildSense AI" }] }),
-  component: ProjectsList,
+  component: ProjectsRoute,
 });
 
 const STATUS_HEALTH: Record<string, "on-track" | "at-risk" | "delayed"> = {
@@ -30,6 +30,12 @@ function formatDate(value: string): string {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString();
+}
+
+function ProjectsRoute() {
+  const projectDetailMatch = useMatch({ from: "/app/projects/$id", shouldThrow: false });
+
+  return projectDetailMatch ? <Outlet /> : <ProjectsList />;
 }
 
 function ProjectsList() {
