@@ -1,3 +1,5 @@
+import { isTokenExpired, logout } from "@/lib/session";
+
 /** Base URL - override with VITE_API_URL env var for production */
 const BASE = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:5290";
 
@@ -23,7 +25,12 @@ function fallbackMessage(status: number): string {
 export function getStoredToken(): string | null {
   try {
     const raw = localStorage.getItem("bs.session.v1");
-    return raw ? (JSON.parse(raw) as { token?: string }).token ?? null : null;
+    const token = raw ? (JSON.parse(raw) as { token?: string }).token ?? null : null;
+    if (token && isTokenExpired(token)) {
+      logout();
+      return null;
+    }
+    return token;
   } catch {
     return null;
   }
@@ -54,6 +61,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<Ap
   if (isApiEnvelope(payload)) return payload as ApiEnvelope<T>;
 
   if (!res.ok) {
+    if (res.status === 401) logout();
+
     const modelStateError =
       typeof payload === "object" && payload !== null && "errors" in payload
         ? Object.values((payload as { errors?: Record<string, string[]> }).errors ?? {})

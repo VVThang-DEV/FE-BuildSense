@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 
-type BackendRole = 0 | 1 | 2;
+export type BackendRole = "ADMIN" | "PM" | "WAREHOUSE_MANAGER" | "SUPPLIER" | "CUSTOMER";
+export type BackendRoleValue = 0 | 1 | 2 | 3 | 4;
 
 export type AccountResponse = {
   id: number;
@@ -8,11 +9,11 @@ export type AccountResponse = {
   lastName: string;
   email: string;
   phoneNumber: string | null;
-  role: BackendRole; // 0=ADMIN  1=PM  2=ENGINEER
+  role: BackendRole;
 };
 
 type RawAccountResponse = Omit<AccountResponse, "role"> & {
-  role: BackendRole | "ADMIN" | "PM" | "ENGINEER" | string | number;
+  role: BackendRole | BackendRoleValue | string | number;
 };
 
 type RawUserIdResponse = {
@@ -21,23 +22,39 @@ type RawUserIdResponse = {
 };
 
 export const BACKEND_ROLE_LABEL: Record<BackendRole, string> = {
-  0: "Admin",
-  1: "Project Manager",
-  2: "Field Engineer",
+  ADMIN: "Admin/Staff",
+  PM: "Project Manager",
+  WAREHOUSE_MANAGER: "Warehouse Manager",
+  SUPPLIER: "Supplier",
+  CUSTOMER: "Customer",
 };
 
-const ROLE_BY_STRING: Record<string, BackendRole> = {
+export const BACKEND_ROLE_VALUE: Record<BackendRole, BackendRoleValue> = {
   ADMIN: 0,
   PM: 1,
-  ENGINEER: 2,
+  WAREHOUSE_MANAGER: 2,
+  SUPPLIER: 3,
+  CUSTOMER: 4,
+};
+
+export const USER_MANAGEMENT_ROLES: BackendRole[] = ["ADMIN", "PM", "WAREHOUSE_MANAGER", "SUPPLIER", "CUSTOMER"];
+
+const ROLE_BY_NUMBER: Record<number, BackendRole> = {
+  0: "ADMIN",
+  1: "PM",
+  2: "WAREHOUSE_MANAGER",
+  3: "SUPPLIER",
+  4: "CUSTOMER",
 };
 
 function normalizeRole(role: RawAccountResponse["role"]): BackendRole {
-  if (role === 0 || role === 1 || role === 2) return role;
-  if (typeof role === "number") return 2;
+  if (typeof role === "number") return ROLE_BY_NUMBER[role] ?? "CUSTOMER";
   const numeric = Number(role);
-  if (numeric === 0 || numeric === 1 || numeric === 2) return numeric;
-  return ROLE_BY_STRING[String(role).toUpperCase()] ?? 2;
+  if (Number.isInteger(numeric)) return ROLE_BY_NUMBER[numeric] ?? "CUSTOMER";
+
+  const upper = String(role).trim().toUpperCase();
+  if (upper in BACKEND_ROLE_LABEL) return upper as BackendRole;
+  return "CUSTOMER";
 }
 
 function normalizeAccount(account: RawAccountResponse): AccountResponse {
@@ -64,8 +81,7 @@ export const usersApi = {
     };
   },
   /** Admin only */
-  countUsers:    () =>
-    apiClient.get<number>("/api/useraccount/CountUser"),
+  countUsers: () => apiClient.get<number>("/api/useraccount/CountUser"),
   getUserId: async () => {
     const response = await apiClient.get<number | RawUserIdResponse>("/api/useraccount/GetUserId");
     return {
@@ -78,6 +94,6 @@ export const usersApi = {
   updateProfile: (body: { firstName?: string; lastName?: string; phoneNumber?: string }) =>
     apiClient.put<string>("/api/useraccount/UpdateUserProfile", body),
   /** Admin only */
-  updateRole:    (id: number, body: { role: number }) =>
+  updateRole: (id: number, body: { role: BackendRoleValue }) =>
     apiClient.put<string>(`/api/useraccount/UpdateUserRoleProfile/${id}`, body),
 };

@@ -19,15 +19,16 @@ export type NavItem = {
 };
 
 export const NAV: NavItem[] = [
-  { to: "/app/projects", label: "Projects", icon: FolderKanban, roles: ["manager", "admin", "engineer"], group: "Overview" },
+  { to: "/app/projects", label: "Projects", icon: FolderKanban, roles: ["ADMIN", "PM"], group: "Overview" },
 
-  { to: "/app/materials", label: "Material Catalog", icon: Package, roles: ["admin", "manager"], group: "Operations" },
-  { to: "/app/procurement", label: "Procurement", icon: ShoppingCart, roles: ["manager", "admin"], group: "Operations" },
+  { to: "/app/materials", label: "Material Catalog", icon: Package, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Operations" },
+  { to: "/app/procurement", label: "Procurement", icon: ShoppingCart, roles: ["ADMIN", "PM"], group: "Operations" },
 
-  { to: "/app/admin/categories", label: "Categories", icon: Tags, roles: ["admin", "manager"], group: "Setup" },
-  { to: "/app/admin/warehouses", label: "Warehouses", icon: Warehouse, roles: ["admin", "manager"], group: "Setup" },
-  { to: "/app/admin/suppliers", label: "Suppliers", icon: Truck, roles: ["admin", "manager"], group: "Setup" },
-  { to: "/app/staff/users", label: "Users & Access", icon: Users, roles: ["manager"], group: "Setup" },
+  { to: "/app/admin/categories", label: "Categories", icon: Tags, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Setup" },
+  { to: "/app/admin/warehouses", label: "Warehouses", icon: Warehouse, roles: ["ADMIN", "WAREHOUSE_MANAGER"], group: "Setup" },
+  { to: "/app/admin/suppliers", label: "Suppliers", icon: Truck, roles: ["ADMIN", "SUPPLIER"], group: "Setup" },
+  { to: "/app/staff/users", label: "Users & Access", icon: Users, roles: ["ADMIN"], group: "Setup" },
+  { to: "/app/portal", label: "Customer Portal", icon: Users, roles: ["CUSTOMER"], group: "Portal" },
 ];
 
 export function navForRole(role: Role): NavItem[] {

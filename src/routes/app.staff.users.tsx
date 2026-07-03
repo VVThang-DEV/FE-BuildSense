@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSession } from "@/lib/session";
-import { usersApi, BACKEND_ROLE_LABEL } from "@/api/users";
+import { usersApi, BACKEND_ROLE_LABEL, BACKEND_ROLE_VALUE, USER_MANAGEMENT_ROLES, type BackendRole } from "@/api/users";
 import { authApi } from "@/api/auth";
 
 export const Route = createFileRoute("/app/staff/users")({
@@ -27,7 +27,14 @@ function UsersPage() {
   const isLive = !!session?.token;
   const [open, setOpen] = useState(false);
   const [invLoading, setInvLoading] = useState(false);
-  const [inv, setInv] = useState({ firstName: "", lastName: "", email: "", password: "", confirmPassword: "", role: "2" });
+  const [inv, setInv] = useState<{ firstName: string; lastName: string; email: string; password: string; confirmPassword: string; role: BackendRole }>({
+    firstName: "",
+    lastName: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    role: "PM",
+  });
 
   const { data: liveUsers, refetch, isLoading } = useQuery({
     queryKey: ["users"],
@@ -56,12 +63,12 @@ function UsersPage() {
         confirmPassword: inv.confirmPassword,
         firstName: inv.firstName,
         lastName: inv.lastName,
-        role: Number(inv.role),
+        role: BACKEND_ROLE_VALUE[inv.role],
       });
       if (response.isSuccess) {
         toast.success(`Account created for ${inv.email}`);
         setOpen(false);
-        setInv({ firstName: "", lastName: "", email: "", password: "", confirmPassword: "", role: "2" });
+        setInv({ firstName: "", lastName: "", email: "", password: "", confirmPassword: "", role: "PM" });
         refetch();
       } else {
         toast.error(response.errorMessage ?? "Registration failed");
@@ -114,12 +121,12 @@ function UsersPage() {
             </div>
             <div>
               <Label>Role</Label>
-              <Select value={inv.role} onValueChange={(value) => setInv((f) => ({ ...f, role: value }))}>
+              <Select value={inv.role} onValueChange={(value) => setInv((f) => ({ ...f, role: value as BackendRole }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="0">Admin</SelectItem>
-                  <SelectItem value="1">Project Manager</SelectItem>
-                  <SelectItem value="2">Field Engineer</SelectItem>
+                  {USER_MANAGEMENT_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>{BACKEND_ROLE_LABEL[role]}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -165,7 +172,7 @@ function UsersPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
-                      <TableCell><Badge variant="secondary" className="text-[10px]">{BACKEND_ROLE_LABEL[user.role] ?? user.role}</Badge></TableCell>
+                      <TableCell><Badge variant="secondary" className="text-[10px]">{BACKEND_ROLE_LABEL[user.role]}</Badge></TableCell>
                       <TableCell><Badge variant="outline" className="text-[10px] bg-success/12 text-success border-success/30">Active</Badge></TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -175,16 +182,16 @@ function UsersPage() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem disabled className="text-xs text-muted-foreground">Change role to:</DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            {Object.entries(BACKEND_ROLE_LABEL).filter(([role]) => Number(role) !== user.role).map(([role, label]) => (
+                            {USER_MANAGEMENT_ROLES.filter((role) => role !== user.role).map((role) => (
                               <DropdownMenuItem key={role} onClick={async () => {
-                                const response = await usersApi.updateRole(user.id, { role: Number(role) });
+                                const response = await usersApi.updateRole(user.id, { role: BACKEND_ROLE_VALUE[role] });
                                 if (response.isSuccess) {
-                                  toast.success(`${fullName || user.email} is now ${label}`);
+                                  toast.success(`${fullName || user.email} is now ${BACKEND_ROLE_LABEL[role]}`);
                                   refetch();
                                 } else {
                                   toast.error(response.errorMessage ?? "Update failed");
                                 }
-                              }}>{label}</DropdownMenuItem>
+                              }}>{BACKEND_ROLE_LABEL[role]}</DropdownMenuItem>
                             ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
