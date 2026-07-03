@@ -1,9 +1,10 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
-  ChevronRight, LogOut, Search, Bell, Sparkles,
+  ChevronRight, LogOut, Search, Bell,
   Menu, X, ChevronDown, User,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { ROLE_LABELS, logout, type Session } from "@/lib/session";
 import { navForRole } from "@/lib/nav";
-import { aiAlerts, projects } from "@/lib/mock-data";
+import { projectsApi } from "@/api/projects";
 import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
 const ROLE_BADGE_STYLE: Record<string, string> = {
@@ -38,10 +39,19 @@ const ROLE_BADGE_STYLE: Record<string, string> = {
 export function AppShell({ session }: { session: Session }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [project, setProject] = useState(projects[0].id);
+  const [project, setProject] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const items = useMemo(() => navForRole(session.role), [session.role]);
-  const canOpenAi = items.some((item) => item.to === "/app/ai");
+  const canUseProjects = !!session.token && session.role !== "customer" && session.role !== "staff";
+  const { data: liveProjects } = useQuery({
+    queryKey: ["shell-projects"],
+    queryFn: async () => {
+      const response = await projectsApi.getAll();
+      return response.result ?? [];
+    },
+    enabled: canUseProjects,
+    staleTime: 60_000,
+  });
   const grouped = useMemo(() => {
     const m = new Map<string, typeof items>();
     items.forEach((i) => {
@@ -69,15 +79,15 @@ export function AppShell({ session }: { session: Session }) {
       </div>
 
       {/* Project selector */}
-      {session.role !== "customer" && session.role !== "staff" && (
+      {canUseProjects && (liveProjects ?? []).length > 0 && (
         <div className="px-3 pt-3">
-          <Select value={project} onValueChange={setProject}>
+          <Select value={project || String(liveProjects?.[0]?.projectId ?? "")} onValueChange={setProject}>
             <SelectTrigger className="h-8 text-xs bg-sidebar-accent border-sidebar-border text-sidebar-foreground [&>svg]:text-sidebar-foreground/50">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {projects.map((p) => (
-                <SelectItem key={p.id} value={p.id} className="text-xs">{p.name}</SelectItem>
+              {(liveProjects ?? []).map((p) => (
+                <SelectItem key={p.projectId} value={String(p.projectId)} className="text-xs">{p.projectName}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -122,26 +132,8 @@ export function AppShell({ session }: { session: Session }) {
         ))}
       </nav>
 
-      {/* AI insight card */}
       <div className="p-3 border-t border-sidebar-border shrink-0">
-        {canOpenAi && (
-          <div className="rounded-xl p-3 space-y-2" style={{ background: "oklch(0.22 0.022 265 / 0.80)", border: "1px solid oklch(0.67 0.20 52 / 0.20)" }}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "oklch(0.67 0.20 52)" }}>
-                <Sparkles className="h-3 w-3" />
-                AI Insight
-              </div>
-              <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />
-            </div>
-            <p className="text-[11px] text-sidebar-foreground/70 leading-snug line-clamp-2">{aiAlerts[0].title}</p>
-            <Button asChild size="sm" className="w-full h-7 text-[11px] font-medium bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90">
-              <Link to="/app/ai">Open AI Agent →</Link>
-            </Button>
-          </div>
-        )}
-
-        {/* User row */}
-        <div className={cn("flex items-center gap-2.5 px-1", canOpenAi ? "mt-2.5" : "mt-0")}>
+        <div className="flex items-center gap-2.5 px-1">
           <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold border", ROLE_BADGE_STYLE[session.role])}>
             {session.avatar}
           </div>
@@ -215,14 +207,14 @@ export function AppShell({ session }: { session: Session }) {
             </div>
 
             {/* Desktop project selector (already in sidebar, keep small one here for context) */}
-            {session.role !== "customer" && session.role !== "staff" && (
-              <Select value={project} onValueChange={setProject}>
+            {canUseProjects && (liveProjects ?? []).length > 0 && (
+              <Select value={project || String(liveProjects?.[0]?.projectId ?? "")} onValueChange={setProject}>
                 <SelectTrigger className="h-8 w-40 hidden xl:flex text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id} className="text-xs">{p.name}</SelectItem>
+                  {(liveProjects ?? []).map((p) => (
+                    <SelectItem key={p.projectId} value={String(p.projectId)} className="text-xs">{p.projectName}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -233,37 +225,16 @@ export function AppShell({ session }: { session: Session }) {
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative h-8 w-8">
                   <Bell className="h-4 w-4" />
-                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive border-[1.5px] border-card" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 p-0">
                 <div className="flex items-center justify-between px-3.5 py-2.5 border-b">
                   <span className="text-sm font-semibold">Notifications</span>
-                  <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{aiAlerts.length} new</Badge>
+                  <Badge variant="secondary" className="text-[10px] h-4 px-1.5">0 new</Badge>
                 </div>
-                <div className="max-h-72 overflow-y-auto divide-y">
-                  {aiAlerts.map((a) => (
-                    <div key={a.id} className="px-3.5 py-3 hover:bg-muted/40 transition-colors">
-                      <div className="flex items-start gap-2.5">
-                        <span className={cn(
-                          "mt-1 h-1.5 w-1.5 rounded-full shrink-0",
-                          a.severity === "high" ? "bg-destructive" : a.severity === "medium" ? "bg-warning" : "bg-success",
-                        )} />
-                        <div>
-                          <p className="text-xs font-medium leading-snug">{a.title}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{a.detail}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <div className="px-3.5 py-6 text-center text-xs text-muted-foreground">
+                  No backend notification endpoint is configured.
                 </div>
-                {canOpenAi && (
-                  <div className="p-2 border-t">
-                    <Button asChild variant="ghost" className="w-full h-7 text-xs">
-                      <Link to="/app/ai">View all in AI Agent</Link>
-                    </Button>
-                  </div>
-                )}
               </PopoverContent>
             </Popover>
 

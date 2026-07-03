@@ -4,6 +4,10 @@ export type WarehouseResponse = {
   warehouseId: number;
   warehouseName: string;
   location: string;
+  managerId?: number;
+  managerName?: string | null;
+  inventoryRecords?: InventoryRecord[];
+  createdDate?: string;
 };
 
 export type InventoryItem = {
@@ -14,15 +18,30 @@ export type InventoryItem = {
 };
 
 type RawInventoryItem = Partial<InventoryItem> & {
+  quantityOnHand?: number;
+  availableQuantity?: number;
+  reservedQuantity?: number;
+  reorderLevel?: number;
+  isLowStock?: boolean;
   materialName?: string;
+  warehouseName?: string;
   unit?: string;
+};
+
+export type InventoryRecord = {
+  inventoryId: number;
+  materialId: number;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  reorderLevel: number;
+  updatedAt: string;
 };
 
 function normalizeInventoryItem(item: RawInventoryItem, index: number): InventoryItem {
   return {
     inventoryId: item.inventoryId ?? index,
     materialId: item.materialId ?? 0,
-    quantity: item.quantity ?? 0,
+    quantity: item.quantity ?? item.availableQuantity ?? item.quantityOnHand ?? 0,
     material: item.material ?? {
       materialName: item.materialName ?? "Unknown material",
       unit: item.unit ?? "",

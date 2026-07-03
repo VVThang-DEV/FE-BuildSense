@@ -1,5 +1,6 @@
 {
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "eslint.config.js"],
+  "exclude": ["src/AI-Integrated Construction Project Management System/unified-build-hub"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
