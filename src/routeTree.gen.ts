@@ -36,6 +36,7 @@ import { Route as AppAdminWbsRouteImport } from './routes/app.admin.wbs'
 import { Route as AppAdminWarehousesRouteImport } from './routes/app.admin.warehouses'
 import { Route as AppAdminThresholdsRouteImport } from './routes/app.admin.thresholds'
 import { Route as AppAdminSuppliersRouteImport } from './routes/app.admin.suppliers'
+import { Route as AppAdminCategoriesRouteImport } from './routes/app.admin.categories'
 
 const VerifyRoute = VerifyRouteImport.update({
   id: '/verify',
@@ -172,6 +173,11 @@ const AppAdminSuppliersRoute = AppAdminSuppliersRouteImport.update({
   path: '/admin/suppliers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminCategoriesRoute = AppAdminCategoriesRouteImport.update({
+  id: '/admin/categories',
+  path: '/admin/categories',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -196,6 +202,7 @@ export interface FileRoutesByFullPath {
   '/app/admin/wbs': typeof AppAdminWbsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
+  '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -224,6 +231,7 @@ export interface FileRoutesByTo {
   '/app/admin/wbs': typeof AppAdminWbsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
+  '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -254,6 +262,7 @@ export interface FileRoutesById {
   '/app/admin/wbs': typeof AppAdminWbsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
+  '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -284,6 +293,7 @@ export interface FileRouteTypes {
     | '/app/admin/wbs'
     | '/app/admin/warehouses'
     | '/app/admin/suppliers'
+    | '/app/admin/categories'
     | '/app/projects/$id'
     | '/app/site/'
     | '/app/site/attendance'
@@ -312,6 +322,7 @@ export interface FileRouteTypes {
     | '/app/admin/wbs'
     | '/app/admin/warehouses'
     | '/app/admin/suppliers'
+    | '/app/admin/categories'
     | '/app/projects/$id'
     | '/app/site/'
     | '/app/site/attendance'
@@ -341,6 +352,7 @@ export interface FileRouteTypes {
     | '/app/admin/wbs'
     | '/app/admin/warehouses'
     | '/app/admin/suppliers'
+    | '/app/admin/categories'
     | '/app/projects/$id'
     | '/app/site/'
     | '/app/site/attendance'
@@ -535,6 +547,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminSuppliersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/admin/categories': {
+      id: '/app/admin/categories'
+      path: '/admin/categories'
+      fullPath: '/app/admin/categories'
+      preLoaderRoute: typeof AppAdminCategoriesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/verify': {
       id: '/verify'
       path: '/verify'
@@ -594,6 +613,7 @@ interface AppRouteChildren {
   AppAdminWbsRoute: typeof AppAdminWbsRoute
   AppAdminWarehousesRoute: typeof AppAdminWarehousesRoute
   AppAdminSuppliersRoute: typeof AppAdminSuppliersRoute
+  AppAdminCategoriesRoute: typeof AppAdminCategoriesRoute
   AppProfileRoute: typeof AppProfileRoute
   AppStaffNotificationsRoute: typeof AppStaffNotificationsRoute
   AppStaffUsersRoute: typeof AppStaffUsersRoute
@@ -614,6 +634,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminWbsRoute: AppAdminWbsRoute,
   AppAdminWarehousesRoute: AppAdminWarehousesRoute,
   AppAdminSuppliersRoute: AppAdminSuppliersRoute,
+  AppAdminCategoriesRoute: AppAdminCategoriesRoute,
   AppProfileRoute: AppProfileRoute,
   AppStaffNotificationsRoute: AppStaffNotificationsRoute,
   AppStaffUsersRoute: AppStaffUsersRoute,

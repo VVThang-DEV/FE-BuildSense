@@ -12,8 +12,25 @@ export type ProjectResponse = {
   projectName: string;
   address: string | null;
   startDate: string;
+  baselineStart: string;
+  baselineEnd: string;
+  totalProjectBudget: number;
+  currency: string;
+  pmUserID: number;
+  pmName: string;
+  totalTasks: number;
+  totalAIAlerts: number;
   status: ProjectStatus;
   createdDate: string;
+};
+
+export type CreateProjectRequest = {
+  projectName: string;
+  address?: string;
+  startDate: string;
+  pmUserID: number;
+  baselineStart: string;
+  baselineEnd: string;
 };
 
 const STATUS_BY_NUMBER: Record<number, ProjectStatus> = {
@@ -46,6 +63,14 @@ function normalizeProject(project: RawProjectResponse): ProjectResponse {
     projectName: project.projectName ?? "Untitled project",
     address: project.address ?? null,
     startDate: normalizeDate(project.startDate ?? project.baselineStart),
+    baselineStart: normalizeDate(project.baselineStart),
+    baselineEnd: normalizeDate(project.baselineEnd),
+    totalProjectBudget: project.totalProjectBudget ?? 0,
+    currency: project.currency ?? "VND",
+    pmUserID: project.pmUserID ?? 0,
+    pmName: project.pmName ?? "",
+    totalTasks: project.totalTasks ?? 0,
+    totalAIAlerts: project.totalAIAlerts ?? 0,
     status: normalizeStatus(project.status),
     createdDate: normalizeDate(project.createdDate),
   };
@@ -66,6 +91,6 @@ export const projectsApi = {
       result: response.result ? normalizeProject(response.result) : response.result,
     };
   },
-  create:  (body: { projectName: string; address?: string; startDate: string }) =>
+  create:  (body: CreateProjectRequest) =>
     apiClient.post<string>("/api/projects", body),
 };

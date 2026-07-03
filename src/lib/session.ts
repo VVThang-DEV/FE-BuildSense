@@ -13,14 +13,6 @@ export type Session = {
   userId?: number;
 };
 
-export const DEMO_USERS: Record<Role, Session> = {
-  admin: { role: "admin", name: "Admin User", email: "admin@cpms.local", avatar: "AU" },
-  manager: { role: "manager", name: "Project Manager", email: "pm@cpms.local", avatar: "PM" },
-  staff: { role: "staff", name: "Vikram Shah", email: "vikram.staff@buildsense.ai", avatar: "VS" },
-  engineer: { role: "engineer", name: "Site Engineer", email: "engineer@cpms.local", avatar: "SE" },
-  customer: { role: "customer", name: "Meera Nair", email: "meera.client@gmail.com", avatar: "MN" },
-};
-
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "Admin",
   manager: "Project Manager",
@@ -30,11 +22,11 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export const ROLE_HOME: Record<Role, string> = {
-  admin: "/app/dashboard",
-  manager: "/app/dashboard",
-  staff: "/app/staff/users",
-  engineer: "/app/site/",
-  customer: "/app/portal",
+  admin: "/app/projects",
+  manager: "/app/projects",
+  staff: "/app/projects",
+  engineer: "/app/projects",
+  customer: "/app/projects",
 };
 
 /** Maps backend Role enum string/number → frontend Role */
@@ -78,13 +70,6 @@ function snapshot(): Session | null {
   } catch {
     return null;
   }
-}
-
-export function login(role: Role) {
-  const s = DEMO_USERS[role];
-  window.localStorage.setItem(KEY, JSON.stringify(s));
-  emit();
-  return s;
 }
 
 /** Create a real session from a JWT returned by POST /api/auth/login */

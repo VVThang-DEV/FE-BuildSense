@@ -10,20 +10,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { projects as mockProjects } from "@/lib/mock-data";
 import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
-import { MockDataBanner } from "@/components/mock-banner";
+import { usersApi } from "@/api/users";
 
 export const Route = createFileRoute("/app/projects")({
-  head: () => ({ meta: [{ title: "Projects — BuildSense AI" }] }),
+  head: () => ({ meta: [{ title: "Projects - BuildSense AI" }] }),
   component: ProjectsRoute,
 });
 
 const STATUS_HEALTH: Record<string, "on-track" | "at-risk" | "delayed"> = {
-  PLANNING: "on-track", IN_PROGRESS: "on-track", COMPLETED: "on-track", DELAYED: "delayed",
+  PLANNING: "on-track",
+  IN_PROGRESS: "on-track",
+  COMPLETED: "on-track",
+  DELAYED: "delayed",
 };
 
 function formatDate(value: string): string {
@@ -32,38 +34,64 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString();
 }
 
+function addDays(value: string, days: number): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function ProjectsRoute() {
   const projectDetailMatch = useMatch({ from: "/app/projects/$id", shouldThrow: false });
-
   return projectDetailMatch ? <Outlet /> : <ProjectsList />;
 }
 
 function ProjectsList() {
   const session = useSession();
   const isLive = !!session?.token;
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ projectName: "", address: "", startDate: "", baselineEnd: "" });
 
   const { data: liveProjects, isLoading, refetch } = useQuery({
     queryKey: ["projects"],
     queryFn: async () => {
-      const res = await projectsApi.getAll();
-      if (!res.isSuccess) throw new Error(res.errorMessage ?? "Failed");
-      return res.result ?? [];
+      const response = await projectsApi.getAll();
+      if (!response.isSuccess) throw new Error(response.errorMessage ?? "Failed");
+      return response.result ?? [];
     },
     enabled: isLive,
     staleTime: 30_000,
   });
 
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ projectName: "", address: "", startDate: "" });
   const submitCreate = async () => {
-    if (!form.projectName.trim() || !form.startDate) { toast.error("Project name and start date are required"); return; }
-    const r = await projectsApi.create({ projectName: form.projectName, address: form.address || undefined, startDate: form.startDate });
-    if (r.isSuccess) {
+    if (!form.projectName.trim() || !form.startDate) {
+      toast.error("Project name and start date are required");
+      return;
+    }
+
+    const userIdResponse = await usersApi.getUserId();
+    if (!userIdResponse.isSuccess || !userIdResponse.result) {
+      toast.error(userIdResponse.errorMessage ?? "Could not resolve current user");
+      return;
+    }
+
+    const response = await projectsApi.create({
+      projectName: form.projectName.trim(),
+      address: form.address.trim() || undefined,
+      startDate: form.startDate,
+      pmUserID: userIdResponse.result,
+      baselineStart: form.startDate,
+      baselineEnd: form.baselineEnd || addDays(form.startDate, 90),
+    });
+
+    if (response.isSuccess) {
       toast.success("Project created");
       setCreating(false);
-      setForm({ projectName: "", address: "", startDate: "" });
+      setForm({ projectName: "", address: "", startDate: "", baselineEnd: "" });
       refetch();
-    } else toast.error(r.errorMessage ?? "Create failed");
+    } else {
+      toast.error(response.errorMessage ?? "Create failed");
+    }
   };
 
   return (
@@ -71,108 +99,84 @@ function ProjectsList() {
       <PageHeader
         section="Overview"
         title="Projects"
-        description="All active and planned house builds across the community."
+        description="Active and planned construction projects from the backend."
         actions={
           isLive ? (
             <Button size="sm" className="h-8 text-xs" onClick={() => setCreating(true)}>
               <Plus className="h-3.5 w-3.5 mr-1" /> New project
             </Button>
-          ) : (
-            <Button size="sm" className="h-8 text-xs" onClick={() => toast.info("New project wizard (demo)")}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> New project
-            </Button>
-          )
+          ) : undefined
         }
       />
 
-      {isLive && (
-        <Dialog open={creating} onOpenChange={setCreating}>
-          <DialogContent>
-            <DialogHeader><DialogTitle>New Project</DialogTitle></DialogHeader>
-            <div className="space-y-3">
-              <div>
-                <Label>Project name</Label>
-                <Input value={form.projectName} onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))} placeholder="Block A — Tower 1" />
-              </div>
-              <div>
-                <Label>Address <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder="123 Main St, District 1" />
-              </div>
-              <div>
-                <Label>Start date</Label>
-                <Input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
-              </div>
+      <Dialog open={creating} onOpenChange={setCreating}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>New Project</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Project name</Label>
+              <Input value={form.projectName} onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))} />
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
-              <Button onClick={submitCreate}>Create project</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+            <div>
+              <Label>Address</Label>
+              <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Start date</Label>
+              <Input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Baseline end</Label>
+              <Input type="date" value={form.baselineEnd} onChange={(e) => setForm((f) => ({ ...f, baselineEnd: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
+            <Button onClick={submitCreate}>Create project</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card className="shadow-sm">
         <CardContent className="p-0">
-          {isLive ? (
-            isLoading ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">Loading projects…</div>
-            ) : (
-              <Table>
-                <TableHeader><TableRow>
-                  <TableHead>Project</TableHead><TableHead>Address</TableHead>
-                  <TableHead>Status</TableHead><TableHead>Start date</TableHead><TableHead>Created</TableHead>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {(liveProjects ?? []).length === 0 && (
-                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No projects yet — create one above</TableCell></TableRow>
-                  )}
-                  {(liveProjects ?? []).map((p) => (
-                    <TableRow key={p.projectId} className="cursor-pointer">
-                      <TableCell className="font-medium">
-                        <Link to="/app/projects/$id" params={{ id: String(p.projectId) }} className="hover:underline">{p.projectName}</Link>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{p.address ?? "—"}</TableCell>
-                      <TableCell><Badge variant="outline" className={cn(healthConfig[STATUS_HEALTH[p.status] ?? "on-track"].cls)}>{p.status.replace("_", " ")}</Badge></TableCell>
-                      <TableCell className="text-sm">{formatDate(p.startDate)}</TableCell>
-                      <TableCell className="text-sm">{formatDate(p.createdDate)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )
+          {!isLive ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">Sign in with a real backend account to view projects.</div>
+          ) : isLoading ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">Loading projects...</div>
           ) : (
-            <>
-            <MockDataBanner message="Demo data — projects below are sample data. Sign in with a real account for live data." />
             <Table>
-              <TableHeader><TableRow>
-                <TableHead>Project</TableHead><TableHead>Customer</TableHead>
-                <TableHead>Health</TableHead><TableHead>Progress</TableHead>
-                <TableHead className="text-right">Budget</TableHead><TableHead className="text-right">Spent</TableHead>
-                <TableHead>Handover</TableHead>
-              </TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Address</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Start date</TableHead>
+                  <TableHead>Created</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {mockProjects.map((p) => (
-                  <TableRow key={p.id} className="cursor-pointer">
+                {(liveProjects ?? []).length === 0 && (
+                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No projects yet</TableCell></TableRow>
+                )}
+                {(liveProjects ?? []).map((project) => (
+                  <TableRow key={project.projectId}>
                     <TableCell className="font-medium">
-                      <Link to="/app/projects/$id" params={{ id: p.id }} className="hover:underline">{p.name}</Link>
+                      <Link to="/app/projects/$id" params={{ id: String(project.projectId) }} className="hover:underline">
+                        {project.projectName}
+                      </Link>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{p.customer}</TableCell>
-                    <TableCell><Badge variant="outline" className={cn(healthConfig[p.health].cls)}>{healthConfig[p.health].label}</Badge></TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{project.address ?? "-"}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-24 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full rounded-full bg-primary" style={{ width: `${p.percent}%` }} />
-                        </div>
-                        <span className="text-xs tabular-nums">{p.percent}%</span>
-                      </div>
+                      <Badge variant="outline" className={cn(healthConfig[STATUS_HEALTH[project.status] ?? "on-track"].cls)}>
+                        {project.status.replace("_", " ")}
+                      </Badge>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">₹{(p.budget / 100000).toFixed(1)}L</TableCell>
-                    <TableCell className="text-right tabular-nums">₹{(p.spent / 100000).toFixed(1)}L</TableCell>
-                    <TableCell className="text-sm">{p.end}</TableCell>
+                    <TableCell className="text-sm">{formatDate(project.startDate)}</TableCell>
+                    <TableCell className="text-sm">{formatDate(project.createdDate)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-            </>
           )}
         </CardContent>
       </Card>
