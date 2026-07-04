@@ -29,6 +29,8 @@ export const Route = createFileRoute("/app/procurement")({
 function ProcurementPage() {
   const session = useSession();
   const isLive = !!session?.token;
+  const canCreate = session?.role === "PM" || session?.role === "ADMIN";
+  const canApproveOrImport = session?.role === "WAREHOUSE_MANAGER" || session?.role === "ADMIN";
   const [creating, setCreating] = useState(false);
   const [newPO, setNewPO] = useState({ projectId: "", supplierId: "", materialId: "", quantity: "1", unitPrice: "0" });
   const [importOpen, setImportOpen] = useState(false);
@@ -129,7 +131,7 @@ function ProcurementPage() {
         title="Procurement"
         description="Create, approve, and receive backend purchase orders."
         actions={
-          isLive ? (
+          isLive && canCreate ? (
             <Button size="sm" className="h-8 text-xs" onClick={() => setCreating(true)}>
               <Plus className="h-3.5 w-3.5 mr-1" /> New PO
             </Button>
@@ -196,18 +198,20 @@ function ProcurementPage() {
             <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
           <TabsContent value="pending">
-            <PurchaseOrderTable rows={pending} projectName={projectName} supplierName={supplierName} onApprove={approve} />
+            <PurchaseOrderTable rows={pending} projectName={projectName} supplierName={supplierName} onApprove={canApproveOrImport ? approve : undefined} />
           </TabsContent>
           <TabsContent value="history">
             <PurchaseOrderTable
               rows={history}
               projectName={projectName}
               supplierName={supplierName}
-              onImport={(poId) => {
-                setImportPOId(poId);
-                setImportWarehouseId("");
-                setImportOpen(true);
-              }}
+              onImport={canApproveOrImport
+                ? (poId) => {
+                    setImportPOId(poId);
+                    setImportWarehouseId("");
+                    setImportOpen(true);
+                  }
+                : undefined}
             />
           </TabsContent>
         </Tabs>
