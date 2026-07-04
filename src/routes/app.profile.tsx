@@ -61,8 +61,8 @@ function ProfilePage() {
     ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim() || session?.name
     : session?.name;
   const roleLabel = profile
-    ? (BACKEND_ROLE_LABEL[profile.role] ?? String(profile.role))
-    : (session?.role ?? "");
+    ? BACKEND_ROLE_LABEL[profile.role]
+    : (session ? BACKEND_ROLE_LABEL[session.role] : "");
 
   return (
     <div className="max-w-[900px] mx-auto">

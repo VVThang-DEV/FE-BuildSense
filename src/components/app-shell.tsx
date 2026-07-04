@@ -23,17 +23,17 @@ import {
 } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { ROLE_LABELS, logout, type Session } from "@/lib/session";
+import { ROLE_LABELS, logout, type Role, type Session } from "@/lib/session";
 import { navForRole } from "@/lib/nav";
 import { projectsApi } from "@/api/projects";
 import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
-const ROLE_BADGE_STYLE: Record<string, string> = {
-  admin:    "bg-destructive/15 text-destructive border-destructive/30",
-  manager:  "bg-primary/15 text-primary border-primary/30",
-  staff:    "bg-success/15 text-success border-success/30",
-  engineer: "bg-warning/20 text-warning-foreground border-warning/35",
-  customer: "bg-ai/15 text-ai border-ai/30",
+const ROLE_BADGE_STYLE: Record<Role, string> = {
+  ADMIN: "bg-destructive/15 text-destructive border-destructive/30",
+  PM: "bg-primary/15 text-primary border-primary/30",
+  WAREHOUSE_MANAGER: "bg-success/15 text-success border-success/30",
+  SUPPLIER: "bg-warning/20 text-warning-foreground border-warning/35",
+  CUSTOMER: "bg-ai/15 text-ai border-ai/30",
 };
 
 export function AppShell({ session }: { session: Session }) {
@@ -42,7 +42,7 @@ export function AppShell({ session }: { session: Session }) {
   const [project, setProject] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const items = useMemo(() => navForRole(session.role), [session.role]);
-  const canUseProjects = !!session.token && session.role !== "customer" && session.role !== "staff";
+  const canUseProjects = !!session.token && (session.role === "ADMIN" || session.role === "PM");
   const { data: liveProjects } = useQuery({
     queryKey: ["shell-projects"],
     queryFn: async () => {

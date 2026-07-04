@@ -1,10 +1,24 @@
 import { createFileRoute, Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { AlertCircle, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
+import {
+  AlertCircle,
+  BarChart3,
+  Brain,
+  Building2,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Loader2,
+  Package,
+  ShieldCheck,
+  Sparkles,
+  Users,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { ROLE_HOME, loginWithToken, useMounted, useSession } from "@/lib/session";
 import { authApi } from "@/api/auth";
 import buildSenseLogo from "@/assets/buildsense-logo.svg";
@@ -18,6 +32,20 @@ export const Route = createFileRoute("/login")({
   }),
   component: LoginPage,
 });
+
+const HERO_STATS = [
+  { value: "12", label: "Active Projects" },
+  { value: "148", label: "On-site Workers" },
+  { value: "98%", label: "On-time POs" },
+  { value: "6.2d", label: "AI Early Warning" },
+];
+
+const HERO_FEATURES = [
+  { icon: BarChart3, text: "Real-time plan vs. actual cost and schedule" },
+  { icon: Brain, text: "AI anomaly detection and risk forecasts" },
+  { icon: Package, text: "Automated material procurement workflows" },
+  { icon: Users, text: "Field attendance and daily progress tracking" },
+];
 
 function LoginPage() {
   const session = useSession();
@@ -53,18 +81,133 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <Card className="w-full max-w-md shadow-sm">
-        <CardHeader className="space-y-4">
-          <div className="flex items-center gap-3">
-            <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-10 w-10 rounded-lg object-cover" />
-            <div>
-              <CardTitle className="text-xl">BuildSense AI</CardTitle>
-              <p className="text-sm text-muted-foreground">Backend account sign in</p>
+    <div className="min-h-screen flex bg-background">
+      <div
+        className="relative hidden lg:flex w-[52%] shrink-0 flex-col justify-between overflow-hidden"
+        style={{
+          background:
+            "linear-gradient(155deg, oklch(0.155 0.022 265) 0%, oklch(0.12 0.030 270) 60%, oklch(0.10 0.035 275) 100%)",
+        }}
+      >
+        <div
+          className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage:
+              "linear-gradient(oklch(0.92 0 0) 1px, transparent 1px), linear-gradient(90deg, oklch(0.92 0 0) 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
+          }}
+        />
+        <div
+          className="absolute -top-32 -right-32 h-96 w-96 rounded-full opacity-10 blur-3xl"
+          style={{ background: "oklch(0.67 0.20 52)" }}
+        />
+        <div
+          className="absolute bottom-0 left-0 h-64 w-64 rounded-full opacity-[0.06] blur-3xl"
+          style={{ background: "oklch(0.57 0.23 285)" }}
+        />
+
+        <div className="relative z-10 flex items-center gap-3 p-10">
+          <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-11 w-11 rounded-xl object-cover" />
+          <div>
+            <p className="text-[15px] font-bold tracking-tight" style={{ color: "oklch(0.96 0.006 80)" }}>
+              BuildSense AI
+            </p>
+            <p className="text-[11px] font-medium" style={{ color: "oklch(0.67 0.20 52)" }}>
+              Construction PM Platform
+            </p>
+          </div>
+          <Badge
+            className="ml-auto border text-[10px] font-semibold"
+            style={{
+              background: "oklch(0.67 0.20 52 / 0.15)",
+              borderColor: "oklch(0.67 0.20 52 / 0.35)",
+              color: "oklch(0.67 0.20 52)",
+            }}
+          >
+            <Sparkles className="mr-1 h-3 w-3" /> AI-Integrated
+          </Badge>
+        </div>
+
+        <div className="relative z-10 space-y-6 px-10">
+          <div>
+            <p
+              className="mb-3 text-[11px] font-semibold uppercase tracking-widest"
+              style={{ color: "oklch(0.67 0.20 52)" }}
+            >
+              SP26SE157 - Graduation Thesis
+            </p>
+            <h1
+              className="text-[2.3rem] font-bold leading-[1.18] tracking-tight"
+              style={{ color: "oklch(0.97 0.005 80)" }}
+            >
+              One platform for materials, progress and people on every site.
+            </h1>
+          </div>
+          <p className="text-[13.5px] leading-relaxed" style={{ color: "oklch(0.68 0.018 265)" }}>
+            BuildSense AI consolidates field updates, automates procurement, predicts schedule risk and keeps
+            customers in the loop, built for residential construction in Vietnam.
+          </p>
+          <div className="space-y-2.5">
+            {HERO_FEATURES.map(({ icon: Icon, text }) => (
+              <div key={text} className="flex items-center gap-3">
+                <div
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                  style={{ background: "oklch(0.67 0.20 52 / 0.12)" }}
+                >
+                  <Icon className="h-3.5 w-3.5" style={{ color: "oklch(0.67 0.20 52)" }} />
+                </div>
+                <span className="text-[13px]" style={{ color: "oklch(0.76 0.016 265)" }}>
+                  {text}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="relative z-10 p-10">
+          <div
+            className="rounded-2xl p-5"
+            style={{
+              background: "oklch(0.22 0.022 265 / 0.55)",
+              border: "1px solid oklch(0.30 0.020 265 / 0.50)",
+            }}
+          >
+            <div className="grid grid-cols-4 gap-4">
+              {HERO_STATS.map(({ value, label }) => (
+                <div key={label} className="text-center">
+                  <p className="text-[1.6rem] font-bold" style={{ color: "oklch(0.67 0.20 52)" }}>
+                    {value}
+                  </p>
+                  <p className="mt-0.5 text-[10.5px]" style={{ color: "oklch(0.58 0.018 265)" }}>
+                    {label}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          <p className="mt-5 flex items-center gap-2 text-[11px]" style={{ color: "oklch(0.44 0.018 265)" }}>
+            <Building2 className="h-3.5 w-3.5" />
+            FPT University - Software Engineering - SU2026
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col justify-center overflow-y-auto px-6 py-10 sm:px-12 xl:px-16">
+        <div className="mb-8 flex items-center gap-3 lg:hidden">
+          <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-9 w-9 rounded-xl object-cover" />
+          <div>
+            <p className="text-sm font-bold">BuildSense AI</p>
+            <p className="text-[10px] text-muted-foreground">SP26SE157</p>
+          </div>
+        </div>
+
+        <div className="max-w-md">
+          <div className="mb-6">
+            <h2 className="text-[1.65rem] font-bold tracking-tight text-foreground">Sign in</h2>
+            <p className="mt-1.5 text-sm text-muted-foreground">Sign in to your BuildSense AI workspace.</p>
+          </div>
+
+          <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -77,6 +220,7 @@ function LoginPage() {
               }}
               onKeyDown={(event) => event.key === "Enter" && handleLogin()}
               autoComplete="email"
+              placeholder="you@buildsense.ai"
             />
           </div>
           <div className="space-y-1.5">
@@ -93,6 +237,7 @@ function LoginPage() {
                 onKeyDown={(event) => event.key === "Enter" && handleLogin()}
                 autoComplete="current-password"
                 className="pr-10"
+                placeholder="Password"
               />
               <button
                 type="button"
@@ -109,19 +254,38 @@ function LoginPage() {
               {error}
             </div>
           )}
-          <Button className="w-full" onClick={handleLogin} disabled={loading || !email.trim() || !password.trim()}>
-            {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Signing in...</> : "Sign in"}
+          <Button className="h-10 w-full" onClick={handleLogin} disabled={loading || !email.trim() || !password.trim()}>
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in...
+              </>
+            ) : (
+              "Sign in"
+            )}
           </Button>
-          <div className="flex items-start gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 mt-0.5 shrink-0 text-success" />
-            Uses `POST /api/Auth/login` and stores the returned JWT for authenticated API calls.
-          </div>
-          <p className="text-center text-xs text-muted-foreground">
-            Need to verify an account?{" "}
-            <Link to="/verify" className="text-primary hover:underline font-medium">Open verification</Link>
+          <p className="pt-1 text-center text-xs text-muted-foreground">
+            Just registered?{" "}
+            <Link to="/verify" className="font-medium text-primary hover:underline">
+              Verify your email
+            </Link>
           </p>
-        </CardContent>
-      </Card>
+          </div>
+
+          <div className="mt-6 space-y-2">
+            <Separator />
+            <div className="flex items-start gap-2 text-[11.5px] text-muted-foreground">
+              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+              <span>
+                Uses the backend Auth login endpoint and stores the returned JWT for authenticated API calls.
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground/55">
+              <CheckCircle2 className="h-3 w-3 text-success/60" />
+              BuildSense AI - SP26SE157 - FPT University SU2026
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
