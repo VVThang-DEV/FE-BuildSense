@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  LayoutDashboard,
   FolderKanban,
   Package,
   ShoppingCart,
@@ -19,10 +20,11 @@ export type NavItem = {
 };
 
 export const NAV: NavItem[] = [
+  { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Overview" },
   { to: "/app/projects", label: "Projects", icon: FolderKanban, roles: ["ADMIN", "PM"], group: "Overview" },
 
   { to: "/app/materials", label: "Material Catalog", icon: Package, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Operations" },
-  { to: "/app/procurement", label: "Procurement", icon: ShoppingCart, roles: ["ADMIN", "PM"], group: "Operations" },
+  { to: "/app/procurement", label: "Procurement", icon: ShoppingCart, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Operations" },
 
   { to: "/app/admin/categories", label: "Categories", icon: Tags, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Setup" },
   { to: "/app/admin/warehouses", label: "Warehouses", icon: Warehouse, roles: ["ADMIN", "WAREHOUSE_MANAGER"], group: "Setup" },

@@ -14,6 +14,10 @@ export type InventoryItem = {
   inventoryId: number;
   materialId: number;
   quantity: number;
+  reservedQuantity: number;
+  reorderLevel: number;
+  isLowStock: boolean;
+  warehouseName?: string;
   material?: { materialName: string; unit: string };
 };
 
@@ -42,6 +46,10 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
     inventoryId: item.inventoryId ?? index,
     materialId: item.materialId ?? 0,
     quantity: item.quantity ?? item.availableQuantity ?? item.quantityOnHand ?? 0,
+    reservedQuantity: item.reservedQuantity ?? 0,
+    reorderLevel: item.reorderLevel ?? 0,
+    isLowStock: item.isLowStock ?? ((item.availableQuantity ?? item.quantity ?? item.quantityOnHand ?? 0) <= (item.reorderLevel ?? 0)),
+    warehouseName: item.warehouseName,
     material: item.material ?? {
       materialName: item.materialName ?? "Unknown material",
       unit: item.unit ?? "",

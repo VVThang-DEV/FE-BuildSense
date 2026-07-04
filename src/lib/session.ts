@@ -22,15 +22,14 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export const ROLE_HOME: Record<Role, string> = {
-  ADMIN: "/app/projects",
-  PM: "/app/projects",
-  WAREHOUSE_MANAGER: "/app/admin/warehouses",
+  ADMIN: "/app/dashboard",
+  PM: "/app/dashboard",
+  WAREHOUSE_MANAGER: "/app/dashboard",
   SUPPLIER: "/app/admin/suppliers",
   CUSTOMER: "/app/portal",
 };
 
 const KEY = "bs.session.v1";
-
 const VALID_ROLES = new Set<Role>(["ADMIN", "PM", "WAREHOUSE_MANAGER", "SUPPLIER", "CUSTOMER"]);
 
 type JwtClaims = Record<string, string | number | undefined>;
@@ -73,9 +72,11 @@ export function isTokenExpired(token?: string): boolean {
 }
 
 const listeners = new Set<() => void>();
+
 function emit() {
   listeners.forEach((listener) => listener());
 }
+
 function subscribe(callback: () => void) {
   listeners.add(callback);
   return () => listeners.delete(callback);
