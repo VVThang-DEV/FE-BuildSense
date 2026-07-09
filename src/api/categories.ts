@@ -11,10 +11,9 @@ export type CategoryRequest = {
 };
 
 export const categoriesApi = {
-  getAll: () => apiClient.get<CategoryResponse[]>("/api/categories"),
-  getById: (id: number) => apiClient.get<CategoryResponse>(`/api/categories/${id}`),
-  create: (body: CategoryRequest) => apiClient.post<string>("/api/categories", body),
-  update: (id: number, body: CategoryRequest) =>
-    apiClient.put<string>(`/api/categories/${id}`, body),
-  delete: (id: number) => apiClient.delete<string>(`/api/categories/${id}`),
+  getAll: () => apiClient.get<CategoryResponse[]>("/api/Category"),
+  getById: (id: number) => apiClient.get<CategoryResponse>(`/api/Category/${id}`),
+  create: (body: CategoryRequest) => apiClient.post<string>("/api/Category", body),
+  update: (id: number, body: CategoryRequest) => apiClient.put<string>(`/api/Category/${id}`, body),
+  delete: (id: number) => apiClient.delete<string>(`/api/Category/${id}`),
 };

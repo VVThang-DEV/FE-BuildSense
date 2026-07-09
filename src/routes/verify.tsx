@@ -21,7 +21,10 @@ function VerifyPage() {
   const [done, setDone] = useState(false);
 
   const handleSubmit = async () => {
-    if (!userId.trim() || !code.trim()) { toast.error("Both fields are required"); return; }
+    if (!userId.trim() || !code.trim()) {
+      toast.error("Both fields are required");
+      return;
+    }
     setLoading(true);
     try {
       const r = await authApi.verify(Number(userId), code.trim());
@@ -46,7 +49,11 @@ function VerifyPage() {
           {/* Header */}
           <div className="flex flex-col items-center gap-3 text-center">
             <div className="flex items-center gap-2 mb-1">
-              <img src={buildSenseLogo} alt="BuildSense AI" className="h-8 w-8 rounded-lg object-cover" />
+              <img
+                src={buildSenseLogo}
+                alt="BuildSense AI"
+                className="h-8 w-8 rounded-lg object-cover"
+              />
               <span className="text-sm font-bold">BuildSense AI</span>
             </div>
             <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center">
@@ -62,7 +69,9 @@ function VerifyPage() {
 
           {done ? (
             <div className="rounded-xl bg-success/10 border border-success/25 p-4 text-center">
-              <p className="text-sm font-semibold text-success">✅ Verified! Redirecting to sign in…</p>
+              <p className="text-sm font-semibold text-success">
+                ✅ Verified! Redirecting to sign in…
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -76,7 +85,8 @@ function VerifyPage() {
                   disabled={loading}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Your User ID was returned when you registered — check the API response or your email.
+                  Your User ID was returned when you registered — check the API response or your
+                  email.
                 </p>
               </div>
 
@@ -99,9 +109,13 @@ function VerifyPage() {
                 onClick={handleSubmit}
                 disabled={loading || !userId.trim() || !code.trim()}
               >
-                {loading
-                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Verifying…</>
-                  : "Verify Email"}
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Verifying…
+                  </>
+                ) : (
+                  "Verify Email"
+                )}
               </Button>
             </div>
           )}

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { User, Mail, Phone, Save, Loader2, Shield } from "lucide-react";
@@ -10,8 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
+import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
 import { usersApi, BACKEND_ROLE_LABEL } from "@/api/users";
+import { requireApiResult } from "@/api/client";
 
 export const Route = createFileRoute("/app/profile")({
   head: () => ({ meta: [{ title: "My Profile — BuildSense AI" }] }),
@@ -22,9 +24,18 @@ function ProfilePage() {
   const session = useSession();
   const isLive = !!session?.token;
 
-  const { data: profile, isLoading, refetch } = useQuery({
+  const {
+    data: profile,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["profile"],
-    queryFn: async () => { const r = await usersApi.getProfile(); return r.result; },
+    queryFn: async () => {
+      const r = await usersApi.getProfile();
+      return requireApiResult(r, "Could not load your profile");
+    },
     enabled: isLive,
     staleTime: 60_000,
   });
@@ -33,22 +44,24 @@ function ProfilePage() {
   const [formInit, setFormInit] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // initialise form once profile loads
-  if (profile && !formInit) {
+  useEffect(() => {
+    if (!profile || formInit) return;
     setForm({
       firstName: profile.firstName ?? "",
       lastName: profile.lastName ?? "",
       phoneNumber: profile.phoneNumber ?? "",
     });
     setFormInit(true);
-  }
+  }, [formInit, profile]);
 
   const save = async () => {
     setSaving(true);
     try {
       const r = await usersApi.updateProfile(form);
-      if (r.isSuccess) { toast.success("Profile updated"); refetch(); }
-      else toast.error(r.errorMessage ?? "Update failed");
+      if (r.isSuccess) {
+        toast.success("Profile updated");
+        refetch();
+      } else toast.error(r.errorMessage ?? "Update failed");
     } catch {
       toast.error("Update failed — check your connection");
     } finally {
@@ -62,7 +75,9 @@ function ProfilePage() {
     : session?.name;
   const roleLabel = profile
     ? BACKEND_ROLE_LABEL[profile.role]
-    : (session ? BACKEND_ROLE_LABEL[session.role] : "");
+    : session
+      ? BACKEND_ROLE_LABEL[session.role]
+      : "";
 
   return (
     <div className="max-w-[900px] mx-auto">
@@ -81,7 +96,9 @@ function ProfilePage() {
             </div>
             <div>
               <p className="font-semibold text-base leading-tight">{displayName}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{profile?.email ?? session?.email ?? "—"}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {profile?.email ?? session?.email ?? "—"}
+              </p>
             </div>
             <Badge variant="outline" className="text-xs px-2.5 py-0.5 gap-1">
               <Shield className="h-3 w-3" /> {roleLabel}
@@ -116,6 +133,11 @@ function ProfilePage() {
               </div>
             ) : isLoading ? (
               <div className="text-center py-8 text-sm text-muted-foreground">Loading profile…</div>
+            ) : isError ? (
+              <QueryError
+                message={error instanceof Error ? error.message : undefined}
+                onRetry={() => refetch()}
+              />
             ) : (
               <div className="space-y-4">
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -152,17 +174,26 @@ function ProfilePage() {
                 <Separator />
 
                 <div className="space-y-1.5">
-                  <Label>Email address <span className="text-muted-foreground text-xs">(cannot change)</span></Label>
+                  <Label>
+                    Email address{" "}
+                    <span className="text-muted-foreground text-xs">(cannot change)</span>
+                  </Label>
                   <Input value={profile?.email ?? ""} disabled className="bg-muted/40" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Role <span className="text-muted-foreground text-xs">(managed by admin)</span></Label>
+                  <Label>
+                    Role <span className="text-muted-foreground text-xs">(managed by admin)</span>
+                  </Label>
                   <Input value={roleLabel} disabled className="bg-muted/40" />
                 </div>
 
                 <div className="flex justify-end pt-2">
                   <Button onClick={save} disabled={saving} className="gap-2">
-                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {saving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
                     Save changes
                   </Button>
                 </div>

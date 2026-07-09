@@ -35,8 +35,16 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { PageHeader } from "@/components/page-header";
+import { QueryError } from "@/components/query-error";
 import { cn, healthConfig, statusConfig } from "@/lib/utils";
 import { ROLE_LABELS, useSession, type Role } from "@/lib/session";
 import { projectsApi, type ProjectResponse } from "@/api/projects";
@@ -45,6 +53,7 @@ import { suppliersApi } from "@/api/suppliers";
 import { warehousesApi, type InventoryItem, type WarehouseResponse } from "@/api/warehouses";
 import { purchaseOrdersApi, type PurchaseOrderResponse } from "@/api/purchaseOrders";
 import { usersApi } from "@/api/users";
+import { requireApiResult } from "@/api/client";
 
 export const Route = createFileRoute("/app/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard - BuildSense AI" }] }),
@@ -100,41 +109,54 @@ function DashboardPage() {
   const canSeeSuppliers = role === "ADMIN";
   const canSeeUsers = role === "ADMIN";
 
-  const { data: projects = [], isLoading: projectsLoading } = useQuery({
+  const projectsQuery = useQuery({
     queryKey: ["dashboard-projects"],
-    queryFn: async () => (await projectsApi.getAll()).result ?? [],
+    queryFn: async () =>
+      requireApiResult(await projectsApi.getAll(), "Could not load projects") ?? [],
     enabled: isLive && canSeeProjects,
     staleTime: 30_000,
   });
+  const { data: projects = [], isLoading: projectsLoading } = projectsQuery;
 
-  const { data: materials = [] } = useQuery({
+  const materialsQuery = useQuery({
     queryKey: ["dashboard-materials"],
-    queryFn: async () => (await materialsApi.getAll()).result ?? [],
+    queryFn: async () =>
+      requireApiResult(await materialsApi.getAll(), "Could not load materials") ?? [],
     enabled: isLive && role !== "CUSTOMER" && role !== "SUPPLIER",
     staleTime: 30_000,
   });
+  const { data: materials = [] } = materialsQuery;
 
-  const { data: suppliers = [] } = useQuery({
+  const suppliersQuery = useQuery({
     queryKey: ["dashboard-suppliers"],
-    queryFn: async () => (await suppliersApi.getAll()).result ?? [],
+    queryFn: async () =>
+      requireApiResult(await suppliersApi.getAll(), "Could not load suppliers") ?? [],
     enabled: isLive && canSeeSuppliers,
     staleTime: 30_000,
   });
+  const { data: suppliers = [] } = suppliersQuery;
 
-  const { data: warehouses = [] } = useQuery({
+  const warehousesQuery = useQuery({
     queryKey: ["dashboard-warehouses"],
-    queryFn: async () => (await warehousesApi.getAll()).result ?? [],
+    queryFn: async () =>
+      requireApiResult(await warehousesApi.getAll(), "Could not load warehouses") ?? [],
     enabled: isLive && canSeeWarehouse,
     staleTime: 30_000,
   });
+  const { data: warehouses = [] } = warehousesQuery;
 
-  const { data: inventory = [], isLoading: inventoryLoading } = useQuery({
-    queryKey: ["dashboard-inventory", warehouses.map((warehouse) => warehouse.warehouseId).join(",")],
+  const inventoryQuery = useQuery({
+    queryKey: [
+      "dashboard-inventory",
+      warehouses.map((warehouse) => warehouse.warehouseId).join(","),
+    ],
     queryFn: async () => {
       const rows = await Promise.all(
         warehouses.map(async (warehouse) => {
           const response = await warehousesApi.getInventory(warehouse.warehouseId);
-          return (response.result ?? []).map((item) => ({
+          return (
+            requireApiResult(response, `Could not load ${warehouse.warehouseName} inventory`) ?? []
+          ).map((item) => ({
             ...item,
             warehouseId: warehouse.warehouseId,
             warehouseName: item.warehouseName ?? warehouse.warehouseName,
@@ -146,20 +168,35 @@ function DashboardPage() {
     enabled: isLive && canSeeWarehouse && warehouses.length > 0,
     staleTime: 20_000,
   });
+  const { data: inventory = [], isLoading: inventoryLoading } = inventoryQuery;
 
-  const { data: purchaseOrders = [], isLoading: purchaseOrdersLoading } = useQuery({
+  const purchaseOrdersQuery = useQuery({
     queryKey: ["dashboard-purchase-orders"],
-    queryFn: async () => (await purchaseOrdersApi.getAll()).result ?? [],
+    queryFn: async () =>
+      requireApiResult(await purchaseOrdersApi.getAll(), "Could not load purchase orders") ?? [],
     enabled: isLive && role !== "CUSTOMER" && role !== "SUPPLIER",
     staleTime: 20_000,
   });
+  const { data: purchaseOrders = [], isLoading: purchaseOrdersLoading } = purchaseOrdersQuery;
 
-  const { data: userCount = 0 } = useQuery({
+  const userCountQuery = useQuery({
     queryKey: ["dashboard-user-count"],
-    queryFn: async () => (await usersApi.countUsers()).result ?? 0,
+    queryFn: async () =>
+      requireApiResult(await usersApi.countUsers(), "Could not load user count") ?? 0,
     enabled: isLive && canSeeUsers,
     staleTime: 60_000,
   });
+  const { data: userCount = 0 } = userCountQuery;
+
+  const failedQuery = [
+    projectsQuery,
+    materialsQuery,
+    suppliersQuery,
+    warehousesQuery,
+    inventoryQuery,
+    purchaseOrdersQuery,
+    userCountQuery,
+  ].find((query) => query.isError);
 
   const scopedProjects = useMemo(() => {
     if (role !== "PM" || !session?.userId) return projects;
@@ -206,7 +243,24 @@ function DashboardPage() {
         description={dashboardDescription(role)}
       />
 
-      {role === "ADMIN" && (
+      {failedQuery && (
+        <Card className="shadow-sm">
+          <QueryError
+            message={failedQuery.error instanceof Error ? failedQuery.error.message : undefined}
+            onRetry={() => {
+              projectsQuery.refetch();
+              materialsQuery.refetch();
+              suppliersQuery.refetch();
+              warehousesQuery.refetch();
+              inventoryQuery.refetch();
+              purchaseOrdersQuery.refetch();
+              userCountQuery.refetch();
+            }}
+          />
+        </Card>
+      )}
+
+      {!failedQuery && role === "ADMIN" && (
         <AdminDashboard
           projects={projects}
           materialsCount={materials.length}
@@ -223,7 +277,7 @@ function DashboardPage() {
         />
       )}
 
-      {role === "PM" && (
+      {!failedQuery && role === "PM" && (
         <ProjectManagerDashboard
           projects={scopedProjects}
           purchaseOrders={scopedPurchaseOrders}
@@ -234,7 +288,7 @@ function DashboardPage() {
         />
       )}
 
-      {role === "WAREHOUSE_MANAGER" && (
+      {!failedQuery && role === "WAREHOUSE_MANAGER" && (
         <WarehouseManagerDashboard
           warehouses={warehouses}
           inventory={inventory}
@@ -248,10 +302,11 @@ function DashboardPage() {
         />
       )}
 
-      {(role === "SUPPLIER" || role === "CUSTOMER") && (
+      {!failedQuery && (role === "SUPPLIER" || role === "CUSTOMER") && (
         <Card className="shadow-sm">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            Dashboard views are currently implemented for Admin, Project Manager, and Warehouse Manager.
+            Dashboard views are currently implemented for Admin, Project Manager, and Warehouse
+            Manager.
           </CardContent>
         </Card>
       )}
@@ -290,17 +345,58 @@ function AdminDashboard({
   return (
     <>
       <MetricGrid>
-        <MetricCard icon={FolderKanban} label="Active projects" value={activeProjects} detail={`${projects.length} total`} to="/app/projects" />
-        <MetricCard icon={Users} label="Users" value={userCount} detail="Managed accounts" to="/app/staff/users" />
-        <MetricCard icon={Package} label="Materials" value={materialsCount} detail={`${lowStockRows.length} low stock`} to="/app/materials" />
-        <MetricCard icon={ShoppingCart} label="Pending POs" value={pendingPOs.length} detail={formatMoney(sumPOs(pendingPOs))} to="/app/procurement" tone={pendingPOs.length ? "warning" : "default"} />
-        <MetricCard icon={Warehouse} label="Warehouses" value={warehouses.length} detail={`${inventory.length} stock records`} to="/app/admin/warehouses" />
-        <MetricCard icon={Truck} label="Suppliers" value={suppliersCount} detail="Supplier records" to="/app/admin/suppliers" />
+        <MetricCard
+          icon={FolderKanban}
+          label="Active projects"
+          value={activeProjects}
+          detail={`${projects.length} total`}
+          to="/app/projects"
+        />
+        <MetricCard
+          icon={Users}
+          label="Users"
+          value={userCount}
+          detail="Managed accounts"
+          to="/app/staff/users"
+        />
+        <MetricCard
+          icon={Package}
+          label="Materials"
+          value={materialsCount}
+          detail={`${lowStockRows.length} low stock`}
+          to="/app/materials"
+        />
+        <MetricCard
+          icon={ShoppingCart}
+          label="Pending POs"
+          value={pendingPOs.length}
+          detail={formatMoney(sumPOs(pendingPOs))}
+          to="/app/procurement"
+          tone={pendingPOs.length ? "warning" : "default"}
+        />
+        <MetricCard
+          icon={Warehouse}
+          label="Warehouses"
+          value={warehouses.length}
+          detail={`${inventory.length} stock records`}
+          to="/app/admin/warehouses"
+        />
+        <MetricCard
+          icon={Truck}
+          label="Suppliers"
+          value={suppliersCount}
+          detail="Supplier records"
+          to="/app/admin/suppliers"
+        />
       </MetricGrid>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <ProjectStatusChartPanel projects={projects} loading={loading} />
-        <ProcurementDonutPanel pendingPOs={pendingPOs} approvedPOs={approvedPOs} deliveredPOs={deliveredPOs} />
+        <ProcurementDonutPanel
+          pendingPOs={pendingPOs}
+          approvedPOs={approvedPOs}
+          deliveredPOs={deliveredPOs}
+        />
         <PurchaseOrderValueChartPanel purchaseOrders={purchaseOrders} />
         <WarehouseStockChartPanel inventory={inventory} loading={loading} />
         <LowStockPanel rows={lowStockRows} />
@@ -331,17 +427,57 @@ function ProjectManagerDashboard({
   return (
     <>
       <MetricGrid>
-        <MetricCard icon={FolderKanban} label="My active projects" value={activeProjects} detail={`${projects.length} assigned`} to="/app/projects" />
-        <MetricCard icon={AlertTriangle} label="Delayed projects" value={delayedProjects} detail="Needs review" tone={delayedProjects ? "danger" : "default"} />
-        <MetricCard icon={Clock3} label="POs awaiting approval" value={pendingPOs.length} detail="With warehouse" to="/app/procurement" tone={pendingPOs.length ? "warning" : "default"} />
-        <MetricCard icon={CheckCircle2} label="Approved POs" value={approvedPOs.length} detail={`${deliveredPOs.length} delivered`} to="/app/procurement" />
-        <MetricCard icon={CircleDollarSign} label="Project budget" value={formatMoneyCompact(totalBudget)} detail={`${formatMoney(totalBudget)} recorded`} />
-        <MetricCard icon={ShoppingCart} label="PO value" value={formatMoneyCompact(sumPOs(purchaseOrders))} detail={`${purchaseOrders.length} orders`} to="/app/procurement" />
+        <MetricCard
+          icon={FolderKanban}
+          label="My active projects"
+          value={activeProjects}
+          detail={`${projects.length} assigned`}
+          to="/app/projects"
+        />
+        <MetricCard
+          icon={AlertTriangle}
+          label="Delayed projects"
+          value={delayedProjects}
+          detail="Needs review"
+          tone={delayedProjects ? "danger" : "default"}
+        />
+        <MetricCard
+          icon={Clock3}
+          label="POs awaiting approval"
+          value={pendingPOs.length}
+          detail="With warehouse"
+          to="/app/procurement"
+          tone={pendingPOs.length ? "warning" : "default"}
+        />
+        <MetricCard
+          icon={CheckCircle2}
+          label="Approved POs"
+          value={approvedPOs.length}
+          detail={`${deliveredPOs.length} delivered`}
+          to="/app/procurement"
+        />
+        <MetricCard
+          icon={CircleDollarSign}
+          label="Project budget"
+          value={formatMoneyCompact(totalBudget)}
+          detail={`${formatMoney(totalBudget)} recorded`}
+        />
+        <MetricCard
+          icon={ShoppingCart}
+          label="PO value"
+          value={formatMoneyCompact(sumPOs(purchaseOrders))}
+          detail={`${purchaseOrders.length} orders`}
+          to="/app/procurement"
+        />
       </MetricGrid>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <ProjectBudgetChartPanel projects={projects} purchaseOrders={purchaseOrders} />
-        <ProcurementDonutPanel pendingPOs={pendingPOs} approvedPOs={approvedPOs} deliveredPOs={deliveredPOs} />
+        <ProcurementDonutPanel
+          pendingPOs={pendingPOs}
+          approvedPOs={approvedPOs}
+          deliveredPOs={deliveredPOs}
+        />
         <ProjectListPanel projects={projects} loading={loading} />
         <POAttentionPanel pendingPOs={pendingPOs} approvedPOs={approvedPOs} />
       </div>
@@ -373,19 +509,61 @@ function WarehouseManagerDashboard({
   return (
     <>
       <MetricGrid>
-        <MetricCard icon={Warehouse} label="Warehouses" value={warehouses.length} detail={`${inventory.length} stock records`} to="/app/admin/warehouses" />
-        <MetricCard icon={AlertTriangle} label="Low stock" value={lowStockRows.length} detail="Needs replenishment" tone={lowStockRows.length ? "danger" : "default"} to="/app/admin/warehouses" />
-        <MetricCard icon={Clock3} label="POs to approve" value={pendingPOs.length} detail={formatMoney(sumPOs(pendingPOs))} tone={pendingPOs.length ? "warning" : "default"} to="/app/procurement" />
-        <MetricCard icon={Boxes} label="Ready to import" value={approvedPOs.length} detail="Approved POs" tone={approvedPOs.length ? "warning" : "default"} to="/app/procurement" />
-        <MetricCard icon={Package} label="Material catalog" value={materialsCount} detail="Known materials" to="/app/materials" />
-        <MetricCard icon={CheckCircle2} label="Delivered POs" value={deliveredPOs.length} detail={`${purchaseOrders.length} total orders`} />
+        <MetricCard
+          icon={Warehouse}
+          label="Warehouses"
+          value={warehouses.length}
+          detail={`${inventory.length} stock records`}
+          to="/app/admin/warehouses"
+        />
+        <MetricCard
+          icon={AlertTriangle}
+          label="Low stock"
+          value={lowStockRows.length}
+          detail="Needs replenishment"
+          tone={lowStockRows.length ? "danger" : "default"}
+          to="/app/admin/warehouses"
+        />
+        <MetricCard
+          icon={Clock3}
+          label="POs to approve"
+          value={pendingPOs.length}
+          detail={formatMoney(sumPOs(pendingPOs))}
+          tone={pendingPOs.length ? "warning" : "default"}
+          to="/app/procurement"
+        />
+        <MetricCard
+          icon={Boxes}
+          label="Ready to import"
+          value={approvedPOs.length}
+          detail="Approved POs"
+          tone={approvedPOs.length ? "warning" : "default"}
+          to="/app/procurement"
+        />
+        <MetricCard
+          icon={Package}
+          label="Material catalog"
+          value={materialsCount}
+          detail="Known materials"
+          to="/app/materials"
+        />
+        <MetricCard
+          icon={CheckCircle2}
+          label="Delivered POs"
+          value={deliveredPOs.length}
+          detail={`${purchaseOrders.length} total orders`}
+        />
       </MetricGrid>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <WarehouseStockChartPanel inventory={inventory} loading={loading} />
         <LowStockRiskChartPanel rows={lowStockRows} />
         <POActionPanel pendingPOs={pendingPOs} approvedPOs={approvedPOs} />
-        <ProcurementDonutPanel pendingPOs={pendingPOs} approvedPOs={approvedPOs} deliveredPOs={deliveredPOs} />
+        <ProcurementDonutPanel
+          pendingPOs={pendingPOs}
+          approvedPOs={approvedPOs}
+          deliveredPOs={deliveredPOs}
+        />
         <WarehouseInventoryPanel warehouses={warehouses} inventory={inventory} loading={loading} />
       </div>
     </>
@@ -425,7 +603,9 @@ function MetricCard({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="min-h-[2rem] pr-2 text-xs leading-4 text-muted-foreground">{label}</p>
-            <p className="mt-1 break-words text-[1.35rem] font-semibold leading-7 tabular-nums">{value}</p>
+            <p className="mt-1 break-words text-[1.35rem] font-semibold leading-7 tabular-nums">
+              {value}
+            </p>
           </div>
           <div
             className={cn(
@@ -445,8 +625,16 @@ function MetricCard({
   return to ? <Link to={to}>{content}</Link> : content;
 }
 
-function ProjectStatusChartPanel({ projects, loading }: { projects: ProjectResponse[]; loading: boolean }) {
-  const data = (["PLANNING", "IN_PROGRESS", "DELAYED", "COMPLETED"] as ProjectResponse["status"][]).map((status) => ({
+function ProjectStatusChartPanel({
+  projects,
+  loading,
+}: {
+  projects: ProjectResponse[];
+  loading: boolean;
+}) {
+  const data = (
+    ["PLANNING", "IN_PROGRESS", "DELAYED", "COMPLETED"] as ProjectResponse["status"][]
+  ).map((status) => ({
     status,
     label: status.replace("_", " "),
     count: projects.filter((project) => project.status === status).length,
@@ -461,7 +649,14 @@ function ProjectStatusChartPanel({ projects, loading }: { projects: ProjectRespo
   }));
 
   return (
-    <Panel title="Project Analytics" action={<Button asChild variant="outline" size="sm"><Link to="/app/projects">Open</Link></Button>}>
+    <Panel
+      title="Project Analytics"
+      action={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app/projects">Open</Link>
+        </Button>
+      }
+    >
       {loading ? (
         <LoadingLine />
       ) : projects.length === 0 ? (
@@ -475,7 +670,9 @@ function ProjectStatusChartPanel({ projects, loading }: { projects: ProjectRespo
               <YAxis allowDecimals={false} tickLine={false} axisLine={false} tickMargin={8} />
               <ChartTooltip content={<ChartTooltipContent hideLabel />} />
               <Bar dataKey="count" radius={[8, 8, 0, 0]} maxBarSize={84}>
-                {data.map((entry) => <Cell key={entry.status} fill={entry.fill} />)}
+                {data.map((entry) => (
+                  <Cell key={entry.status} fill={entry.fill} />
+                ))}
               </Bar>
             </BarChart>
           </ChartContainer>
@@ -495,14 +692,36 @@ function ProcurementDonutPanel({
   deliveredPOs: PurchaseOrderResponse[];
 }) {
   const data = [
-    { status: "Pending", count: pendingPOs.length, value: sumPOs(pendingPOs), fill: CHART_COLORS.warning },
-    { status: "Approved", count: approvedPOs.length, value: sumPOs(approvedPOs), fill: CHART_COLORS.primary },
-    { status: "Delivered", count: deliveredPOs.length, value: sumPOs(deliveredPOs), fill: CHART_COLORS.success },
+    {
+      status: "Pending",
+      count: pendingPOs.length,
+      value: sumPOs(pendingPOs),
+      fill: CHART_COLORS.warning,
+    },
+    {
+      status: "Approved",
+      count: approvedPOs.length,
+      value: sumPOs(approvedPOs),
+      fill: CHART_COLORS.primary,
+    },
+    {
+      status: "Delivered",
+      count: deliveredPOs.length,
+      value: sumPOs(deliveredPOs),
+      fill: CHART_COLORS.success,
+    },
   ];
   const total = data.reduce((sum, item) => sum + item.count, 0);
 
   return (
-    <Panel title="Procurement Mix" action={<Button asChild variant="outline" size="sm"><Link to="/app/procurement">Open</Link></Button>}>
+    <Panel
+      title="Procurement Mix"
+      action={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app/procurement">Open</Link>
+        </Button>
+      }
+    >
       {total === 0 ? (
         <EmptyLine>No purchase orders yet.</EmptyLine>
       ) : (
@@ -518,9 +737,16 @@ function ProcurementDonutPanel({
                       formatter={(value, name, item) => (
                         <div className="flex min-w-[150px] items-center justify-between gap-4">
                           <span className="text-muted-foreground">{name}</span>
-                          <span className="font-mono font-medium">{Number(value).toLocaleString()}</span>
-                          {"payload" in item && typeof item.payload === "object" && item.payload && "value" in item.payload ? (
-                            <span className="text-muted-foreground">{formatMoney(Number(item.payload.value))}</span>
+                          <span className="font-mono font-medium">
+                            {Number(value).toLocaleString()}
+                          </span>
+                          {"payload" in item &&
+                          typeof item.payload === "object" &&
+                          item.payload &&
+                          "value" in item.payload ? (
+                            <span className="text-muted-foreground">
+                              {formatMoney(Number(item.payload.value))}
+                            </span>
                           ) : null}
                         </div>
                       )}
@@ -537,7 +763,9 @@ function ProcurementDonutPanel({
                   cornerRadius={8}
                   strokeWidth={2}
                 >
-                  {data.map((entry) => <Cell key={entry.status} fill={entry.fill} />)}
+                  {data.map((entry) => (
+                    <Cell key={entry.status} fill={entry.fill} />
+                  ))}
                 </Pie>
               </PieChart>
             </ChartContainer>
@@ -557,7 +785,10 @@ function ProcurementDonutPanel({
                   <span className="ml-auto font-mono text-sm font-semibold">{item.count}</span>
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full" style={{ width: `${(item.count / total) * 100}%`, backgroundColor: item.fill }} />
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${(item.count / total) * 100}%`, backgroundColor: item.fill }}
+                  />
                 </div>
                 <p className="mt-1.5 text-xs text-muted-foreground">{formatMoney(item.value)}</p>
               </div>
@@ -569,7 +800,11 @@ function ProcurementDonutPanel({
   );
 }
 
-function PurchaseOrderValueChartPanel({ purchaseOrders }: { purchaseOrders: PurchaseOrderResponse[] }) {
+function PurchaseOrderValueChartPanel({
+  purchaseOrders,
+}: {
+  purchaseOrders: PurchaseOrderResponse[];
+}) {
   const data = [...purchaseOrders]
     .sort((a, b) => new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime())
     .slice(-8)
@@ -594,9 +829,21 @@ function PurchaseOrderValueChartPanel({ purchaseOrders }: { purchaseOrders: Purc
               </defs>
               <CartesianGrid vertical={false} strokeDasharray="4 4" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
-              <YAxis tickLine={false} axisLine={false} tickMargin={8} tickFormatter={shortNumber} width={42} />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                tickFormatter={shortNumber}
+                width={42}
+              />
               <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-              <Area type="monotone" dataKey="value" stroke="var(--color-value)" fill="url(#poValue)" strokeWidth={2.5} />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke="var(--color-value)"
+                fill="url(#poValue)"
+                strokeWidth={2.5}
+              />
             </AreaChart>
           </ChartContainer>
         </div>
@@ -628,10 +875,26 @@ function ProjectBudgetChartPanel({
             <BarChart data={data} margin={{ top: 10, right: 16, left: -8, bottom: 0 }}>
               <CartesianGrid vertical={false} strokeDasharray="4 4" />
               <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} />
-              <YAxis tickLine={false} axisLine={false} tickMargin={8} tickFormatter={shortNumber} width={42} />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                tickFormatter={shortNumber}
+                width={42}
+              />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="budget" fill="var(--color-budget)" radius={[8, 8, 0, 0]} maxBarSize={58} />
-              <Bar dataKey="poValue" fill="var(--color-poValue)" radius={[8, 8, 0, 0]} maxBarSize={58} />
+              <Bar
+                dataKey="budget"
+                fill="var(--color-budget)"
+                radius={[8, 8, 0, 0]}
+                maxBarSize={58}
+              />
+              <Bar
+                dataKey="poValue"
+                fill="var(--color-poValue)"
+                radius={[8, 8, 0, 0]}
+                maxBarSize={58}
+              />
             </BarChart>
           </ChartContainer>
         </div>
@@ -656,7 +919,14 @@ function WarehouseStockChartPanel({
     }));
 
   return (
-    <Panel title="Warehouse Stock Analytics" action={<Button asChild variant="outline" size="sm"><Link to="/app/admin/warehouses">Open</Link></Button>}>
+    <Panel
+      title="Warehouse Stock Analytics"
+      action={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app/admin/warehouses">Open</Link>
+        </Button>
+      }
+    >
       {loading ? (
         <LoadingLine />
       ) : data.length === 0 ? (
@@ -664,10 +934,21 @@ function WarehouseStockChartPanel({
       ) : (
         <div className="rounded-lg border bg-muted/20 p-3">
           <ChartContainer config={STOCK_CHART_CONFIG} className="h-[320px] w-full !aspect-auto">
-            <BarChart data={data} layout="vertical" margin={{ top: 5, right: 16, left: 8, bottom: 5 }}>
+            <BarChart
+              data={data}
+              layout="vertical"
+              margin={{ top: 5, right: 16, left: 8, bottom: 5 }}
+            >
               <CartesianGrid horizontal={false} strokeDasharray="4 4" />
               <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={shortNumber} />
-              <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={8} width={105} />
+              <YAxis
+                dataKey="name"
+                type="category"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                width={105}
+              />
               <ChartTooltip content={<ChartTooltipContent hideLabel />} />
               <Bar dataKey="quantity" fill="var(--color-quantity)" radius={[0, 8, 8, 0]} />
             </BarChart>
@@ -697,8 +978,18 @@ function LowStockRiskChartPanel({ rows }: { rows: InventoryRow[] }) {
               <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} />
               <YAxis tickLine={false} axisLine={false} tickFormatter={shortNumber} width={42} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="quantity" fill="var(--color-quantity)" radius={[8, 8, 0, 0]} maxBarSize={58} />
-              <Bar dataKey="reorderLevel" fill="var(--color-reorderLevel)" radius={[8, 8, 0, 0]} maxBarSize={58} />
+              <Bar
+                dataKey="quantity"
+                fill="var(--color-quantity)"
+                radius={[8, 8, 0, 0]}
+                maxBarSize={58}
+              />
+              <Bar
+                dataKey="reorderLevel"
+                fill="var(--color-reorderLevel)"
+                radius={[8, 8, 0, 0]}
+                maxBarSize={58}
+              />
             </BarChart>
           </ChartContainer>
         </div>
@@ -707,10 +998,23 @@ function LowStockRiskChartPanel({ rows }: { rows: InventoryRow[] }) {
   );
 }
 
-function ProjectStatusPanel({ projects, loading }: { projects: ProjectResponse[]; loading: boolean }) {
+function ProjectStatusPanel({
+  projects,
+  loading,
+}: {
+  projects: ProjectResponse[];
+  loading: boolean;
+}) {
   const statuses: ProjectResponse["status"][] = ["PLANNING", "IN_PROGRESS", "DELAYED", "COMPLETED"];
   return (
-    <Panel title="Project Status" action={<Button asChild variant="outline" size="sm"><Link to="/app/projects">Open</Link></Button>}>
+    <Panel
+      title="Project Status"
+      action={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app/projects">Open</Link>
+        </Button>
+      }
+    >
       {loading ? (
         <LoadingLine />
       ) : projects.length === 0 ? (
@@ -723,7 +1027,12 @@ function ProjectStatusPanel({ projects, loading }: { projects: ProjectResponse[]
               <div key={status} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span>{status.replace("_", " ")}</span>
-                  <Badge variant="outline" className={cn(healthConfig[PROJECT_STATUS_HEALTH[status]].cls)}>{count}</Badge>
+                  <Badge
+                    variant="outline"
+                    className={cn(healthConfig[PROJECT_STATUS_HEALTH[status]].cls)}
+                  >
+                    {count}
+                  </Badge>
                 </div>
                 <ProgressBar value={projects.length ? (count / projects.length) * 100 : 0} />
               </div>
@@ -748,21 +1057,49 @@ function ProcurementPanel({
 }) {
   const total = purchaseOrders.length;
   return (
-    <Panel title="Procurement Summary" action={<Button asChild variant="outline" size="sm"><Link to="/app/procurement">Open</Link></Button>}>
+    <Panel
+      title="Procurement Summary"
+      action={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app/procurement">Open</Link>
+        </Button>
+      }
+    >
       {total === 0 ? (
         <EmptyLine>No purchase orders yet.</EmptyLine>
       ) : (
         <div className="grid gap-3 sm:grid-cols-3">
-          <StatusBox label="Pending" count={pendingPOs.length} value={sumPOs(pendingPOs)} status="pending" />
-          <StatusBox label="Approved" count={approvedPOs.length} value={sumPOs(approvedPOs)} status="approved" />
-          <StatusBox label="Delivered" count={deliveredPOs.length} value={sumPOs(deliveredPOs)} status="delivered" />
+          <StatusBox
+            label="Pending"
+            count={pendingPOs.length}
+            value={sumPOs(pendingPOs)}
+            status="pending"
+          />
+          <StatusBox
+            label="Approved"
+            count={approvedPOs.length}
+            value={sumPOs(approvedPOs)}
+            status="approved"
+          />
+          <StatusBox
+            label="Delivered"
+            count={deliveredPOs.length}
+            value={sumPOs(deliveredPOs)}
+            status="delivered"
+          />
         </div>
       )}
     </Panel>
   );
 }
 
-function ProjectListPanel({ projects, loading }: { projects: ProjectResponse[]; loading: boolean }) {
+function ProjectListPanel({
+  projects,
+  loading,
+}: {
+  projects: ProjectResponse[];
+  loading: boolean;
+}) {
   return (
     <Panel title="Projects Needing Attention">
       {loading ? (
@@ -782,16 +1119,25 @@ function ProjectListPanel({ projects, loading }: { projects: ProjectResponse[]; 
             {projects.slice(0, 5).map((project) => (
               <TableRow key={project.projectId}>
                 <TableCell className="font-medium">
-                  <Link to="/app/projects/$id" params={{ id: String(project.projectId) }} className="hover:underline">
+                  <Link
+                    to="/app/projects/$id"
+                    params={{ id: String(project.projectId) }}
+                    className="hover:underline"
+                  >
                     {project.projectName}
                   </Link>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className={cn(healthConfig[PROJECT_STATUS_HEALTH[project.status]].cls)}>
+                  <Badge
+                    variant="outline"
+                    className={cn(healthConfig[PROJECT_STATUS_HEALTH[project.status]].cls)}
+                  >
                     {project.status.replace("_", " ")}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{formatDate(project.baselineEnd)}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {formatDate(project.baselineEnd)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -829,7 +1175,14 @@ function POActionPanel({
 }) {
   const rows = [...pendingPOs, ...approvedPOs].slice(0, 6);
   return (
-    <Panel title="Warehouse PO Queue" action={<Button asChild variant="outline" size="sm"><Link to="/app/procurement">Act</Link></Button>}>
+    <Panel
+      title="Warehouse PO Queue"
+      action={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app/procurement">Act</Link>
+        </Button>
+      }
+    >
       {rows.length === 0 ? (
         <EmptyLine>No POs awaiting warehouse action.</EmptyLine>
       ) : (
@@ -845,7 +1198,11 @@ function RecentPOPanel({ purchaseOrders }: { purchaseOrders: PurchaseOrderRespon
     .slice(0, 6);
   return (
     <Panel title="Recent Purchase Orders">
-      {rows.length === 0 ? <EmptyLine>No purchase orders yet.</EmptyLine> : <PurchaseOrderTable rows={rows} />}
+      {rows.length === 0 ? (
+        <EmptyLine>No purchase orders yet.</EmptyLine>
+      ) : (
+        <PurchaseOrderTable rows={rows} />
+      )}
     </Panel>
   );
 }
@@ -860,7 +1217,14 @@ function WarehouseInventoryPanel({
   loading: boolean;
 }) {
   return (
-    <Panel title="Warehouse Stock Snapshot" action={<Button asChild variant="outline" size="sm"><Link to="/app/admin/warehouses">Open</Link></Button>}>
+    <Panel
+      title="Warehouse Stock Snapshot"
+      action={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app/admin/warehouses">Open</Link>
+        </Button>
+      }
+    >
       {loading ? (
         <LoadingLine />
       ) : warehouses.length === 0 ? (
@@ -879,8 +1243,12 @@ function WarehouseInventoryPanel({
           <TableBody>
             {inventory.slice(0, 6).map((item) => (
               <TableRow key={`${item.warehouseId}-${item.inventoryId}`}>
-                <TableCell className="font-medium">{item.material?.materialName ?? `Material #${item.materialId}`}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{item.warehouseName}</TableCell>
+                <TableCell className="font-medium">
+                  {item.material?.materialName ?? `Material #${item.materialId}`}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {item.warehouseName}
+                </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {item.quantity.toLocaleString()} {item.material?.unit}
                 </TableCell>
@@ -895,7 +1263,14 @@ function WarehouseInventoryPanel({
 
 function LowStockPanel({ rows }: { rows: InventoryRow[] }) {
   return (
-    <Panel title="Low-stock Watchlist" action={<Button asChild variant="outline" size="sm"><Link to="/app/admin/warehouses">Stock</Link></Button>}>
+    <Panel
+      title="Low-stock Watchlist"
+      action={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/app/admin/warehouses">Stock</Link>
+        </Button>
+      }
+    >
       {rows.length === 0 ? (
         <EmptyLine>No low-stock materials detected from current inventory records.</EmptyLine>
       ) : (
@@ -911,10 +1286,18 @@ function LowStockPanel({ rows }: { rows: InventoryRow[] }) {
           <TableBody>
             {rows.slice(0, 6).map((item) => (
               <TableRow key={`${item.warehouseId}-${item.inventoryId}`}>
-                <TableCell className="font-medium">{item.material?.materialName ?? `Material #${item.materialId}`}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{item.warehouseName}</TableCell>
-                <TableCell className="text-right tabular-nums">{item.quantity.toLocaleString()} {item.material?.unit}</TableCell>
-                <TableCell className="text-right tabular-nums">{item.reorderLevel.toLocaleString()}</TableCell>
+                <TableCell className="font-medium">
+                  {item.material?.materialName ?? `Material #${item.materialId}`}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {item.warehouseName}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {item.quantity.toLocaleString()} {item.material?.unit}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {item.reorderLevel.toLocaleString()}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -944,7 +1327,9 @@ function PurchaseOrderTable({ rows }: { rows: PurchaseOrderResponse[] }) {
                 {po.status}
               </Badge>
             </TableCell>
-            <TableCell className="text-xs text-muted-foreground">{formatDate(po.orderDate)}</TableCell>
+            <TableCell className="text-xs text-muted-foreground">
+              {formatDate(po.orderDate)}
+            </TableCell>
             <TableCell className="text-right tabular-nums">{formatMoney(po.totalAmount)}</TableCell>
           </TableRow>
         ))}
@@ -968,7 +1353,9 @@ function StatusBox({
     <div className="rounded-md border p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">{label}</span>
-        <Badge variant="outline" className={cn(statusConfig[status].cls)}>{count}</Badge>
+        <Badge variant="outline" className={cn(statusConfig[status].cls)}>
+          {count}
+        </Badge>
       </div>
       <p className="mt-3 text-sm font-semibold tabular-nums">{formatMoney(value)}</p>
     </div>
@@ -998,13 +1385,18 @@ function Panel({
 function ProgressBar({ value }: { value: number }) {
   return (
     <div className="h-2 overflow-hidden rounded-full bg-muted">
-      <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+      <div
+        className="h-full rounded-full bg-primary"
+        style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+      />
     </div>
   );
 }
 
 function LoadingLine() {
-  return <div className="py-6 text-center text-sm text-muted-foreground">Loading dashboard data...</div>;
+  return (
+    <div className="py-6 text-center text-sm text-muted-foreground">Loading dashboard data...</div>
+  );
 }
 
 function EmptyLine({ children }: { children: React.ReactNode }) {
@@ -1012,9 +1404,12 @@ function EmptyLine({ children }: { children: React.ReactNode }) {
 }
 
 function dashboardDescription(role: Role): string {
-  if (role === "ADMIN") return "System-wide projects, procurement, users, warehouses, and stock signals.";
-  if (role === "PM") return "Project status, project budgets, and procurement follow-up for your work.";
-  if (role === "WAREHOUSE_MANAGER") return "Inventory health, purchase-order approvals, and warehouse import queue.";
+  if (role === "ADMIN")
+    return "System-wide projects, procurement, users, warehouses, and stock signals.";
+  if (role === "PM")
+    return "Project status, project budgets, and procurement follow-up for your work.";
+  if (role === "WAREHOUSE_MANAGER")
+    return "Inventory health, purchase-order approvals, and warehouse import queue.";
   return "Role dashboard.";
 }
 

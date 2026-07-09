@@ -60,7 +60,9 @@ function roleFromClaims(claims: JwtClaims): Role {
     "Role",
     "role",
     "http://schemas.microsoft.com/ws/2008/06/identity/claims/role",
-  ).trim().toUpperCase();
+  )
+    .trim()
+    .toUpperCase();
   return VALID_ROLES.has(roleRaw as Role) ? (roleRaw as Role) : "CUSTOMER";
 }
 
@@ -122,8 +124,12 @@ export function loginWithToken(token: string): Session {
   );
   const email = readClaim(claims, "Email", "email");
   const userId = parseInt(
-    readClaim(claims, "UserId", "nameid", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier") ||
-      "0",
+    readClaim(
+      claims,
+      "UserId",
+      "nameid",
+      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+    ) || "0",
     10,
   );
   const avatar =

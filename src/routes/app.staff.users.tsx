@@ -2,20 +2,53 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { QueryError } from "@/components/query-error";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSession } from "@/lib/session";
-import { usersApi, BACKEND_ROLE_LABEL, BACKEND_ROLE_VALUE, USER_MANAGEMENT_ROLES, type BackendRole } from "@/api/users";
+import {
+  usersApi,
+  BACKEND_ROLE_LABEL,
+  BACKEND_ROLE_VALUE,
+  USER_MANAGEMENT_ROLES,
+  type BackendRole,
+} from "@/api/users";
 import { authApi } from "@/api/auth";
+import { requireApiResult } from "@/api/client";
 
 export const Route = createFileRoute("/app/staff/users")({
   head: () => ({ meta: [{ title: "Users & Access - BuildSense AI" }] }),
@@ -27,7 +60,15 @@ function UsersPage() {
   const isLive = !!session?.token;
   const [open, setOpen] = useState(false);
   const [invLoading, setInvLoading] = useState(false);
-  const [inv, setInv] = useState<{ firstName: string; lastName: string; email: string; password: string; confirmPassword: string; role: BackendRole }>({
+  const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
+  const [inv, setInv] = useState<{
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    confirmPassword: string;
+    role: BackendRole;
+  }>({
     firstName: "",
     lastName: "",
     email: "",
@@ -36,11 +77,17 @@ function UsersPage() {
     role: "PM",
   });
 
-  const { data: liveUsers, refetch, isLoading } = useQuery({
+  const {
+    data: liveUsers,
+    refetch,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ["users"],
     queryFn: async () => {
       const response = await usersApi.getAll();
-      return response.result ?? [];
+      return requireApiResult(response, "Could not load users") ?? [];
     },
     enabled: isLive,
     staleTime: 30_000,
@@ -68,11 +115,20 @@ function UsersPage() {
       if (response.isSuccess) {
         toast.success(`Account created for ${inv.email}`);
         setOpen(false);
-        setInv({ firstName: "", lastName: "", email: "", password: "", confirmPassword: "", role: "PM" });
+        setInv({
+          firstName: "",
+          lastName: "",
+          email: "",
+          password: "",
+          confirmPassword: "",
+          role: "PM",
+        });
         refetch();
       } else {
         toast.error(response.errorMessage ?? "Registration failed");
       }
+    } catch {
+      toast.error("Could not reach the backend");
     } finally {
       setInvLoading(false);
     }
@@ -87,7 +143,8 @@ function UsersPage() {
         actions={
           isLive ? (
             <Button size="sm" className="h-8 text-xs" onClick={() => setOpen(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1" />Create account
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Create account
             </Button>
           ) : undefined
         }
@@ -95,45 +152,81 @@ function UsersPage() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Create Account</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Create Account</DialogTitle>
+          </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>First name</Label>
-              <Input value={inv.firstName} onChange={(e) => setInv((f) => ({ ...f, firstName: e.target.value }))} />
+              <Label htmlFor="account-first-name">First name</Label>
+              <Input
+                id="account-first-name"
+                value={inv.firstName}
+                onChange={(e) => setInv((f) => ({ ...f, firstName: e.target.value }))}
+              />
             </div>
             <div>
-              <Label>Last name</Label>
-              <Input value={inv.lastName} onChange={(e) => setInv((f) => ({ ...f, lastName: e.target.value }))} />
+              <Label htmlFor="account-last-name">Last name</Label>
+              <Input
+                id="account-last-name"
+                value={inv.lastName}
+                onChange={(e) => setInv((f) => ({ ...f, lastName: e.target.value }))}
+              />
             </div>
           </div>
           <div className="space-y-3 mt-1">
             <div>
-              <Label>Email</Label>
-              <Input type="email" value={inv.email} onChange={(e) => setInv((f) => ({ ...f, email: e.target.value }))} />
+              <Label htmlFor="account-email">Email</Label>
+              <Input
+                id="account-email"
+                type="email"
+                value={inv.email}
+                onChange={(e) => setInv((f) => ({ ...f, email: e.target.value }))}
+              />
             </div>
             <div>
-              <Label>Password</Label>
-              <Input type="password" value={inv.password} onChange={(e) => setInv((f) => ({ ...f, password: e.target.value }))} />
+              <Label htmlFor="account-password">Password</Label>
+              <Input
+                id="account-password"
+                type="password"
+                value={inv.password}
+                onChange={(e) => setInv((f) => ({ ...f, password: e.target.value }))}
+              />
             </div>
             <div>
-              <Label>Confirm password</Label>
-              <Input type="password" value={inv.confirmPassword} onChange={(e) => setInv((f) => ({ ...f, confirmPassword: e.target.value }))} />
+              <Label htmlFor="account-confirm-password">Confirm password</Label>
+              <Input
+                id="account-confirm-password"
+                type="password"
+                value={inv.confirmPassword}
+                onChange={(e) => setInv((f) => ({ ...f, confirmPassword: e.target.value }))}
+              />
             </div>
             <div>
-              <Label>Role</Label>
-              <Select value={inv.role} onValueChange={(value) => setInv((f) => ({ ...f, role: value as BackendRole }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label id="account-role-label">Role</Label>
+              <Select
+                value={inv.role}
+                onValueChange={(value) => setInv((f) => ({ ...f, role: value as BackendRole }))}
+              >
+                <SelectTrigger aria-labelledby="account-role-label">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {USER_MANAGEMENT_ROLES.map((role) => (
-                    <SelectItem key={role} value={role}>{BACKEND_ROLE_LABEL[role]}</SelectItem>
+                    <SelectItem key={role} value={role}>
+                      {BACKEND_ROLE_LABEL[role]}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={submitInvite} disabled={invLoading}>{invLoading ? "Creating..." : "Create account"}</Button>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={invLoading}>
+              Cancel
+            </Button>
+            <Button onClick={submitInvite} disabled={invLoading}>
+              {invLoading ? "Creating..." : "Create account"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -141,9 +234,16 @@ function UsersPage() {
       <Card className="shadow-sm">
         <CardContent className="p-0">
           {!isLive ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">Sign in with a real backend account to manage users.</div>
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              Sign in with a real backend account to manage users.
+            </div>
           ) : isLoading ? (
             <div className="p-8 text-center text-sm text-muted-foreground">Loading users...</div>
+          ) : isError ? (
+            <QueryError
+              message={error instanceof Error ? error.message : undefined}
+              onRetry={() => refetch()}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -151,13 +251,16 @@ function UsersPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(liveUsers ?? []).length === 0 && (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No users yet</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                      No users yet
+                    </TableCell>
+                  </TableRow>
                 )}
                 {(liveUsers ?? []).map((user) => {
                   const fullName = `${user.firstName} ${user.lastName}`.trim();
@@ -166,33 +269,69 @@ function UsersPage() {
                       <TableCell>
                         <div className="flex items-center gap-2.5">
                           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-[11px] font-bold">
-                            {fullName.split(" ").map((name) => name[0]).join("").slice(0, 2).toUpperCase()}
+                            {fullName
+                              .split(" ")
+                              .map((name) => name[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase()}
                           </span>
                           <span className="font-medium text-[13px]">{fullName || "-"}</span>
                         </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
-                      <TableCell><Badge variant="secondary" className="text-[10px]">{BACKEND_ROLE_LABEL[user.role]}</Badge></TableCell>
-                      <TableCell><Badge variant="outline" className="text-[10px] bg-success/12 text-success border-success/30">Active</Badge></TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {BACKEND_ROLE_LABEL[user.role]}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><MoreHorizontal className="h-3.5 w-3.5" /></Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              aria-label={`Change role for ${fullName || user.email}`}
+                              disabled={updatingUserId === user.id}
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem disabled className="text-xs text-muted-foreground">Change role to:</DropdownMenuItem>
+                            <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                              Change role to:
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            {USER_MANAGEMENT_ROLES.filter((role) => role !== user.role).map((role) => (
-                              <DropdownMenuItem key={role} onClick={async () => {
-                                const response = await usersApi.updateRole(user.id, { role: BACKEND_ROLE_VALUE[role] });
-                                if (response.isSuccess) {
-                                  toast.success(`${fullName || user.email} is now ${BACKEND_ROLE_LABEL[role]}`);
-                                  refetch();
-                                } else {
-                                  toast.error(response.errorMessage ?? "Update failed");
-                                }
-                              }}>{BACKEND_ROLE_LABEL[role]}</DropdownMenuItem>
-                            ))}
+                            {USER_MANAGEMENT_ROLES.filter((role) => role !== user.role).map(
+                              (role) => (
+                                <DropdownMenuItem
+                                  key={role}
+                                  onClick={async () => {
+                                    setUpdatingUserId(user.id);
+                                    try {
+                                      const response = await usersApi.updateRole(user.id, {
+                                        role: BACKEND_ROLE_VALUE[role],
+                                      });
+                                      if (response.isSuccess) {
+                                        toast.success(
+                                          `${fullName || user.email} is now ${BACKEND_ROLE_LABEL[role]}`,
+                                        );
+                                        refetch();
+                                      } else {
+                                        toast.error(response.errorMessage ?? "Update failed");
+                                      }
+                                    } catch {
+                                      toast.error("Could not reach the backend");
+                                    } finally {
+                                      setUpdatingUserId(null);
+                                    }
+                                  }}
+                                >
+                                  {BACKEND_ROLE_LABEL[role]}
+                                </DropdownMenuItem>
+                              ),
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

@@ -1,7 +1,7 @@
 import { isTokenExpired, logout } from "@/lib/session";
 
 /** Base URL - override with VITE_API_URL env var for production */
-const BASE = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:5290";
+const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5290";
 
 export type ApiEnvelope<T = unknown> = {
   statusCode: number;
@@ -9,6 +9,15 @@ export type ApiEnvelope<T = unknown> = {
   errorMessage: string | null;
   result: T;
 };
+
+export function requireApiResult<T>(response: ApiEnvelope<T>, fallback: string): T {
+  if (!response.isSuccess) {
+    const resultMessage =
+      typeof response.result === "string" && response.result.trim() ? response.result : null;
+    throw new Error(response.errorMessage ?? resultMessage ?? fallback);
+  }
+  return response.result;
+}
 
 function isApiEnvelope(value: unknown): value is ApiEnvelope {
   return typeof value === "object" && value !== null && "isSuccess" in value && "result" in value;
@@ -25,7 +34,7 @@ function fallbackMessage(status: number): string {
 export function getStoredToken(): string | null {
   try {
     const raw = localStorage.getItem("bs.session.v1");
-    const token = raw ? (JSON.parse(raw) as { token?: string }).token ?? null : null;
+    const token = raw ? ((JSON.parse(raw) as { token?: string }).token ?? null) : null;
     if (token && isTokenExpired(token)) {
       logout();
       return null;

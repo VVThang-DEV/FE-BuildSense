@@ -5,13 +5,29 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
 import { categoriesApi, type CategoryResponse } from "@/api/categories";
+import { requireApiResult } from "@/api/client";
 
 export const Route = createFileRoute("/app/admin/categories")({
   head: () => ({ meta: [{ title: "Categories - BuildSense AI" }] }),
@@ -24,12 +40,20 @@ function CategoriesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<CategoryResponse | null>(null);
   const [categoryName, setCategoryName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<CategoryResponse | null>(null);
 
-  const { data: categories, isLoading, refetch } = useQuery({
+  const {
+    data: categories,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["categories"],
     queryFn: async () => {
       const response = await categoriesApi.getAll();
-      return response.result ?? [];
+      return requireApiResult(response, "Could not load categories") ?? [];
     },
     enabled: isLive,
     staleTime: 30_000,
@@ -53,27 +77,41 @@ function CategoriesPage() {
       return;
     }
 
-    const response = editing
-      ? await categoriesApi.update(editing.id, { categoryName: categoryName.trim() })
-      : await categoriesApi.create({ categoryName: categoryName.trim() });
+    setSaving(true);
+    try {
+      const response = editing
+        ? await categoriesApi.update(editing.id, { categoryName: categoryName.trim() })
+        : await categoriesApi.create({ categoryName: categoryName.trim() });
 
-    if (response.isSuccess) {
-      toast.success(editing ? "Category updated" : "Category created");
-      setOpen(false);
-      refetch();
-    } else {
-      toast.error(response.errorMessage ?? "Request failed");
+      if (response.isSuccess) {
+        toast.success(editing ? "Category updated" : "Category created");
+        setOpen(false);
+        refetch();
+      } else {
+        toast.error(response.errorMessage ?? "Request failed");
+      }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
     }
   };
 
   const deleteCategory = async (category: CategoryResponse) => {
-    if (!window.confirm(`Delete ${category.categoryName}?`)) return;
-    const response = await categoriesApi.delete(category.id);
-    if (response.isSuccess) {
-      toast.success("Category deleted");
-      refetch();
-    } else {
-      toast.error(response.errorMessage ?? "Delete failed");
+    setSaving(true);
+    try {
+      const response = await categoriesApi.delete(category.id);
+      if (response.isSuccess) {
+        toast.success("Category deleted");
+        setDeleting(null);
+        refetch();
+      } else {
+        toast.error(response.errorMessage ?? "Delete failed");
+      }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -94,14 +132,25 @@ function CategoriesPage() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? "Edit Category" : "New Category"}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit Category" : "New Category"}</DialogTitle>
+          </DialogHeader>
           <div>
-            <Label>Category name</Label>
-            <Input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
+            <Label htmlFor="category-name">Category name</Label>
+            <Input
+              id="category-name"
+              value={categoryName}
+              onChange={(event) => setCategoryName(event.target.value)}
+              disabled={saving}
+            />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={submit}>{editing ? "Save changes" : "Create category"}</Button>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={saving}>
+              {saving ? "Saving..." : editing ? "Save changes" : "Create category"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -109,9 +158,18 @@ function CategoriesPage() {
       <Card className="shadow-sm">
         <CardContent className="p-0">
           {!isLive ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">Sign in with a real backend account to manage categories.</div>
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              Sign in with a real backend account to manage categories.
+            </div>
           ) : isLoading ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">Loading categories...</div>
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              Loading categories...
+            </div>
+          ) : isError ? (
+            <QueryError
+              message={error instanceof Error ? error.message : undefined}
+              onRetry={() => refetch()}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -124,19 +182,39 @@ function CategoriesPage() {
               </TableHeader>
               <TableBody>
                 {(categories ?? []).length === 0 && (
-                  <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No categories yet</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                      No categories yet
+                    </TableCell>
+                  </TableRow>
                 )}
                 {(categories ?? []).map((category) => (
                   <TableRow key={category.id}>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{category.id}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {category.id}
+                    </TableCell>
                     <TableCell className="font-medium">{category.categoryName}</TableCell>
-                    <TableCell className="text-right tabular-nums">{category.totalMaterials}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {category.totalMaterials}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(category)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={() => openEdit(category)}
+                          aria-label={`Edit ${category.categoryName}`}
+                        >
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteCategory(category)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => setDeleting(category)}
+                          aria-label={`Delete ${category.categoryName}`}
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -148,6 +226,16 @@ function CategoriesPage() {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(nextOpen) => !nextOpen && setDeleting(null)}
+        title="Delete category?"
+        description={`Delete ${deleting?.categoryName ?? "this category"}? This action cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        busy={saving}
+        onConfirm={() => deleting && deleteCategory(deleting)}
+      />
     </div>
   );
 }

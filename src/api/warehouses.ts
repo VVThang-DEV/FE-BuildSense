@@ -48,7 +48,10 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
     quantity: item.quantity ?? item.availableQuantity ?? item.quantityOnHand ?? 0,
     reservedQuantity: item.reservedQuantity ?? 0,
     reorderLevel: item.reorderLevel ?? 0,
-    isLowStock: item.isLowStock ?? ((item.availableQuantity ?? item.quantity ?? item.quantityOnHand ?? 0) <= (item.reorderLevel ?? 0)),
+    isLowStock:
+      item.isLowStock ??
+      (item.availableQuantity ?? item.quantity ?? item.quantityOnHand ?? 0) <=
+        (item.reorderLevel ?? 0),
     warehouseName: item.warehouseName,
     material: item.material ?? {
       materialName: item.materialName ?? "Unknown material",
@@ -58,9 +61,8 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
 }
 
 export const warehousesApi = {
-  getAll:       () =>
-    apiClient.get<WarehouseResponse[]>("/api/warehouses"),
-  create:       (body: { warehouseName: string; location: string }) =>
+  getAll: () => apiClient.get<WarehouseResponse[]>("/api/warehouses"),
+  create: (body: { warehouseName: string; location: string }) =>
     apiClient.post<string>("/api/warehouses", body),
   getInventory: async (id: number) => {
     const response = await apiClient.get<RawInventoryItem[]>(`/api/warehouses/${id}/inventory`);

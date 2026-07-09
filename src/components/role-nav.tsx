@@ -17,7 +17,11 @@ export function RoleNav() {
     <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur">
       <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-4 py-3">
         <div className="flex items-center gap-2">
-          <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-8 w-8 rounded-md object-cover" />
+          <img
+            src={buildSenseLogo}
+            alt="BuildSense AI logo"
+            className="h-8 w-8 rounded-md object-cover"
+          />
           <div className="leading-tight">
             <p className="text-sm font-semibold">BuildSense AI</p>
             <p className="text-xs text-muted-foreground">Construction PM</p>

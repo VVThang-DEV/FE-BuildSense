@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
 
@@ -32,7 +33,12 @@ function ProjectDetail() {
   const session = useSession();
   const isLive = !!session?.token;
 
-  const { data: project, isLoading, error } = useQuery({
+  const {
+    data: project,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["project", id],
     queryFn: async () => {
       const response = await projectsApi.getById(Number(id));
@@ -46,7 +52,9 @@ function ProjectDetail() {
   return (
     <div className="max-w-[1400px] mx-auto">
       <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
-        <Link to="/app/projects"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back to projects</Link>
+        <Link to="/app/projects">
+          <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back to projects
+        </Link>
       </Button>
 
       {!isLive ? (
@@ -59,9 +67,10 @@ function ProjectDetail() {
         <div className="p-8 text-center text-sm text-muted-foreground">Loading project...</div>
       ) : error || !project ? (
         <Card className="shadow-sm">
-          <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            Project not found.
-          </CardContent>
+          <QueryError
+            message={error instanceof Error ? error.message : "Project not found"}
+            onRetry={() => refetch()}
+          />
         </Card>
       ) : (
         <>
@@ -70,16 +79,31 @@ function ProjectDetail() {
             title={project.projectName}
             description={project.address ?? "No address recorded"}
             actions={
-              <Badge variant="outline" className={cn(healthConfig[STATUS_HEALTH[project.status] ?? "on-track"].cls)}>
+              <Badge
+                variant="outline"
+                className={cn(healthConfig[STATUS_HEALTH[project.status] ?? "on-track"].cls)}
+              >
                 {project.status.replace("_", " ")}
               </Badge>
             }
           />
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard icon={CalendarDays} label="Start date" value={formatDate(project.startDate)} />
-            <SummaryCard icon={CalendarDays} label="Baseline end" value={formatDate(project.baselineEnd)} />
-            <SummaryCard icon={CircleDollarSign} label="Budget" value={`${project.totalProjectBudget.toLocaleString()} ${project.currency}`} />
+            <SummaryCard
+              icon={CalendarDays}
+              label="Start date"
+              value={formatDate(project.startDate)}
+            />
+            <SummaryCard
+              icon={CalendarDays}
+              label="Baseline end"
+              value={formatDate(project.baselineEnd)}
+            />
+            <SummaryCard
+              icon={CircleDollarSign}
+              label="Budget"
+              value={`${project.totalProjectBudget.toLocaleString()} ${project.currency}`}
+            />
             <SummaryCard icon={ClipboardList} label="Tasks" value={String(project.totalTasks)} />
           </div>
 
@@ -106,7 +130,10 @@ function ProjectDetail() {
                 <InfoRow label="AI alerts" value={String(project.totalAIAlerts)} />
                 <div className="flex items-center gap-2 rounded-md border p-3 text-muted-foreground">
                   <UserRound className="h-4 w-4" />
-                  <span>Team, WBS, documents, and material plans need backend endpoints before they can be shown here.</span>
+                  <span>
+                    Team, WBS, documents, and material plans need backend endpoints before they can
+                    be shown here.
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -117,7 +144,15 @@ function ProjectDetail() {
   );
 }
 
-function SummaryCard({ icon: Icon, label, value }: { icon: typeof CalendarDays; label: string; value: string }) {
+function SummaryCard({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof CalendarDays;
+  label: string;
+  value: string;
+}) {
   return (
     <Card className="shadow-sm">
       <CardContent className="p-4">

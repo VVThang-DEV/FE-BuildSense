@@ -1,13 +1,6 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import {
-  ChevronRight, LogOut, Search, Bell,
-  Menu, X, ChevronDown, User,
-} from "lucide-react";
+import { ChevronRight, LogOut, Menu, ChevronDown, User } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,16 +9,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { ROLE_LABELS, logout, type Role, type Session } from "@/lib/session";
 import { navForRole } from "@/lib/nav";
-import { projectsApi } from "@/api/projects";
 import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
 const ROLE_BADGE_STYLE: Record<Role, string> = {
@@ -39,19 +26,8 @@ const ROLE_BADGE_STYLE: Record<Role, string> = {
 export function AppShell({ session }: { session: Session }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [project, setProject] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const items = useMemo(() => navForRole(session.role), [session.role]);
-  const canUseProjects = !!session.token && (session.role === "ADMIN" || session.role === "PM");
-  const { data: liveProjects } = useQuery({
-    queryKey: ["shell-projects"],
-    queryFn: async () => {
-      const response = await projectsApi.getAll();
-      return response.result ?? [];
-    },
-    enabled: canUseProjects,
-    staleTime: 60_000,
-  });
   const grouped = useMemo(() => {
     const m = new Map<string, typeof items>();
     items.forEach((i) => {
@@ -71,28 +47,18 @@ export function AppShell({ session }: { session: Session }) {
     <>
       {/* Logo */}
       <div className="flex h-[60px] items-center gap-2.5 px-4 border-b border-sidebar-border shrink-0">
-        <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-8 w-8 rounded-md object-cover" />
+        <img
+          src={buildSenseLogo}
+          alt="BuildSense AI logo"
+          className="h-8 w-8 rounded-md object-cover"
+        />
         <div className="leading-tight min-w-0">
-          <p className="text-[13.5px] font-bold tracking-tight text-sidebar-foreground">BuildSense AI</p>
+          <p className="text-[13.5px] font-bold tracking-tight text-sidebar-foreground">
+            BuildSense AI
+          </p>
           <p className="text-[10px] font-medium text-sidebar-primary/80">Construction PM</p>
         </div>
       </div>
-
-      {/* Project selector */}
-      {canUseProjects && (liveProjects ?? []).length > 0 && (
-        <div className="px-3 pt-3">
-          <Select value={project || String(liveProjects?.[0]?.projectId ?? "")} onValueChange={setProject}>
-            <SelectTrigger className="h-8 text-xs bg-sidebar-accent border-sidebar-border text-sidebar-foreground [&>svg]:text-sidebar-foreground/50">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(liveProjects ?? []).map((p) => (
-                <SelectItem key={p.projectId} value={String(p.projectId)} className="text-xs">{p.projectName}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto p-3 space-y-5 mt-1">
@@ -134,17 +100,28 @@ export function AppShell({ session }: { session: Session }) {
 
       <div className="p-3 border-t border-sidebar-border shrink-0">
         <div className="flex items-center gap-2.5 px-1">
-          <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold border", ROLE_BADGE_STYLE[session.role])}>
+          <div
+            className={cn(
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold border",
+              ROLE_BADGE_STYLE[session.role],
+            )}
+          >
             {session.avatar}
           </div>
           <div className="flex-1 min-w-0 leading-tight">
-            <p className="text-[12px] font-medium text-sidebar-foreground truncate">{session.name}</p>
-            <p className="text-[10px] text-sidebar-foreground/50 truncate">{ROLE_LABELS[session.role]}</p>
+            <p className="text-[12px] font-medium text-sidebar-foreground truncate">
+              {session.name}
+            </p>
+            <p className="text-[10px] text-sidebar-foreground/50 truncate">
+              {ROLE_LABELS[session.role]}
+            </p>
           </div>
           <button
+            type="button"
             onClick={onLogout}
             className="text-sidebar-foreground/40 hover:text-destructive transition-colors p-1"
             title="Sign out"
+            aria-label="Sign out"
           >
             <LogOut className="h-3.5 w-3.5" />
           </button>
@@ -160,21 +137,18 @@ export function AppShell({ session }: { session: Session }) {
         <SidebarContent />
       </aside>
 
-      {/* Mobile sidebar drawer */}
-      {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="relative flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground z-10">
-            <button
-              onClick={() => setMobileOpen(false)}
-              className="absolute top-3.5 right-3 text-sidebar-foreground/50 hover:text-sidebar-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
+      {/* Accessible mobile sidebar drawer */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent
+          side="left"
+          className="flex w-64 flex-col gap-0 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
+        >
+          <SheetTitle className="sr-only">Application navigation</SheetTitle>
+          <aside className="flex min-h-0 flex-1 flex-col">
             <SidebarContent />
           </aside>
-        </div>
-      )}
+        </SheetContent>
+      </Sheet>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -182,70 +156,41 @@ export function AppShell({ session }: { session: Session }) {
         <header className="sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-border bg-card/90 backdrop-blur-sm px-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
           {/* Mobile menu button */}
           <button
+            type="button"
             className="lg:hidden flex items-center justify-center h-8 w-8 rounded-lg hover:bg-muted text-muted-foreground"
             onClick={() => setMobileOpen(true)}
+            aria-label="Open navigation"
           >
             <Menu className="h-4 w-4" />
           </button>
 
           {/* Mobile brand */}
           <div className="lg:hidden flex items-center gap-2">
-            <img src={buildSenseLogo} alt="BuildSense AI logo" className="h-7 w-7 rounded-md object-cover" />
+            <img
+              src={buildSenseLogo}
+              alt="BuildSense AI logo"
+              className="h-7 w-7 rounded-md object-cover"
+            />
             <p className="text-sm font-bold">BuildSense</p>
           </div>
 
           <Breadcrumbs pathname={pathname} />
 
           <div className="ml-auto flex items-center gap-2">
-            {/* Search */}
-            <div className="hidden md:flex relative w-60">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Search projects, materials…"
-                className="pl-8 h-8 text-xs bg-muted/50 border-border focus:bg-card"
-              />
-            </div>
-
-            {/* Desktop project selector (already in sidebar, keep small one here for context) */}
-            {canUseProjects && (liveProjects ?? []).length > 0 && (
-              <Select value={project || String(liveProjects?.[0]?.projectId ?? "")} onValueChange={setProject}>
-                <SelectTrigger className="h-8 w-40 hidden xl:flex text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(liveProjects ?? []).map((p) => (
-                    <SelectItem key={p.projectId} value={String(p.projectId)} className="text-xs">{p.projectName}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-
-            {/* Notifications */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative h-8 w-8">
-                  <Bell className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 p-0">
-                <div className="flex items-center justify-between px-3.5 py-2.5 border-b">
-                  <span className="text-sm font-semibold">Notifications</span>
-                  <Badge variant="secondary" className="text-[10px] h-4 px-1.5">0 new</Badge>
-                </div>
-                <div className="px-3.5 py-6 text-center text-xs text-muted-foreground">
-                  No backend notification endpoint is configured.
-                </div>
-              </PopoverContent>
-            </Popover>
-
             {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 rounded-lg pl-1 pr-2 py-1 hover:bg-muted transition-colors border border-transparent hover:border-border">
-                  <span className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold border",
-                    ROLE_BADGE_STYLE[session.role],
-                  )}>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-lg pl-1 pr-2 py-1 hover:bg-muted transition-colors border border-transparent hover:border-border"
+                  aria-label="Open account menu"
+                >
+                  <span
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold border",
+                      ROLE_BADGE_STYLE[session.role],
+                    )}
+                  >
                     {session.avatar}
                   </span>
                   <div className="hidden sm:block text-left leading-tight">
@@ -266,11 +211,11 @@ export function AppShell({ session }: { session: Session }) {
                 <DropdownMenuItem onSelect={() => navigate({ to: "/app/profile" })}>
                   <User className="h-3.5 w-3.5 mr-2" /> My Profile
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => navigate({ to: "/login" })}>
-                  Switch role
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onLogout} className="text-destructive focus:text-destructive">
+                <DropdownMenuItem
+                  onSelect={onLogout}
+                  className="text-destructive focus:text-destructive"
+                >
                   <LogOut className="h-3.5 w-3.5 mr-2" /> Sign out
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -288,14 +233,29 @@ export function AppShell({ session }: { session: Session }) {
 
 function Breadcrumbs({ pathname }: { pathname: string }) {
   const LABEL_MAP: Record<string, string> = {
-    app: "App", dashboard: "Dashboard", projects: "Projects",
-    materials: "Materials", procurement: "Procurement", check: "Daily Check",
-    site: "Site", report: "Daily Report", attendance: "Attendance",
-    ai: "AI Agent", reports: "Reports", admin: "Admin",
-    wbs: "WBS & Baseline", thresholds: "Thresholds", staff: "Staff",
-    users: "Users", notifications: "Notifications", portal: "My House",
-    profile: "My Profile", verify: "Verify Email",
-    warehouses: "Warehouses", suppliers: "Suppliers",
+    app: "App",
+    dashboard: "Dashboard",
+    projects: "Projects",
+    materials: "Materials",
+    procurement: "Procurement",
+    check: "Daily Check",
+    site: "Site",
+    report: "Daily Report",
+    attendance: "Attendance",
+    ai: "AI Agent",
+    reports: "Reports",
+    admin: "Admin",
+    wbs: "WBS & Baseline",
+    thresholds: "Thresholds",
+    staff: "Staff",
+    users: "Users",
+    notifications: "Notifications",
+    portal: "My House",
+    profile: "My Profile",
+    verify: "Verify Email",
+    warehouses: "Warehouses",
+    suppliers: "Suppliers",
+    "material-requests": "Material Requests",
   };
   const parts = pathname.split("/").filter(Boolean);
   return (
@@ -313,5 +273,3 @@ function Breadcrumbs({ pathname }: { pathname: string }) {
     </nav>
   );
 }
-
-export { Badge };

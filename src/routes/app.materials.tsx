@@ -5,15 +5,37 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
 import { materialsApi, type MaterialResponse } from "@/api/materials";
 import { categoriesApi } from "@/api/categories";
+import { requireApiResult } from "@/api/client";
 
 export const Route = createFileRoute("/app/materials")({
   head: () => ({ meta: [{ title: "Material Catalog - BuildSense AI" }] }),
@@ -34,12 +56,20 @@ function MaterialsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<MaterialResponse | null>(null);
   const [form, setForm] = useState<MaterialForm>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<MaterialResponse | null>(null);
 
-  const { data: materials, isLoading, refetch } = useQuery({
+  const {
+    data: materials,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["materials"],
     queryFn: async () => {
       const response = await materialsApi.getAll();
-      return response.result ?? [];
+      return requireApiResult(response, "Could not load materials") ?? [];
     },
     enabled: isLive,
     staleTime: 30_000,
@@ -49,7 +79,7 @@ function MaterialsPage() {
     queryKey: ["categories"],
     queryFn: async () => {
       const response = await categoriesApi.getAll();
-      return response.result ?? [];
+      return requireApiResult(response, "Could not load categories") ?? [];
     },
     enabled: isLive,
     staleTime: 60_000,
@@ -77,36 +107,50 @@ function MaterialsPage() {
       return;
     }
 
-    const response = editing
-      ? await materialsApi.update(editing.materialId, {
-          materialName: form.materialName.trim(),
-          unit: form.unit.trim(),
-        })
-      : await materialsApi.create({
-          materialName: form.materialName.trim(),
-          unit: form.unit.trim(),
-          categoryId: Number(form.categoryId),
-        });
+    setSaving(true);
+    try {
+      const response = editing
+        ? await materialsApi.update(editing.materialId, {
+            materialName: form.materialName.trim(),
+            unit: form.unit.trim(),
+          })
+        : await materialsApi.create({
+            materialName: form.materialName.trim(),
+            unit: form.unit.trim(),
+            categoryId: Number(form.categoryId),
+          });
 
-    if (response.isSuccess) {
-      toast.success(editing ? "Material updated" : "Material added");
-      setOpen(false);
-      setForm(EMPTY_FORM);
-      setEditing(null);
-      refetch();
-    } else {
-      toast.error(response.errorMessage ?? "Request failed");
+      if (response.isSuccess) {
+        toast.success(editing ? "Material updated" : "Material added");
+        setOpen(false);
+        setForm(EMPTY_FORM);
+        setEditing(null);
+        refetch();
+      } else {
+        toast.error(response.errorMessage ?? "Request failed");
+      }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
     }
   };
 
   const deleteMaterial = async (material: MaterialResponse) => {
-    if (!window.confirm(`Delete ${material.materialName}?`)) return;
-    const response = await materialsApi.delete(material.materialId);
-    if (response.isSuccess) {
-      toast.success("Material deleted");
-      refetch();
-    } else {
-      toast.error(response.errorMessage ?? "Delete failed");
+    setSaving(true);
+    try {
+      const response = await materialsApi.delete(material.materialId);
+      if (response.isSuccess) {
+        toast.success("Material deleted");
+        setDeleting(null);
+        refetch();
+      } else {
+        toast.error(response.errorMessage ?? "Delete failed");
+      }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -127,36 +171,62 @@ function MaterialsPage() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? "Edit Material" : "Add Material"}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit Material" : "Add Material"}</DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Material name</Label>
-              <Input value={form.materialName} onChange={(e) => setForm((f) => ({ ...f, materialName: e.target.value }))} />
+              <Label htmlFor="material-name">Material name</Label>
+              <Input
+                id="material-name"
+                value={form.materialName}
+                onChange={(e) => setForm((f) => ({ ...f, materialName: e.target.value }))}
+                disabled={saving}
+              />
             </div>
             <div>
-              <Label>Unit</Label>
-              <Input value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} placeholder="bags / kg / m3" />
+              <Label htmlFor="material-unit">Unit</Label>
+              <Input
+                id="material-unit"
+                value={form.unit}
+                onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
+                placeholder="bags / kg / m3"
+                disabled={saving}
+              />
             </div>
             {!editing && (
               <div>
-                <Label>Category</Label>
-                <Select value={form.categoryId} onValueChange={(value) => setForm((f) => ({ ...f, categoryId: value }))}>
-                  <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                <Label id="material-category-label">Category</Label>
+                <Select
+                  value={form.categoryId}
+                  onValueChange={(value) => setForm((f) => ({ ...f, categoryId: value }))}
+                >
+                  <SelectTrigger aria-labelledby="material-category-label">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
                   <SelectContent>
                     {(categories ?? []).map((category) => (
-                      <SelectItem key={category.id} value={String(category.id)}>{category.categoryName}</SelectItem>
+                      <SelectItem key={category.id} value={String(category.id)}>
+                        {category.categoryName}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {(categories ?? []).length === 0 && (
-                  <p className="mt-1.5 text-xs text-muted-foreground">Create a category before adding materials.</p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Create a category before adding materials.
+                  </p>
                 )}
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={submit} disabled={!editing && !form.categoryId}>{editing ? "Save changes" : "Add material"}</Button>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={saving || (!editing && !form.categoryId)}>
+              {saving ? "Saving..." : editing ? "Save changes" : "Add material"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -164,9 +234,18 @@ function MaterialsPage() {
       <Card className="shadow-sm">
         <CardContent className="p-0">
           {!isLive ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">Sign in with a real backend account to manage materials.</div>
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              Sign in with a real backend account to manage materials.
+            </div>
           ) : isLoading ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">Loading materials...</div>
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              Loading materials...
+            </div>
+          ) : isError ? (
+            <QueryError
+              message={error instanceof Error ? error.message : undefined}
+              onRetry={() => refetch()}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -180,22 +259,41 @@ function MaterialsPage() {
               </TableHeader>
               <TableBody>
                 {(materials ?? []).length === 0 && (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No materials yet</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      No materials yet
+                    </TableCell>
+                  </TableRow>
                 )}
                 {(materials ?? []).map((material) => (
                   <TableRow key={material.materialId}>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{material.materialId}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {material.materialId}
+                    </TableCell>
                     <TableCell className="font-medium">{material.materialName}</TableCell>
                     <TableCell>{material.unit}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {categories?.find((category) => category.id === material.categoryId)?.categoryName ?? `#${material.categoryId}`}
+                      {categories?.find((category) => category.id === material.categoryId)
+                        ?.categoryName ?? `#${material.categoryId}`}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(material)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={() => openEdit(material)}
+                          aria-label={`Edit ${material.materialName}`}
+                        >
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteMaterial(material)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => setDeleting(material)}
+                          aria-label={`Delete ${material.materialName}`}
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -207,6 +305,16 @@ function MaterialsPage() {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(nextOpen) => !nextOpen && setDeleting(null)}
+        title="Delete material?"
+        description={`Delete ${deleting?.materialName ?? "this material"}? This action cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        busy={saving}
+        onConfirm={() => deleting && deleteMaterial(deleting)}
+      />
     </div>
   );
 }
