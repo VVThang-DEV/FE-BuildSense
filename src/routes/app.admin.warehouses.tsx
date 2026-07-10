@@ -5,14 +5,29 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
+import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
 import { warehousesApi } from "@/api/warehouses";
+import { requireApiResult } from "@/api/client";
 
 export const Route = createFileRoute("/app/admin/warehouses")({
   head: () => ({ meta: [{ title: "Warehouses — BuildSense AI" }] }),
@@ -23,36 +38,60 @@ function WarehousesPage() {
   const session = useSession();
   const isLive = !!session?.token;
 
-  const { data: warehouses, refetch, isLoading } = useQuery({
+  const {
+    data: warehouses,
+    refetch,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ["warehouses"],
-    queryFn: async () => { const r = await warehousesApi.getAll(); return r.result ?? []; },
+    queryFn: async () =>
+      requireApiResult(await warehousesApi.getAll(), "Could not load warehouses") ?? [],
     enabled: isLive,
     staleTime: 30_000,
   });
 
   const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ warehouseName: "", location: "" });
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const { data: inventory, isLoading: invLoading } = useQuery({
+  const {
+    data: inventory,
+    isLoading: invLoading,
+    isError: inventoryError,
+    error: inventoryErrorValue,
+    refetch: refetchInventory,
+  } = useQuery({
     queryKey: ["warehouse-inventory", selectedId],
     queryFn: async () => {
       const r = await warehousesApi.getInventory(selectedId!);
-      return r.result ?? [];
+      return requireApiResult(r, "Could not load warehouse inventory") ?? [];
     },
     enabled: selectedId !== null,
     staleTime: 10_000,
   });
 
   const submitCreate = async () => {
-    if (!form.warehouseName.trim()) { toast.error("Warehouse name required"); return; }
-    const r = await warehousesApi.create(form);
-    if (r.isSuccess) {
-      toast.success("Warehouse created");
-      setCreating(false);
-      setForm({ warehouseName: "", location: "" });
-      refetch();
-    } else toast.error(r.errorMessage ?? "Create failed");
+    if (!form.warehouseName.trim()) {
+      toast.error("Warehouse name required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const r = await warehousesApi.create(form);
+      if (r.isSuccess) {
+        toast.success("Warehouse created");
+        setCreating(false);
+        setForm({ warehouseName: "", location: "" });
+        refetch();
+      } else toast.error(r.errorMessage ?? "Create failed");
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -72,28 +111,38 @@ function WarehousesPage() {
 
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent>
-          <DialogHeader><DialogTitle>New Warehouse</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>New Warehouse</DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Name</Label>
+              <Label htmlFor="warehouse-name">Name</Label>
               <Input
+                id="warehouse-name"
                 value={form.warehouseName}
                 onChange={(e) => setForm((f) => ({ ...f, warehouseName: e.target.value }))}
                 placeholder="Main Site Warehouse"
+                disabled={saving}
               />
             </div>
             <div>
-              <Label>Location</Label>
+              <Label htmlFor="warehouse-location">Location</Label>
               <Input
+                id="warehouse-location"
                 value={form.location}
                 onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
                 placeholder="Block A, Ground Floor"
+                disabled={saving}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
-            <Button onClick={submitCreate}>Create</Button>
+            <Button variant="outline" onClick={() => setCreating(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={submitCreate} disabled={saving}>
+              {saving ? "Creating..." : "Create"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -108,6 +157,11 @@ function WarehousesPage() {
               </div>
             ) : isLoading ? (
               <div className="p-8 text-center text-sm text-muted-foreground">Loading…</div>
+            ) : isError ? (
+              <QueryError
+                message={error instanceof Error ? error.message : undefined}
+                onRetry={() => refetch()}
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -144,7 +198,9 @@ function WarehousesPage() {
                           size="sm"
                           variant={selectedId === w.warehouseId ? "secondary" : "outline"}
                           className="h-7 text-xs"
-                          onClick={() => setSelectedId(selectedId === w.warehouseId ? null : w.warehouseId)}
+                          onClick={() =>
+                            setSelectedId(selectedId === w.warehouseId ? null : w.warehouseId)
+                          }
                         >
                           <Eye className="h-3 w-3 mr-1" />
                           {selectedId === w.warehouseId ? "Hide" : "View"}
@@ -164,12 +220,22 @@ function WarehousesPage() {
             <CardHeader className="pb-2 border-b">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <Warehouse className="h-4 w-4 text-primary" />
-                {warehouses?.find((w) => w.warehouseId === selectedId)?.warehouseName ?? "Inventory"}
+                {warehouses?.find((w) => w.warehouseId === selectedId)?.warehouseName ??
+                  "Inventory"}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               {invLoading ? (
-                <div className="p-6 text-center text-sm text-muted-foreground">Loading inventory…</div>
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  Loading inventory…
+                </div>
+              ) : inventoryError ? (
+                <QueryError
+                  message={
+                    inventoryErrorValue instanceof Error ? inventoryErrorValue.message : undefined
+                  }
+                  onRetry={() => refetchInventory()}
+                />
               ) : (
                 <Table>
                   <TableHeader>
@@ -196,7 +262,9 @@ function WarehousesPage() {
                           {item.material?.unit ?? "—"}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Badge variant="outline" className="tabular-nums">{item.quantity}</Badge>
+                          <Badge variant="outline" className="tabular-nums">
+                            {item.quantity}
+                          </Badge>
                         </TableCell>
                       </TableRow>
                     ))}

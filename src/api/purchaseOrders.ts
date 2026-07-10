@@ -54,17 +54,15 @@ function normalizePurchaseOrder(po: RawPurchaseOrderResponse): PurchaseOrderResp
 }
 
 export const purchaseOrdersApi = {
-  getAll:  async () => {
+  getAll: async () => {
     const response = await apiClient.get<RawPurchaseOrderResponse[]>("/api/purchaseorders");
     return {
       ...response,
       result: (response.result ?? []).map(normalizePurchaseOrder),
     };
   },
-  create: (body: CreatePurchaseOrderRequest) =>
-    apiClient.post<string>("/api/purchaseorders", body),
-  approve: (id: number) =>
-    apiClient.put<string>(`/api/purchaseorders/${id}/approve`),
+  create: (body: CreatePurchaseOrderRequest) => apiClient.post<string>("/api/purchaseorders", body),
+  approve: (id: number) => apiClient.put<string>(`/api/purchaseorders/${id}/approve`),
   importToWarehouse: (poId: number, warehouseId: number) =>
     apiClient.post(`/api/purchaseorders/${poId}/import?warehouseId=${warehouseId}`),
 };

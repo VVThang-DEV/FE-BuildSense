@@ -6,15 +6,30 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
 import { usersApi } from "@/api/users";
+import { requireApiResult } from "@/api/client";
 
 export const Route = createFileRoute("/app/projects")({
   head: () => ({ meta: [{ title: "Projects - BuildSense AI" }] }),
@@ -50,14 +65,25 @@ function ProjectsList() {
   const session = useSession();
   const isLive = !!session?.token;
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ projectName: "", address: "", startDate: "", baselineEnd: "" });
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    projectName: "",
+    address: "",
+    startDate: "",
+    baselineEnd: "",
+  });
 
-  const { data: liveProjects, isLoading, refetch } = useQuery({
+  const {
+    data: liveProjects,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["projects"],
     queryFn: async () => {
       const response = await projectsApi.getAll();
-      if (!response.isSuccess) throw new Error(response.errorMessage ?? "Failed");
-      return response.result ?? [];
+      return requireApiResult(response, "Could not load projects") ?? [];
     },
     enabled: isLive,
     staleTime: 30_000,
@@ -69,28 +95,40 @@ function ProjectsList() {
       return;
     }
 
-    const userIdResponse = await usersApi.getUserId();
-    if (!userIdResponse.isSuccess || !userIdResponse.result) {
-      toast.error(userIdResponse.errorMessage ?? "Could not resolve current user");
+    if (form.baselineEnd && form.baselineEnd < form.startDate) {
+      toast.error("Baseline end must be on or after the start date");
       return;
     }
 
-    const response = await projectsApi.create({
-      projectName: form.projectName.trim(),
-      address: form.address.trim() || undefined,
-      startDate: form.startDate,
-      pmUserID: userIdResponse.result,
-      baselineStart: form.startDate,
-      baselineEnd: form.baselineEnd || addDays(form.startDate, 90),
-    });
+    setSaving(true);
+    try {
+      const userIdResponse = await usersApi.getUserId();
+      if (!userIdResponse.isSuccess || !userIdResponse.result) {
+        toast.error(userIdResponse.errorMessage ?? "Could not resolve current user");
+        return;
+      }
 
-    if (response.isSuccess) {
-      toast.success("Project created");
-      setCreating(false);
-      setForm({ projectName: "", address: "", startDate: "", baselineEnd: "" });
-      refetch();
-    } else {
-      toast.error(response.errorMessage ?? "Create failed");
+      const response = await projectsApi.create({
+        projectName: form.projectName.trim(),
+        address: form.address.trim() || undefined,
+        startDate: form.startDate,
+        pmUserID: userIdResponse.result,
+        baselineStart: form.startDate,
+        baselineEnd: form.baselineEnd || addDays(form.startDate, 90),
+      });
+
+      if (response.isSuccess) {
+        toast.success("Project created");
+        setCreating(false);
+        setForm({ projectName: "", address: "", startDate: "", baselineEnd: "" });
+        refetch();
+      } else {
+        toast.error(response.errorMessage ?? "Create failed");
+      }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -111,28 +149,57 @@ function ProjectsList() {
 
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent>
-          <DialogHeader><DialogTitle>New Project</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>New Project</DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Project name</Label>
-              <Input value={form.projectName} onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))} />
+              <Label htmlFor="project-name">Project name</Label>
+              <Input
+                id="project-name"
+                value={form.projectName}
+                onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
+                disabled={saving}
+              />
             </div>
             <div>
-              <Label>Address</Label>
-              <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+              <Label htmlFor="project-address">Address</Label>
+              <Input
+                id="project-address"
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                disabled={saving}
+              />
             </div>
             <div>
-              <Label>Start date</Label>
-              <Input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
+              <Label htmlFor="project-start">Start date</Label>
+              <Input
+                id="project-start"
+                type="date"
+                value={form.startDate}
+                onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
+                disabled={saving}
+              />
             </div>
             <div>
-              <Label>Baseline end</Label>
-              <Input type="date" value={form.baselineEnd} onChange={(e) => setForm((f) => ({ ...f, baselineEnd: e.target.value }))} />
+              <Label htmlFor="project-end">Baseline end</Label>
+              <Input
+                id="project-end"
+                type="date"
+                min={form.startDate || undefined}
+                value={form.baselineEnd}
+                onChange={(e) => setForm((f) => ({ ...f, baselineEnd: e.target.value }))}
+                disabled={saving}
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
-            <Button onClick={submitCreate}>Create project</Button>
+            <Button variant="outline" onClick={() => setCreating(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={submitCreate} disabled={saving}>
+              {saving ? "Creating..." : "Create project"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -140,9 +207,16 @@ function ProjectsList() {
       <Card className="shadow-sm">
         <CardContent className="p-0">
           {!isLive ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">Sign in with a real backend account to view projects.</div>
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              Sign in with a real backend account to view projects.
+            </div>
           ) : isLoading ? (
             <div className="p-8 text-center text-sm text-muted-foreground">Loading projects...</div>
+          ) : isError ? (
+            <QueryError
+              message={error instanceof Error ? error.message : undefined}
+              onRetry={() => refetch()}
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -156,18 +230,33 @@ function ProjectsList() {
               </TableHeader>
               <TableBody>
                 {(liveProjects ?? []).length === 0 && (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No projects yet</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      No projects yet
+                    </TableCell>
+                  </TableRow>
                 )}
                 {(liveProjects ?? []).map((project) => (
                   <TableRow key={project.projectId}>
                     <TableCell className="font-medium">
-                      <Link to="/app/projects/$id" params={{ id: String(project.projectId) }} className="hover:underline">
+                      <Link
+                        to="/app/projects/$id"
+                        params={{ id: String(project.projectId) }}
+                        className="hover:underline"
+                      >
                         {project.projectName}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{project.address ?? "-"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {project.address ?? "-"}
+                    </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={cn(healthConfig[STATUS_HEALTH[project.status] ?? "on-track"].cls)}>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          healthConfig[STATUS_HEALTH[project.status] ?? "on-track"].cls,
+                        )}
+                      >
                         {project.status.replace("_", " ")}
                       </Badge>
                     </TableCell>

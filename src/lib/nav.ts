@@ -3,7 +3,9 @@ import {
   LayoutDashboard,
   FolderKanban,
   Package,
+  PackageCheck,
   ShoppingCart,
+  ClipboardList,
   Users,
   Warehouse,
   Truck,
@@ -20,17 +22,85 @@ export type NavItem = {
 };
 
 export const NAV: NavItem[] = [
-  { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Overview" },
-  { to: "/app/projects", label: "Projects", icon: FolderKanban, roles: ["ADMIN", "PM"], group: "Overview" },
+  {
+    to: "/app/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
+    group: "Overview",
+  },
+  {
+    to: "/app/projects",
+    label: "Projects",
+    icon: FolderKanban,
+    roles: ["ADMIN", "PM"],
+    group: "Overview",
+  },
 
-  { to: "/app/materials", label: "Material Catalog", icon: Package, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Operations" },
-  { to: "/app/procurement", label: "Procurement", icon: ShoppingCart, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Operations" },
+  {
+    to: "/app/materials",
+    label: "Material Catalog",
+    icon: Package,
+    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
+    group: "Operations",
+  },
+  {
+    to: "/app/material-requests",
+    label: "Material Requests",
+    icon: PackageCheck,
+    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
+    group: "Operations",
+  },
+  {
+    to: "/app/procurement",
+    label: "Procurement",
+    icon: ShoppingCart,
+    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
+    group: "Operations",
+  },
+  {
+    to: "/app/site/report",
+    label: "Daily Progress",
+    icon: ClipboardList,
+    roles: ["ADMIN", "PM"],
+    group: "Field",
+  },
 
-  { to: "/app/admin/categories", label: "Categories", icon: Tags, roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"], group: "Setup" },
-  { to: "/app/admin/warehouses", label: "Warehouses", icon: Warehouse, roles: ["ADMIN", "WAREHOUSE_MANAGER"], group: "Setup" },
-  { to: "/app/admin/suppliers", label: "Suppliers", icon: Truck, roles: ["ADMIN", "SUPPLIER"], group: "Setup" },
-  { to: "/app/staff/users", label: "Users & Access", icon: Users, roles: ["ADMIN"], group: "Setup" },
-  { to: "/app/portal", label: "Customer Portal", icon: Users, roles: ["CUSTOMER"], group: "Portal" },
+  {
+    to: "/app/admin/categories",
+    label: "Categories",
+    icon: Tags,
+    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
+    group: "Setup",
+  },
+  {
+    to: "/app/admin/warehouses",
+    label: "Warehouses",
+    icon: Warehouse,
+    roles: ["ADMIN", "WAREHOUSE_MANAGER"],
+    group: "Setup",
+  },
+  {
+    to: "/app/admin/suppliers",
+    label: "Suppliers",
+    icon: Truck,
+    roles: ["ADMIN", "SUPPLIER"],
+    group: "Setup",
+  },
+  {
+    to: "/app/staff/users",
+    label: "Users & Access",
+    icon: Users,
+    roles: ["ADMIN"],
+    group: "Setup",
+  },
+  {
+    to: "/app/portal",
+    label: "Customer Portal",
+    icon: Users,
+    roles: ["CUSTOMER"],
+    group: "Portal",
+  },
 ];
 
 export function navForRole(role: Role): NavItem[] {
@@ -40,10 +110,8 @@ export function navForRole(role: Role): NavItem[] {
 export function isPathAllowedForRole(role: Role, pathname: string): boolean {
   const current = pathname.replace(/\/+$/, "") || "/";
   if (current === "/app" || current === "/app/profile") return true;
-  return navForRole(role).some(
-    (item) => {
-      const itemPath = item.to.replace(/\/+$/, "") || "/";
-      return current === itemPath || (itemPath !== "/app" && current.startsWith(itemPath + "/"));
-    },
-  );
+  return navForRole(role).some((item) => {
+    const itemPath = item.to.replace(/\/+$/, "") || "/";
+    return current === itemPath || (itemPath !== "/app" && current.startsWith(itemPath + "/"));
+  });
 }

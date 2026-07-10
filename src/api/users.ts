@@ -37,7 +37,13 @@ export const BACKEND_ROLE_VALUE: Record<BackendRole, BackendRoleValue> = {
   CUSTOMER: 4,
 };
 
-export const USER_MANAGEMENT_ROLES: BackendRole[] = ["ADMIN", "PM", "WAREHOUSE_MANAGER", "SUPPLIER", "CUSTOMER"];
+export const USER_MANAGEMENT_ROLES: BackendRole[] = [
+  "ADMIN",
+  "PM",
+  "WAREHOUSE_MANAGER",
+  "SUPPLIER",
+  "CUSTOMER",
+];
 
 const ROLE_BY_NUMBER: Record<number, BackendRole> = {
   0: "ADMIN",
@@ -74,7 +80,9 @@ export const usersApi = {
   },
   /** Admin only */
   getAll: async () => {
-    const response = await apiClient.get<RawAccountResponse[]>("/api/useraccount/GetAllAccountAsync");
+    const response = await apiClient.get<RawAccountResponse[]>(
+      "/api/useraccount/GetAllAccountAsync",
+    );
     return {
       ...response,
       result: (response.result ?? []).map(normalizeAccount),
@@ -86,9 +94,10 @@ export const usersApi = {
     const response = await apiClient.get<number | RawUserIdResponse>("/api/useraccount/GetUserId");
     return {
       ...response,
-      result: typeof response.result === "number"
-        ? response.result
-        : response.result?.userId ?? response.result?.UserId ?? 0,
+      result:
+        typeof response.result === "number"
+          ? response.result
+          : (response.result?.userId ?? response.result?.UserId ?? 0),
     };
   },
   updateProfile: (body: { firstName?: string; lastName?: string; phoneNumber?: string }) =>

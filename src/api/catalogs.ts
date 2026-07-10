@@ -8,6 +8,5 @@ export type CreateCatalogRequest = {
 };
 
 export const catalogsApi = {
-  create: (body: CreateCatalogRequest) =>
-    apiClient.post<string>("/api/catalogs", body),
+  create: (body: CreateCatalogRequest) => apiClient.post<string>("/api/catalogs", body),
 };

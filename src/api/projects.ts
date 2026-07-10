@@ -91,6 +91,5 @@ export const projectsApi = {
       result: response.result ? normalizeProject(response.result) : response.result,
     };
   },
-  create:  (body: CreateProjectRequest) =>
-    apiClient.post<string>("/api/projects", body),
+  create: (body: CreateProjectRequest) => apiClient.post<string>("/api/projects", body),
 };
