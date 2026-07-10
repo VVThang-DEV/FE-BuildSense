@@ -1,6 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Check, Download, Plus } from "lucide-react";
+import {
+  Check,
+  CircleDollarSign,
+  Clock3,
+  Download,
+  PackageCheck,
+  Plus,
+  Truck,
+  type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,7 +44,7 @@ import { cn, statusConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
-import { purchaseOrdersApi } from "@/api/purchaseOrders";
+import { purchaseOrdersApi, type PurchaseOrderResponse } from "@/api/purchaseOrders";
 import { projectsApi } from "@/api/projects";
 import { suppliersApi } from "@/api/suppliers";
 import { warehousesApi } from "@/api/warehouses";
@@ -183,8 +192,18 @@ function ProcurementPage() {
     }
   };
 
-  const pending = (livePOs ?? []).filter((po) => po.status === "PENDING");
-  const history = (livePOs ?? []).filter((po) => po.status !== "PENDING");
+  const allPOs = livePOs ?? [];
+  const pmProjectIds = new Set(
+    (liveProjects ?? [])
+      .filter((project) => project.pmUserID === session?.userId)
+      .map((project) => project.projectId),
+  );
+  const scopedPOs =
+    session?.role === "PM" ? allPOs.filter((po) => pmProjectIds.has(po.projectId)) : allPOs;
+  const pending = scopedPOs.filter((po) => po.status === "PENDING");
+  const approved = scopedPOs.filter((po) => po.status === "APPROVED");
+  const delivered = scopedPOs.filter((po) => po.status === "DELIVERED");
+  const pipelineValue = scopedPOs.reduce((sum, po) => sum + po.totalAmount, 0);
   const projectName = (id: number) =>
     liveProjects?.find((project) => project.projectId === id)?.projectName ?? `#${id}`;
   const supplierName = (id: number) =>
@@ -204,6 +223,26 @@ function ProcurementPage() {
           ) : undefined
         }
       />
+
+      {isLive && !isLoading && (
+        <div className="mb-4 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <ProcurementMetric icon={Clock3} label="Pending approval" value={pending.length} />
+            <ProcurementMetric icon={Truck} label="Awaiting receipt" value={approved.length} />
+            <ProcurementMetric icon={PackageCheck} label="Delivered" value={delivered.length} />
+            <ProcurementMetric
+              icon={CircleDollarSign}
+              label="Pipeline value"
+              value={pipelineValue.toLocaleString()}
+            />
+          </div>
+          <PipelineBar
+            pending={pending.length}
+            approved={approved.length}
+            delivered={delivered.length}
+          />
+        </div>
+      )}
 
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent>
@@ -344,7 +383,15 @@ function ProcurementPage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="approved">
+              Awaiting receipt
+              {approved.length > 0 && (
+                <Badge className="ml-1.5 h-4 min-w-[1rem] rounded-full p-0 text-[9px] flex items-center justify-center">
+                  {approved.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="delivered">Delivered</TabsTrigger>
           </TabsList>
           <TabsContent value="pending">
             <PurchaseOrderTable
@@ -355,9 +402,9 @@ function ProcurementPage() {
               busyAction={busyAction}
             />
           </TabsContent>
-          <TabsContent value="history">
+          <TabsContent value="approved">
             <PurchaseOrderTable
-              rows={history}
+              rows={approved}
               projectName={projectName}
               supplierName={supplierName}
               onImport={
@@ -372,9 +419,78 @@ function ProcurementPage() {
               busyAction={busyAction}
             />
           </TabsContent>
+          <TabsContent value="delivered">
+            <PurchaseOrderTable
+              rows={delivered}
+              projectName={projectName}
+              supplierName={supplierName}
+              busyAction={busyAction}
+            />
+          </TabsContent>
         </Tabs>
       )}
     </div>
+  );
+}
+
+function ProcurementMetric({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <Card className="shadow-sm">
+      <CardContent className="flex items-center gap-3 p-4">
+        <div className="rounded-lg bg-primary/10 p-2 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="truncate text-xl font-semibold tabular-nums">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PipelineBar({
+  pending,
+  approved,
+  delivered,
+}: {
+  pending: number;
+  approved: number;
+  delivered: number;
+}) {
+  const total = pending + approved + delivered;
+  const width = (value: number) => (total ? `${(value / total) * 100}%` : "0%");
+
+  return (
+    <Card className="shadow-sm">
+      <CardContent className="space-y-2 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <p className="font-medium">Purchase order pipeline</p>
+          <div className="flex gap-3 text-muted-foreground">
+            <span>{pending} pending</span>
+            <span>{approved} awaiting receipt</span>
+            <span>{delivered} delivered</span>
+          </div>
+        </div>
+        <div
+          className="flex h-2.5 overflow-hidden rounded-full bg-muted"
+          role="img"
+          aria-label={`${pending} pending, ${approved} awaiting receipt, ${delivered} delivered`}
+        >
+          <span className="bg-warning" style={{ width: width(pending) }} />
+          <span className="bg-primary" style={{ width: width(approved) }} />
+          <span className="bg-success" style={{ width: width(delivered) }} />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -412,7 +528,7 @@ function PurchaseOrderTable({
   onImport,
   busyAction,
 }: {
-  rows: Awaited<ReturnType<typeof purchaseOrdersApi.getAll>>["result"];
+  rows: PurchaseOrderResponse[];
   projectName: (id: number) => string;
   supplierName: (id: number) => string;
   onApprove?: (poId: number) => void;

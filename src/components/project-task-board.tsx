@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { BarChart3, Eye, Plus, Send } from "lucide-react";
+import { BarChart3, CalendarRange, Eye, ImageIcon, Plus, Send, UploadCloud, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +37,7 @@ import { type TaskResponse, tasksApi } from "@/api/tasks";
 import { usersApi } from "@/api/users";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
+import { isCloudinaryConfigured, uploadSitePhoto } from "@/lib/cloudinary";
 import { QueryError } from "./query-error";
 
 type ProjectTaskBoardProps = {
@@ -103,6 +104,15 @@ function statusClass(status: string): string {
   return "border-warning/35 bg-warning/10 text-warning-foreground";
 }
 
+function validHttpsUrl(value: string): boolean {
+  if (!value.trim()) return true;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardProps) {
   const session = useSession();
   const canManageTasks = session?.role === "ADMIN" || session?.role === "PM";
@@ -110,6 +120,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const [reportForm, setReportForm] = useState<ReportForm>(initialReportForm);
   const [creatingTask, setCreatingTask] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
 
   const {
@@ -176,6 +188,54 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     selectedRemaining > 0 &&
     (canManageTasks || selectedTask.assignedToUserID === session?.userId);
 
+  const reportIncrement = Number(reportForm.progressIncrement);
+  const reportFormValid =
+    Number.isFinite(reportIncrement) &&
+    reportIncrement > 0 &&
+    reportIncrement <= selectedRemaining &&
+    reportForm.notes.length <= 1000 &&
+    validHttpsUrl(reportForm.sitePhotoUrl);
+
+  const handlePhotoSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!isCloudinaryConfigured) {
+      toast.error("Configure the Cloudinary cloud name and upload preset first");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast.error("Select an image file");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("The image must be 10 MB or smaller");
+      return;
+    }
+
+    const localPreview = URL.createObjectURL(file);
+    setPhotoPreviewUrl(localPreview);
+    setUploadingPhoto(true);
+    try {
+      const uploaded = await uploadSitePhoto(file);
+      setReportForm((current) => ({ ...current, sitePhotoUrl: uploaded.secureUrl }));
+      setPhotoPreviewUrl(uploaded.secureUrl);
+      toast.success("Site photo uploaded");
+    } catch (error) {
+      setPhotoPreviewUrl("");
+      toast.error(error instanceof Error ? error.message : "Could not upload the photo");
+    } finally {
+      URL.revokeObjectURL(localPreview);
+      setUploadingPhoto(false);
+    }
+  };
+
+  const clearPhoto = () => {
+    setReportForm((current) => ({ ...current, sitePhotoUrl: "" }));
+    setPhotoPreviewUrl("");
+  };
+
   const submitTask = async () => {
     if (!taskForm.phaseName.trim() || !taskForm.taskName.trim()) {
       toast.error("Phase and task name are required");
@@ -225,12 +285,20 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const submitReport = async () => {
     if (!selectedTask) return;
     const progressIncrement = Number(reportForm.progressIncrement);
-    if (progressIncrement <= 0) {
+    if (!Number.isFinite(progressIncrement) || progressIncrement <= 0) {
       toast.error("Progress increment must be greater than 0");
       return;
     }
     if (progressIncrement > selectedRemaining) {
       toast.error(`Only ${selectedRemaining}% progress remains for this task`);
+      return;
+    }
+    if (reportForm.notes.length > 1000) {
+      toast.error("Notes must be 1,000 characters or fewer");
+      return;
+    }
+    if (!validHttpsUrl(reportForm.sitePhotoUrl)) {
+      toast.error("The site photo must use a valid HTTPS URL");
       return;
     }
 
@@ -246,6 +314,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       if (response.isSuccess) {
         toast.success(responseMessage(response.result, "Progress report submitted"));
         setReportForm(initialReportForm);
+        setPhotoPreviewUrl("");
         await refetchTasks();
         await refetchReports();
       } else {
@@ -399,6 +468,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         </Card>
       )}
 
+      {!tasksLoading && !tasksError && tasks.length > 0 && <ScheduleTimeline tasks={tasks} />}
+
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle className="text-base">
@@ -528,23 +599,63 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       />
                     </div>
                     <div>
-                      <Label htmlFor="photo-url">Site photo URL</Label>
-                      <Input
-                        id="photo-url"
-                        placeholder="https://..."
-                        value={reportForm.sitePhotoUrl}
-                        onChange={(event) =>
-                          setReportForm((current) => ({
-                            ...current,
-                            sitePhotoUrl: event.target.value,
-                          }))
-                        }
-                        disabled={submittingReport}
-                      />
+                      <Label htmlFor="site-photo">Site photo</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="site-photo"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          onChange={handlePhotoSelected}
+                          disabled={submittingReport || uploadingPhoto || !isCloudinaryConfigured}
+                          className="file:mr-2 file:text-sm"
+                        />
+                        {reportForm.sitePhotoUrl && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            onClick={clearPhoto}
+                            disabled={submittingReport || uploadingPhoto}
+                            aria-label="Remove uploaded photo"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {uploadingPhoto
+                          ? "Uploading to Cloudinary..."
+                          : isCloudinaryConfigured
+                            ? "JPEG, PNG, WebP or GIF up to 10 MB."
+                            : "Add Cloudinary settings to .env to enable uploads."}
+                      </p>
                     </div>
                   </div>
+                  {(photoPreviewUrl || reportForm.sitePhotoUrl) && (
+                    <div className="flex items-start gap-3 rounded-lg border bg-muted/20 p-3">
+                      <img
+                        src={photoPreviewUrl || reportForm.sitePhotoUrl}
+                        alt="Site photo preview"
+                        className="h-24 w-32 rounded-md border object-cover"
+                      />
+                      <div className="min-w-0 text-sm">
+                        <p className="flex items-center gap-1.5 font-medium">
+                          <UploadCloud className="h-4 w-4 text-success" />
+                          Photo ready
+                        </p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          The Cloudinary URL will be saved with this report.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   <div>
-                    <Label htmlFor="report-notes">Notes</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="report-notes">Notes</Label>
+                      <span className="text-xs text-muted-foreground">
+                        {reportForm.notes.length}/1,000
+                      </span>
+                    </div>
                     <Textarea
                       id="report-notes"
                       placeholder="Work completed, blockers, site notes..."
@@ -552,11 +663,15 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       onChange={(event) =>
                         setReportForm((current) => ({ ...current, notes: event.target.value }))
                       }
+                      maxLength={1000}
                       disabled={submittingReport}
                     />
                   </div>
                   <DialogFooter>
-                    <Button onClick={submitReport} disabled={submittingReport}>
+                    <Button
+                      onClick={submitReport}
+                      disabled={submittingReport || uploadingPhoto || !reportFormValid}
+                    >
                       <Send className="mr-1.5 h-4 w-4" />
                       {submittingReport ? "Submitting..." : "Submit report"}
                     </Button>
@@ -583,7 +698,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         <TableHead>Date</TableHead>
                         <TableHead>Reporter</TableHead>
                         <TableHead className="text-right">Increment</TableHead>
-                        <TableHead>Notes</TableHead>
+                        <TableHead>Notes / photo</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -610,9 +725,17 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                                 href={report.sitePhotoUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="ml-2 text-primary underline-offset-4 hover:underline"
+                                className="mt-2 flex w-fit items-center gap-2 text-primary underline-offset-4 hover:underline"
                               >
-                                Photo
+                                <img
+                                  src={report.sitePhotoUrl}
+                                  alt="Progress report site"
+                                  className="h-12 w-16 rounded border object-cover"
+                                  loading="lazy"
+                                />
+                                <span className="flex items-center gap-1 text-xs">
+                                  <ImageIcon className="h-3.5 w-3.5" /> View photo
+                                </span>
                               </a>
                             )}
                           </TableCell>
@@ -627,6 +750,127 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function ScheduleTimeline({ tasks }: { tasks: TaskResponse[] }) {
+  const scheduled = useMemo(
+    () =>
+      tasks
+        .map((task) => ({
+          task,
+          start: new Date(task.baselineStart).getTime(),
+          end: new Date(task.baselineEnd).getTime(),
+        }))
+        .filter((item) => Number.isFinite(item.start) && Number.isFinite(item.end))
+        .sort((left, right) => left.start - right.start),
+    [tasks],
+  );
+
+  if (scheduled.length === 0) return null;
+
+  const rangeStart = Math.min(...scheduled.map((item) => item.start));
+  const rangeEnd = Math.max(...scheduled.map((item) => item.end));
+  const day = 86_400_000;
+  const range = Math.max(day, rangeEnd - rangeStart + day);
+  const todayPosition = ((Date.now() - rangeStart) / range) * 100;
+  const phases = Array.from(new Set(scheduled.map(({ task }) => task.phaseName)));
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CalendarRange className="h-4 w-4 text-primary" />
+          WBS schedule
+          <Badge variant="outline" className="ml-auto font-normal">
+            Read only
+          </Badge>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Baseline from {formatDate(new Date(rangeStart).toISOString())} to{" "}
+          {formatDate(new Date(rangeEnd).toISOString())}. Tasks are grouped by phase.
+        </p>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <div className="min-w-[760px]">
+          <div className="mb-2 grid grid-cols-[220px_minmax(0,1fr)] gap-3 text-xs text-muted-foreground">
+            <span>Phase / task</span>
+            <div className="flex justify-between">
+              <span>{formatDate(new Date(rangeStart).toISOString())}</span>
+              <span>{formatDate(new Date(rangeEnd).toISOString())}</span>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {phases.map((phase) => (
+              <div key={phase} className="space-y-1.5">
+                <p className="border-b pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {phase}
+                </p>
+                {scheduled
+                  .filter(({ task }) => task.phaseName === phase)
+                  .map(({ task, start, end }) => {
+                    const left = Math.max(0, ((start - rangeStart) / range) * 100);
+                    const width = Math.max(2, ((Math.max(end, start) - start + day) / range) * 100);
+                    const overdue = end < Date.now() && task.status !== "COMPLETED";
+                    return (
+                      <div
+                        key={task.taskId}
+                        className="grid grid-cols-[220px_minmax(0,1fr)] items-center gap-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{task.taskName}</p>
+                          <p
+                            className={cn(
+                              "text-xs text-muted-foreground",
+                              overdue && "text-destructive",
+                            )}
+                          >
+                            {overdue
+                              ? "Overdue"
+                              : `${Number(task.actualProgressPct || 0)}% complete`}
+                          </p>
+                        </div>
+                        <div className="relative h-8 overflow-hidden rounded border bg-muted/25">
+                          {[25, 50, 75].map((position) => (
+                            <span
+                              key={position}
+                              className="absolute inset-y-0 border-l border-dashed border-border/70"
+                              style={{ left: `${position}%` }}
+                            />
+                          ))}
+                          {todayPosition >= 0 && todayPosition <= 100 && (
+                            <span
+                              className="absolute inset-y-0 z-10 border-l-2 border-destructive/70"
+                              style={{ left: `${todayPosition}%` }}
+                              title="Today"
+                            />
+                          )}
+                          <span
+                            className={cn(
+                              "absolute top-1.5 h-5 rounded px-1.5 text-[10px] font-medium leading-5 text-white",
+                              overdue
+                                ? "bg-destructive"
+                                : task.status === "COMPLETED"
+                                  ? "bg-success"
+                                  : "bg-primary",
+                            )}
+                            style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
+                            title={`${formatDate(task.baselineStart)} - ${formatDate(task.baselineEnd)}`}
+                          >
+                            <span className="block truncate">
+                              {Number(task.actualProgressPct || 0)}%
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -1,6 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Check, Eye, Plus, Send, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Clock3,
+  Eye,
+  Plus,
+  Search,
+  Send,
+  Trash2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -78,6 +89,63 @@ function statusClass(status: string): string {
   return "border-warning/35 bg-warning/10 text-warning-foreground";
 }
 
+type RequestUrgency = {
+  rank: number;
+  label: string;
+  className: string;
+  neededBy: string | null;
+};
+
+function requestUrgency(request: MaterialRequestResponse): RequestUrgency {
+  const validDates = (request.items ?? [])
+    .map((item) => new Date(item.neededByDate))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
+  const earliest = validDates[0];
+  if (!earliest) {
+    return { rank: 4, label: "No date", className: "", neededBy: null };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  earliest.setHours(0, 0, 0, 0);
+  const days = Math.round((earliest.getTime() - today.getTime()) / 86_400_000);
+
+  if (request.status !== "PENDING") {
+    return { rank: 3, label: "Processed", className: "", neededBy: earliest.toISOString() };
+  }
+  if (days < 0) {
+    return {
+      rank: 0,
+      label: `${Math.abs(days)}d overdue`,
+      className: "border-destructive/30 bg-destructive/10 text-destructive",
+      neededBy: earliest.toISOString(),
+    };
+  }
+  if (days === 0) {
+    return {
+      rank: 0,
+      label: "Due today",
+      className: "border-destructive/30 bg-destructive/10 text-destructive",
+      neededBy: earliest.toISOString(),
+    };
+  }
+  if (days <= 7) {
+    return {
+      rank: 1,
+      label: `Due in ${days}d`,
+      className: "border-warning/35 bg-warning/10 text-warning-foreground",
+      neededBy: earliest.toISOString(),
+    };
+  }
+  return {
+    rank: 2,
+    label: `Due in ${days}d`,
+    className: "border-primary/25 bg-primary/5 text-primary",
+    neededBy: earliest.toISOString(),
+  };
+}
+
 function MaterialRequestsPage() {
   const session = useSession();
   const canReview = session?.role === "ADMIN" || session?.role === "WAREHOUSE_MANAGER";
@@ -98,6 +166,8 @@ function MaterialRequestsPage() {
   } | null>(null);
   const [statusFilter, setStatusFilter] = useState(canReview ? "PENDING" : "ALL");
   const [projectFilter, setProjectFilter] = useState("ALL");
+  const [urgencyFilter, setUrgencyFilter] = useState("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
 
   const {
@@ -150,12 +220,43 @@ function MaterialRequestsPage() {
     staleTime: 10_000,
   });
 
-  const visibleRequests = requests
-    .filter((request) => canReview || request.requestedBy === session?.userId)
+  const accessibleProjects =
+    session?.role === "PM"
+      ? projects.filter((project) => project.pmUserID === session.userId)
+      : projects;
+  const accessibleProjectIds = new Set(accessibleProjects.map((project) => project.projectId));
+  const roleScopedRequests = requests.filter(
+    (request) =>
+      (canReview || request.requestedBy === session?.userId) &&
+      (canReview || accessibleProjectIds.has(request.projectId)),
+  );
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const visibleRequests = roleScopedRequests
     .filter((request) => statusFilter === "ALL" || request.status === statusFilter)
+    .filter((request) => {
+      const urgency = requestUrgency(request);
+      if (urgencyFilter === "URGENT" && urgency.rank > 1) return false;
+      if (urgencyFilter === "OVERDUE" && urgency.rank !== 0) return false;
+      if (!normalizedSearch) return true;
+      const projectName =
+        projects.find((project) => project.projectId === request.projectId)?.projectName ?? "";
+      return [
+        String(request.requestId),
+        projectName,
+        request.requestedByName,
+        ...(request.items ?? []).map((item) => item.materialName),
+      ].some((value) => value.toLowerCase().includes(normalizedSearch));
+    })
     .sort(
-      (left, right) => new Date(right.requestDate).getTime() - new Date(left.requestDate).getTime(),
+      (left, right) =>
+        requestUrgency(left).rank - requestUrgency(right).rank ||
+        new Date(right.requestDate).getTime() - new Date(left.requestDate).getTime(),
     );
+  const pendingCount = roleScopedRequests.filter((request) => request.status === "PENDING").length;
+  const urgentCount = roleScopedRequests.filter(
+    (request) => request.status === "PENDING" && requestUrgency(request).rank <= 1,
+  ).length;
+  const processedCount = roleScopedRequests.length - pendingCount;
 
   const {
     data: materials = [],
@@ -265,6 +366,21 @@ function MaterialRequestsPage() {
       />
 
       <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <RequestMetric
+            icon={Clock3}
+            label={canReview ? "Pending review" : "My pending requests"}
+            value={pendingCount}
+          />
+          <RequestMetric
+            icon={AlertTriangle}
+            label="Due within 7 days"
+            value={urgentCount}
+            urgent={urgentCount > 0}
+          />
+          <RequestMetric icon={Check} label="Processed" value={processedCount} />
+        </div>
+
         {canCreate && (
           <Card className="shadow-sm">
             <CardHeader>
@@ -299,7 +415,7 @@ function MaterialRequestsPage() {
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {projects.map((project) => (
+                    {accessibleProjects.map((project) => (
                       <SelectItem key={project.projectId} value={String(project.projectId)}>
                         {project.projectName}
                       </SelectItem>
@@ -414,7 +530,7 @@ function MaterialRequestsPage() {
               <div className="flex justify-end">
                 <Button
                   onClick={submitRequest}
-                  disabled={submitting || projects.length === 0 || materials.length === 0}
+                  disabled={submitting || accessibleProjects.length === 0 || materials.length === 0}
                 >
                   <Send className="h-4 w-4 mr-1.5" />
                   {submitting ? "Submitting..." : "Submit request"}
@@ -437,17 +553,37 @@ function MaterialRequestsPage() {
               </p>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search requests..."
+                  className="w-48 pl-8"
+                  aria-label="Search material requests"
+                />
+              </div>
               <Select value={projectFilter} onValueChange={setProjectFilter}>
                 <SelectTrigger className="w-44" aria-label="Filter requests by project">
                   <SelectValue placeholder="All projects" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">All projects</SelectItem>
-                  {projects.map((project) => (
+                  {accessibleProjects.map((project) => (
                     <SelectItem key={project.projectId} value={String(project.projectId)}>
                       {project.projectName}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+              <Select value={urgencyFilter} onValueChange={setUrgencyFilter}>
+                <SelectTrigger className="w-36" aria-label="Filter requests by urgency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Any urgency</SelectItem>
+                  <SelectItem value="URGENT">Due in 7 days</SelectItem>
+                  <SelectItem value="OVERDUE">Overdue</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -483,6 +619,7 @@ function MaterialRequestsPage() {
                     <TableHead>Project</TableHead>
                     <TableHead>Requested by</TableHead>
                     <TableHead>Materials</TableHead>
+                    <TableHead>Needed by</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -491,7 +628,7 @@ function MaterialRequestsPage() {
                 <TableBody>
                   {visibleRequests.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                         No {statusFilter === "ALL" ? "" : statusFilter.toLowerCase()} material
                         requests found.
                       </TableCell>
@@ -516,6 +653,19 @@ function MaterialRequestsPage() {
                             </p>
                           ))}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const urgency = requestUrgency(request);
+                          return (
+                            <div className="space-y-1">
+                              <p className="text-xs">{formatDate(urgency.neededBy ?? "")}</p>
+                              <Badge variant="outline" className={urgency.className}>
+                                {urgency.label}
+                              </Badge>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-xs">{formatDate(request.requestDate)}</TableCell>
                       <TableCell>
@@ -611,9 +761,19 @@ function MaterialRequestsPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Status</p>
-                  <Badge variant="outline" className={statusClass(selectedRequest.status)}>
-                    {selectedRequest.status}
-                  </Badge>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge variant="outline" className={statusClass(selectedRequest.status)}>
+                      {selectedRequest.status}
+                    </Badge>
+                    {selectedRequest.status === "PENDING" && (
+                      <Badge
+                        variant="outline"
+                        className={requestUrgency(selectedRequest).className}
+                      >
+                        {requestUrgency(selectedRequest).label}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="overflow-hidden rounded-lg border">
@@ -651,5 +811,37 @@ function MaterialRequestsPage() {
         onConfirm={() => confirming && processRequest(confirming.action)}
       />
     </div>
+  );
+}
+
+function RequestMetric({
+  icon: Icon,
+  label,
+  value,
+  urgent = false,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  urgent?: boolean;
+}) {
+  return (
+    <Card className="shadow-sm">
+      <CardContent className="flex items-center gap-3 p-4">
+        <div
+          className={
+            urgent
+              ? "rounded-lg bg-warning/15 p-2 text-warning-foreground"
+              : "rounded-lg bg-primary/10 p-2 text-primary"
+          }
+        >
+          <Icon className="h-4 w-4" />
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="text-xl font-semibold tabular-nums">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
