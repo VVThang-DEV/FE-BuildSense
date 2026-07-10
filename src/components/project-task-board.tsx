@@ -331,10 +331,14 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[180px_180px_minmax(0,1fr)]">
         <TaskMetric label="Tasks" value={String(tasks.length)} />
         <TaskMetric label="Completed" value={String(completedCount)} />
-        <TaskMetric label="Average progress" value={`${averageProgress}%`} />
+        <ProjectProgressSummary
+          tasks={tasks}
+          progress={averageProgress}
+          completedCount={completedCount}
+        />
       </div>
 
       {canManageTasks && (
@@ -880,6 +884,93 @@ function TaskMetric({ label, value }: { label: string; value: string }) {
       <CardContent className="p-4">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="mt-1 text-xl font-semibold">{value}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProjectProgressSummary({
+  tasks,
+  progress,
+  completedCount,
+}: {
+  tasks: TaskResponse[];
+  progress: number;
+  completedCount: number;
+}) {
+  const normalizedProgress = Math.min(100, Math.max(0, progress));
+  const phaseProgress = Array.from(new Set(tasks.map((task) => task.phaseName))).map((phase) => {
+    const phaseTasks = tasks.filter((task) => task.phaseName === phase);
+    const value = phaseTasks.length
+      ? Math.round(
+          phaseTasks.reduce((total, task) => total + Number(task.actualProgressPct || 0), 0) /
+            phaseTasks.length,
+        )
+      : 0;
+    return { phase, value, taskCount: phaseTasks.length };
+  });
+
+  return (
+    <Card className="shadow-sm md:col-span-2 xl:col-span-1">
+      <CardContent className="grid gap-5 p-4 sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+        <div className="flex flex-col items-center">
+          <div
+            role="progressbar"
+            aria-label="Overall project completion"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={normalizedProgress}
+            className="relative h-32 w-32 rounded-full"
+            style={{
+              background: `conic-gradient(var(--primary) ${normalizedProgress}%, var(--muted) ${normalizedProgress}% 100%)`,
+            }}
+          >
+            <div className="absolute inset-3 flex flex-col items-center justify-center rounded-full bg-card">
+              <span className="text-2xl font-bold tabular-nums">{normalizedProgress}%</span>
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                complete
+              </span>
+            </div>
+          </div>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            {completedCount}/{tasks.length} tasks completed
+          </p>
+        </div>
+
+        <div className="min-w-0">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">Project progress</p>
+              <p className="text-xs text-muted-foreground">Average completion by phase</p>
+            </div>
+            <div className="flex gap-3 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-primary" /> Completed
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-muted" /> Remaining
+              </span>
+            </div>
+          </div>
+
+          {phaseProgress.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Create tasks to calculate progress.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {phaseProgress.map((phase) => (
+                <div key={phase.phase}>
+                  <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                    <span className="truncate font-medium">{phase.phase}</span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {phase.value}% · {phase.taskCount} task{phase.taskCount === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <Progress value={phase.value} className="h-1.5" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
