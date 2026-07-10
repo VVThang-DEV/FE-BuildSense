@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
+import { ProjectTaskBoard } from "@/components/project-task-board";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
 
@@ -130,13 +131,14 @@ function ProjectDetail() {
                 <InfoRow label="AI alerts" value={String(project.totalAIAlerts)} />
                 <div className="flex items-center gap-2 rounded-md border p-3 text-muted-foreground">
                   <UserRound className="h-4 w-4" />
-                  <span>
-                    Team, WBS, documents, and material plans need backend endpoints before they can
-                    be shown here.
-                  </span>
+                  <span>Tasks and daily progress are now connected below.</span>
                 </div>
               </CardContent>
             </Card>
+          </div>
+
+          <div className="mt-4">
+            <ProjectTaskBoard projectId={project.projectId} projectName={project.projectName} />
           </div>
         </>
       )}

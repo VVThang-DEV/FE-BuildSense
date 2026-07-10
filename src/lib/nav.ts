@@ -5,6 +5,7 @@ import {
   Package,
   PackageCheck,
   ShoppingCart,
+  ClipboardList,
   Users,
   Warehouse,
   Truck,
@@ -56,6 +57,13 @@ export const NAV: NavItem[] = [
     icon: ShoppingCart,
     roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
     group: "Operations",
+  },
+  {
+    to: "/app/site/report",
+    label: "Daily Progress",
+    icon: ClipboardList,
+    roles: ["ADMIN", "PM"],
+    group: "Field",
   },
 
   {
