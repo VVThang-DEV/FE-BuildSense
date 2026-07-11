@@ -27,13 +27,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -45,7 +38,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { requireApiResult } from "@/api/client";
 import { progressReportsApi } from "@/api/progressReports";
 import { type TaskResponse, tasksApi } from "@/api/tasks";
-import { usersApi } from "@/api/users";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { isCloudinaryConfigured, uploadSitePhoto } from "@/lib/cloudinary";
@@ -59,7 +51,6 @@ type ProjectTaskBoardProps = {
 type TaskForm = {
   phaseName: string;
   taskName: string;
-  assignedToUserID: string;
   plannedBudget: string;
   baselineStart: string;
   baselineEnd: string;
@@ -83,7 +74,6 @@ function newTaskForm(): TaskForm {
   return {
     phaseName: "",
     taskName: "",
-    assignedToUserID: "",
     plannedBudget: "0",
     baselineStart: todayInput(),
     baselineEnd: plusDaysInput(7),
@@ -156,18 +146,6 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     staleTime: 10_000,
   });
 
-  const {
-    data: users = [],
-    isError: usersError,
-    error: usersErrorValue,
-    refetch: refetchUsers,
-  } = useQuery({
-    queryKey: ["users"],
-    queryFn: async () => requireApiResult(await usersApi.getAll(), "Could not load users") ?? [],
-    enabled: !!session?.token && canManageTasks,
-    staleTime: 30_000,
-  });
-
   const selectedTask = useMemo(
     () => tasks.find((task) => task.taskId === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
@@ -200,10 +178,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const selectedRemaining = selectedTask
     ? Math.max(0, 100 - Number(selectedTask.actualProgressPct || 0))
     : 0;
-  const canReportSelected =
-    !!selectedTask &&
-    selectedRemaining > 0 &&
-    (canManageTasks || selectedTask.assignedToUserID === session?.userId);
+  const canReportSelected = !!selectedTask && selectedRemaining > 0 && canManageTasks;
 
   const reportIncrement = Number(reportForm.progressIncrement);
   const reportFormValid =
@@ -258,8 +233,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       toast.error("Phase and task name are required");
       return;
     }
-    if (Number(taskForm.assignedToUserID) <= 0) {
-      toast.error("Assigned user is required");
+    if (!session?.userId) {
+      toast.error("Could not resolve the signed-in Project Manager");
       return;
     }
     if (!taskForm.baselineStart || !taskForm.baselineEnd) {
@@ -277,7 +252,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         projectId,
         phaseName: taskForm.phaseName.trim(),
         taskName: taskForm.taskName.trim(),
-        assignedToUserID: Number(taskForm.assignedToUserID),
+        // Task assignment is outside the current scope, so the owning PM manages the task.
+        assignedToUserID: session.userId,
         plannedBudget: Number(taskForm.plannedBudget) || 0,
         baselineStart: `${taskForm.baselineStart}T00:00:00.000Z`,
         baselineEnd: `${taskForm.baselineEnd}T00:00:00.000Z`,
@@ -364,18 +340,11 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         <Card className="shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Create project task</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Tasks are managed by the Project Manager who owns this project.
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            {usersError && (
-              <QueryError
-                message={
-                  usersErrorValue instanceof Error
-                    ? `${usersErrorValue.message}. You can still enter the assigned user ID manually.`
-                    : "Could not load users. You can still enter the assigned user ID manually."
-                }
-                onRetry={() => refetchUsers()}
-              />
-            )}
             <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <Label htmlFor="task-phase">Phase</Label>
@@ -402,45 +371,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                 />
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-4">
-              <div>
-                <Label id="task-assignee-label">Assigned user</Label>
-                {users.length > 0 ? (
-                  <Select
-                    value={taskForm.assignedToUserID}
-                    onValueChange={(value) =>
-                      setTaskForm((current) => ({ ...current, assignedToUserID: value }))
-                    }
-                    disabled={creatingTask}
-                  >
-                    <SelectTrigger aria-labelledby="task-assignee-label">
-                      <SelectValue placeholder="Select user" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {users.map((user) => (
-                        <SelectItem key={user.id} value={String(user.id)}>
-                          {user.lastName} {user.firstName} · {user.role}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    aria-labelledby="task-assignee-label"
-                    type="number"
-                    min="1"
-                    placeholder="User ID"
-                    value={taskForm.assignedToUserID}
-                    onChange={(event) =>
-                      setTaskForm((current) => ({
-                        ...current,
-                        assignedToUserID: event.target.value,
-                      }))
-                    }
-                    disabled={creatingTask}
-                  />
-                )}
-              </div>
+            <div className="grid gap-3 md:grid-cols-3">
               <div>
                 <Label htmlFor="task-budget">Planned budget</Label>
                 <Input
@@ -514,7 +445,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
               <TableHeader>
                 <TableRow>
                   <TableHead>Task</TableHead>
-                  <TableHead>Assigned to</TableHead>
+                  <TableHead>Project Manager</TableHead>
                   <TableHead>Schedule</TableHead>
                   <TableHead>Budget</TableHead>
                   <TableHead>Progress</TableHead>
@@ -590,7 +521,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
               <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
                 <InfoBlock label="Phase" value={selectedTask.phaseName} />
                 <InfoBlock
-                  label="Assigned"
+                  label="Project Manager"
                   value={
                     selectedTask.assignedToUserName || `User #${selectedTask.assignedToUserID}`
                   }
