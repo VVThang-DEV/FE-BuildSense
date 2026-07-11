@@ -29,7 +29,6 @@ import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
-import { usersApi } from "@/api/users";
 import { requireApiResult } from "@/api/client";
 
 export const Route = createFileRoute("/app/projects")({
@@ -65,7 +64,7 @@ function ProjectsRoute() {
 function ProjectsList() {
   const session = useSession();
   const isLive = !!session?.token;
-  const canImportProject = session?.role === "PM";
+  const canManageProjects = session?.role === "PM";
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -105,19 +104,18 @@ function ProjectsList() {
       return;
     }
 
+    if (!session?.userId) {
+      toast.error("Could not resolve the signed-in Project Manager");
+      return;
+    }
+
     setSaving(true);
     try {
-      const userIdResponse = await usersApi.getUserId();
-      if (!userIdResponse.isSuccess || !userIdResponse.result) {
-        toast.error(userIdResponse.errorMessage ?? "Could not resolve current user");
-        return;
-      }
-
       const response = await projectsApi.create({
         projectName: form.projectName.trim(),
         address: form.address.trim() || undefined,
         startDate: form.startDate,
-        pmUserID: userIdResponse.result,
+        pmUserID: session.userId,
         baselineStart: form.startDate,
         baselineEnd: form.baselineEnd || addDays(form.startDate, 90),
       });
@@ -189,18 +187,16 @@ function ProjectsList() {
         title="Projects"
         description="Active and planned construction projects from the backend."
         actions={
-          isLive ? (
+          isLive && canManageProjects ? (
             <div className="flex flex-wrap items-center gap-2">
-              {canImportProject && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs"
-                  onClick={() => setImportDialogOpen(true)}
-                >
-                  <FileUp className="mr-1 h-3.5 w-3.5" /> Import Word
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => setImportDialogOpen(true)}
+              >
+                <FileUp className="mr-1 h-3.5 w-3.5" /> Import Word
+              </Button>
               <Button size="sm" className="h-8 text-xs" onClick={() => setCreating(true)}>
                 <Plus className="mr-1 h-3.5 w-3.5" /> New project
               </Button>
