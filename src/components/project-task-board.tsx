@@ -1,7 +1,18 @@
 import { useMemo, useState, type ChangeEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { BarChart3, CalendarRange, Eye, ImageIcon, Plus, Send, UploadCloud, X } from "lucide-react";
+import {
+  BarChart3,
+  CalendarRange,
+  CheckCircle2,
+  ExternalLink,
+  Eye,
+  ImageIcon,
+  Plus,
+  Send,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,7 +126,7 @@ function validHttpsUrl(value: string): boolean {
 
 export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardProps) {
   const session = useSession();
-  const canManageTasks = session?.role === "ADMIN" || session?.role === "PM";
+  const canManageTasks = session?.role === "PM";
   const [taskForm, setTaskForm] = useState<TaskForm>(() => newTaskForm());
   const [reportForm, setReportForm] = useState<ReportForm>(initialReportForm);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -123,6 +134,12 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [reportPhoto, setReportPhoto] = useState<{
+    url: string;
+    date: string;
+    reporter: string;
+    notes: string;
+  } | null>(null);
 
   const {
     data: tasks = [],
@@ -312,7 +329,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       });
 
       if (response.isSuccess) {
-        toast.success(responseMessage(response.result, "Progress report submitted"));
+        const previousProgress = Number(selectedTask.actualProgressPct || 0);
+        const nextProgress = Math.min(100, previousProgress + progressIncrement);
+        toast.success(`Task progress updated from ${previousProgress}% to ${nextProgress}%`);
         setReportForm(initialReportForm);
         setPhotoPreviewUrl("");
         await refetchTasks();
@@ -472,7 +491,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         </Card>
       )}
 
-      {!tasksLoading && !tasksError && tasks.length > 0 && <ScheduleTimeline tasks={tasks} />}
+      {!tasksLoading && !tasksError && tasks.length > 0 && (
+        <ScheduleTimeline tasks={tasks} onSelectTask={setSelectedTaskId} />
+      )}
 
       <Card className="shadow-sm">
         <CardHeader>
@@ -583,9 +604,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                     <BarChart3 className="h-4 w-4 text-primary" />
                     <p className="text-sm font-medium">Submit progress report</p>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-[150px_minmax(0,1fr)]">
+                  <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
                     <div>
-                      <Label htmlFor="progress-increment">Progress +%</Label>
+                      <Label htmlFor="progress-increment">Progress completed today (%)</Label>
                       <Input
                         id="progress-increment"
                         type="number"
@@ -601,6 +622,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         }
                         disabled={submittingReport}
                       />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Current: {100 - selectedRemaining}% · Remaining: {selectedRemaining}%
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="site-photo">Site photo</Label>
@@ -683,6 +707,18 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                 </div>
               )}
 
+              {selectedRemaining === 0 && (
+                <div className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/10 p-4 text-success">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+                  <div>
+                    <p className="font-medium">Task completed</p>
+                    <p className="mt-0.5 text-xs opacity-80">
+                      This task has reached 100%. Its progress history remains available below.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="overflow-hidden rounded-lg border">
                 {reportsLoading ? (
                   <div className="p-8 text-center text-sm text-muted-foreground">
@@ -714,34 +750,45 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         </TableRow>
                       )}
                       {reports.map((report) => (
-                        <TableRow key={report.reportId}>
-                          <TableCell className="text-xs">{formatDate(report.reportDate)}</TableCell>
-                          <TableCell>
+                        <TableRow key={report.reportId} className="[&>td]:align-top [&>td]:py-4">
+                          <TableCell className="whitespace-nowrap text-xs">
+                            {formatDate(report.reportDate)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
                             {report.engineerName || `User #${report.engineerId}`}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums">
+                          <TableCell className="whitespace-nowrap text-right tabular-nums">
                             +{report.progressIncrement}%
                           </TableCell>
                           <TableCell className="max-w-sm text-sm text-muted-foreground">
-                            {report.notes || "-"}
-                            {report.sitePhotoUrl && (
-                              <a
-                                href={report.sitePhotoUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="mt-2 flex w-fit items-center gap-2 text-primary underline-offset-4 hover:underline"
-                              >
-                                <img
-                                  src={report.sitePhotoUrl}
-                                  alt="Progress report site"
-                                  className="h-12 w-16 rounded border object-cover"
-                                  loading="lazy"
-                                />
-                                <span className="flex items-center gap-1 text-xs">
-                                  <ImageIcon className="h-3.5 w-3.5" /> View photo
-                                </span>
-                              </a>
-                            )}
+                            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
+                              <p className="min-w-0 flex-1">{report.notes || "-"}</p>
+                              {report.sitePhotoUrl && (
+                                <button
+                                  type="button"
+                                  className="group shrink-0 text-left text-primary"
+                                  onClick={() =>
+                                    setReportPhoto({
+                                      url: report.sitePhotoUrl!,
+                                      date: report.reportDate,
+                                      reporter: report.engineerName || `User #${report.engineerId}`,
+                                      notes: report.notes || "No notes provided.",
+                                    })
+                                  }
+                                  aria-label={`Preview site photo from ${formatDate(report.reportDate)}`}
+                                >
+                                  <img
+                                    src={report.sitePhotoUrl}
+                                    alt="Progress report site"
+                                    className="h-15 w-20 rounded-md border object-cover shadow-sm transition group-hover:opacity-85"
+                                    loading="lazy"
+                                  />
+                                  <span className="mt-1 flex items-center gap-1 text-[11px] underline-offset-4 group-hover:underline">
+                                    <ImageIcon className="h-3 w-3" /> Preview
+                                  </span>
+                                </button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -753,11 +800,49 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={reportPhoto !== null} onOpenChange={(open) => !open && setReportPhoto(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Site photo</DialogTitle>
+          </DialogHeader>
+          {reportPhoto && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div>
+                  <p className="font-medium">{reportPhoto.reporter}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDate(reportPhoto.date)} · {reportPhoto.notes}
+                  </p>
+                </div>
+                <Button asChild variant="outline" size="sm">
+                  <a href={reportPhoto.url} target="_blank" rel="noreferrer">
+                    <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open original
+                  </a>
+                </Button>
+              </div>
+              <div className="flex max-h-[70vh] items-center justify-center overflow-hidden rounded-lg border bg-muted/30">
+                <img
+                  src={reportPhoto.url}
+                  alt={`Site progress reported by ${reportPhoto.reporter}`}
+                  className="max-h-[70vh] w-auto max-w-full object-contain"
+                />
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ScheduleTimeline({ tasks }: { tasks: TaskResponse[] }) {
+function ScheduleTimeline({
+  tasks,
+  onSelectTask,
+}: {
+  tasks: TaskResponse[];
+  onSelectTask: (taskId: number) => void;
+}) {
   const scheduled = useMemo(
     () =>
       tasks
@@ -779,6 +864,10 @@ function ScheduleTimeline({ tasks }: { tasks: TaskResponse[] }) {
   const range = Math.max(day, rangeEnd - rangeStart + day);
   const todayPosition = ((Date.now() - rangeStart) / range) * 100;
   const phases = Array.from(new Set(scheduled.map(({ task }) => task.phaseName)));
+  const axisTicks = [0, 25, 50, 75, 100].map((position) => ({
+    position,
+    date: new Date(rangeStart + ((rangeEnd - rangeStart) * position) / 100),
+  }));
 
   return (
     <Card className="shadow-sm">
@@ -794,14 +883,46 @@ function ScheduleTimeline({ tasks }: { tasks: TaskResponse[] }) {
           Baseline from {formatDate(new Date(rangeStart).toISOString())} to{" "}
           {formatDate(new Date(rangeEnd).toISOString())}. Tasks are grouped by phase.
         </p>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-5 rounded-sm border bg-muted/50" /> Planned duration
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-5 rounded-sm bg-primary" /> Actual progress
+          </span>
+          {todayPosition >= 0 && todayPosition <= 100 && (
+            <span className="flex items-center gap-1.5">
+              <span className="h-3 border-l-2 border-destructive/70" /> Today ·{" "}
+              {formatDate(new Date().toISOString())}
+            </span>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <div className="min-w-[760px]">
-          <div className="mb-2 grid grid-cols-[220px_minmax(0,1fr)] gap-3 text-xs text-muted-foreground">
+          <div className="mb-2 grid grid-cols-[300px_minmax(0,1fr)] gap-3 text-xs text-muted-foreground">
             <span>Phase / task</span>
-            <div className="flex justify-between">
-              <span>{formatDate(new Date(rangeStart).toISOString())}</span>
-              <span>{formatDate(new Date(rangeEnd).toISOString())}</span>
+            <div className="relative h-5">
+              {axisTicks.map((tick) => (
+                <span
+                  key={tick.position}
+                  className={cn(
+                    "absolute top-0 whitespace-nowrap",
+                    tick.position === 0
+                      ? "left-0"
+                      : tick.position === 100
+                        ? "right-0"
+                        : "-translate-x-1/2",
+                  )}
+                  style={
+                    tick.position === 0 || tick.position === 100
+                      ? undefined
+                      : { left: `${tick.position}%` }
+                  }
+                >
+                  {formatDate(tick.date.toISOString())}
+                </span>
+              ))}
             </div>
           </div>
           <div className="space-y-3">
@@ -817,24 +938,32 @@ function ScheduleTimeline({ tasks }: { tasks: TaskResponse[] }) {
                     const width = Math.max(2, ((Math.max(end, start) - start + day) / range) * 100);
                     const overdue = end < Date.now() && task.status !== "COMPLETED";
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={task.taskId}
-                        className="grid grid-cols-[220px_minmax(0,1fr)] items-center gap-3"
+                        className="grid w-full grid-cols-[300px_minmax(0,1fr)] items-center gap-3 rounded-md py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => onSelectTask(task.taskId)}
+                        aria-label={`Open progress details for ${task.taskName}`}
                       >
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{task.taskName}</p>
+                          <p className="truncate text-sm font-medium" title={task.taskName}>
+                            {task.taskName}
+                          </p>
                           <p
                             className={cn(
                               "text-xs text-muted-foreground",
                               overdue && "text-destructive",
                             )}
                           >
-                            {overdue
-                              ? "Overdue"
-                              : `${Number(task.actualProgressPct || 0)}% complete`}
+                            {overdue && "Overdue · "}
+                            {Number(task.actualProgressPct || 0)}% complete
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Baseline {formatDate(task.baselineStart)} –{" "}
+                            {formatDate(task.baselineEnd)}
                           </p>
                         </div>
-                        <div className="relative h-8 overflow-hidden rounded border bg-muted/25">
+                        <div className="relative h-8 overflow-hidden rounded border bg-muted/40">
                           {[25, 50, 75].map((position) => (
                             <span
                               key={position}
@@ -843,30 +972,33 @@ function ScheduleTimeline({ tasks }: { tasks: TaskResponse[] }) {
                             />
                           ))}
                           {todayPosition >= 0 && todayPosition <= 100 && (
-                            <span
-                              className="absolute inset-y-0 z-10 border-l-2 border-destructive/70"
+                            <div
+                              className="absolute inset-y-0 z-20 border-l-2 border-destructive/70"
                               style={{ left: `${todayPosition}%` }}
-                              title="Today"
+                              title={`Today: ${formatDate(new Date().toISOString())}`}
                             />
                           )}
-                          <span
-                            className={cn(
-                              "absolute top-1.5 h-5 rounded px-1.5 text-[10px] font-medium leading-5 text-white",
-                              overdue
-                                ? "bg-destructive"
-                                : task.status === "COMPLETED"
-                                  ? "bg-success"
-                                  : "bg-primary",
-                            )}
+                          <div
+                            className="absolute top-1.5 h-5 rounded border bg-muted/60"
                             style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
-                            title={`${formatDate(task.baselineStart)} - ${formatDate(task.baselineEnd)}`}
+                            title={`${task.taskName}: ${formatDate(task.baselineStart)} - ${formatDate(task.baselineEnd)}, ${Number(task.actualProgressPct || 0)}% complete`}
                           >
-                            <span className="block truncate">
-                              {Number(task.actualProgressPct || 0)}%
-                            </span>
-                          </span>
+                            <span
+                              className={cn(
+                                "absolute inset-y-0 left-0 rounded-sm",
+                                overdue
+                                  ? "bg-destructive"
+                                  : task.status === "COMPLETED"
+                                    ? "bg-success"
+                                    : "bg-primary",
+                              )}
+                              style={{
+                                width: `${Math.min(100, Math.max(0, Number(task.actualProgressPct || 0)))}%`,
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
               </div>
