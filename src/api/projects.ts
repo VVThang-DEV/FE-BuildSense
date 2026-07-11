@@ -92,4 +92,16 @@ export const projectsApi = {
     };
   },
   create: (body: CreateProjectRequest) => apiClient.post<string>("/api/projects", body),
+  importFromWord: async (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    const response = await apiClient.postForm<RawProjectResponse>(
+      "/api/projects/import-word",
+      body,
+    );
+    return {
+      ...response,
+      result: response.result ? normalizeProject(response.result) : response.result,
+    };
+  },
 };

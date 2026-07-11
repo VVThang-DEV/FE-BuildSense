@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, useMatch } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { FileUp, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -64,8 +65,12 @@ function ProjectsRoute() {
 function ProjectsList() {
   const session = useSession();
   const isLive = !!session?.token;
+  const canImportProject = session?.role === "PM";
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [form, setForm] = useState({
     projectName: "",
     address: "",
@@ -132,6 +137,51 @@ function ProjectsList() {
     }
   };
 
+  const closeImportDialog = () => {
+    if (importing) return;
+    setImportDialogOpen(false);
+    setImportFile(null);
+  };
+
+  const submitImport = async () => {
+    if (!importFile) {
+      toast.error("Choose a Word document first");
+      return;
+    }
+
+    if (!importFile.name.toLowerCase().endsWith(".docx")) {
+      toast.error("Only .docx Word documents are supported");
+      return;
+    }
+
+    if (importFile.size > 10 * 1024 * 1024) {
+      toast.error("The Word document must be 10 MB or smaller");
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const response = await projectsApi.importFromWord(importFile);
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Project import failed");
+        return;
+      }
+
+      toast.success(
+        response.result?.projectName
+          ? `Imported ${response.result.projectName}`
+          : "Project imported",
+      );
+      setImportDialogOpen(false);
+      setImportFile(null);
+      await refetch();
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
@@ -140,12 +190,79 @@ function ProjectsList() {
         description="Active and planned construction projects from the backend."
         actions={
           isLive ? (
-            <Button size="sm" className="h-8 text-xs" onClick={() => setCreating(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> New project
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {canImportProject && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  onClick={() => setImportDialogOpen(true)}
+                >
+                  <FileUp className="mr-1 h-3.5 w-3.5" /> Import Word
+                </Button>
+              )}
+              <Button size="sm" className="h-8 text-xs" onClick={() => setCreating(true)}>
+                <Plus className="mr-1 h-3.5 w-3.5" /> New project
+              </Button>
+            </div>
           ) : undefined
         }
       />
+
+      <Dialog
+        open={importDialogOpen}
+        onOpenChange={(open) => {
+          if (open) setImportDialogOpen(true);
+          else closeImportDialog();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import project from Word</DialogTitle>
+            <DialogDescription>
+              Upload a structured .docx document. The backend will extract the project details and
+              create the project for your account.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="project-word-file">Word document</Label>
+              <Input
+                id="project-word-file"
+                type="file"
+                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                disabled={importing}
+                onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">DOCX only, up to 10 MB.</p>
+            </div>
+
+            <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+              <p className="mb-2 font-medium text-foreground">Required document labels</p>
+              <div className="space-y-1 font-mono">
+                <p>Tên dự án: ...</p>
+                <p>Địa điểm: ...</p>
+                <p>Ngân sách tổng: ...</p>
+                <p>Tiền tệ: VND</p>
+                <p>Ngày thực tế bắt đầu: 2026-07-15</p>
+                <p>Ngày kế hoạch bắt đầu: 2026-07-15</p>
+                <p>Ngày kế hoạch kết thúc: 2027-02-28</p>
+              </div>
+              <p className="mt-2">Use YYYY-MM-DD for reliable date parsing.</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeImportDialog} disabled={importing}>
+              Cancel
+            </Button>
+            <Button onClick={submitImport} disabled={importing || !importFile}>
+              {importing ? "Importing..." : "Import project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent>
