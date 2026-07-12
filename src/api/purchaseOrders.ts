@@ -1,6 +1,6 @@
 import { apiClient } from "./client";
 
-type PurchaseOrderStatus = "PENDING" | "APPROVED" | "DELIVERED";
+export type PurchaseOrderStatus = "PENDING" | "APPROVED" | "REJECTED" | "DELIVERED";
 
 type RawPurchaseOrderResponse = Omit<Partial<PurchaseOrderResponse>, "status"> & {
   status?: PurchaseOrderStatus | number | string;
@@ -26,7 +26,8 @@ export type CreatePurchaseOrderRequest = {
 const STATUS_BY_NUMBER: Record<number, PurchaseOrderStatus> = {
   0: "PENDING",
   1: "APPROVED",
-  2: "DELIVERED",
+  2: "REJECTED",
+  3: "DELIVERED",
 };
 
 function normalizeStatus(status: RawPurchaseOrderResponse["status"]): PurchaseOrderStatus {
@@ -35,7 +36,7 @@ function normalizeStatus(status: RawPurchaseOrderResponse["status"]): PurchaseOr
     const numeric = Number(status);
     if (Number.isInteger(numeric)) return STATUS_BY_NUMBER[numeric] ?? "PENDING";
     const upper = status.toUpperCase();
-    if (upper === "APPROVED" || upper === "DELIVERED") return upper;
+    if (upper === "APPROVED" || upper === "REJECTED" || upper === "DELIVERED") return upper;
   }
   return "PENDING";
 }
@@ -63,6 +64,7 @@ export const purchaseOrdersApi = {
   },
   create: (body: CreatePurchaseOrderRequest) => apiClient.post<string>("/api/purchaseorders", body),
   approve: (id: number) => apiClient.put<string>(`/api/purchaseorders/${id}/approve`),
+  reject: (id: number) => apiClient.put<string>(`/api/purchaseorders/${id}/reject`),
   importToWarehouse: (poId: number, warehouseId: number) =>
     apiClient.post(`/api/purchaseorders/${poId}/import?warehouseId=${warehouseId}`),
 };

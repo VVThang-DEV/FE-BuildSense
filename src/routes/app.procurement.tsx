@@ -8,6 +8,7 @@ import {
   PackageCheck,
   Plus,
   Truck,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,6 +44,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn, statusConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useSession } from "@/lib/session";
 import { purchaseOrdersApi, type PurchaseOrderResponse } from "@/api/purchaseOrders";
 import { projectsApi } from "@/api/projects";
@@ -72,6 +74,7 @@ function ProcurementPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importPOId, setImportPOId] = useState<number | null>(null);
   const [importWarehouseId, setImportWarehouseId] = useState("");
+  const [rejectPOId, setRejectPOId] = useState<number | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const {
@@ -124,6 +127,26 @@ function ProcurementPage() {
         refetchPOs();
       } else {
         toast.error(response.errorMessage ?? "Approve failed");
+      }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const reject = async () => {
+    if (!rejectPOId) return;
+    const poId = rejectPOId;
+    setBusyAction(`reject-${poId}`);
+    try {
+      const response = await purchaseOrdersApi.reject(poId);
+      if (response.isSuccess) {
+        toast.success(`PO #${poId} rejected`);
+        setRejectPOId(null);
+        await refetchPOs();
+      } else {
+        toast.error(response.errorMessage ?? "Reject failed");
       }
     } catch {
       toast.error("Could not reach the backend");
@@ -202,6 +225,7 @@ function ProcurementPage() {
     session?.role === "PM" ? allPOs.filter((po) => pmProjectIds.has(po.projectId)) : allPOs;
   const pending = scopedPOs.filter((po) => po.status === "PENDING");
   const approved = scopedPOs.filter((po) => po.status === "APPROVED");
+  const rejected = scopedPOs.filter((po) => po.status === "REJECTED");
   const delivered = scopedPOs.filter((po) => po.status === "DELIVERED");
   const pipelineValue = scopedPOs.reduce((sum, po) => sum + po.totalAmount, 0);
   const projectName = (id: number) =>
@@ -226,9 +250,10 @@ function ProcurementPage() {
 
       {isLive && !isLoading && (
         <div className="mb-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <ProcurementMetric icon={Clock3} label="Pending approval" value={pending.length} />
             <ProcurementMetric icon={Truck} label="Awaiting receipt" value={approved.length} />
+            <ProcurementMetric icon={X} label="Rejected" value={rejected.length} />
             <ProcurementMetric icon={PackageCheck} label="Delivered" value={delivered.length} />
             <ProcurementMetric
               icon={CircleDollarSign}
@@ -239,6 +264,7 @@ function ProcurementPage() {
           <PipelineBar
             pending={pending.length}
             approved={approved.length}
+            rejected={rejected.length}
             delivered={delivered.length}
           />
         </div>
@@ -324,6 +350,19 @@ function ProcurementPage() {
         </DialogContent>
       </Dialog>
 
+      <ConfirmDialog
+        open={rejectPOId !== null}
+        onOpenChange={(open) => {
+          if (!open && !busyAction?.startsWith("reject-")) setRejectPOId(null);
+        }}
+        title={`Reject PO #${rejectPOId ?? ""}?`}
+        description="This purchase order will be marked as rejected and can no longer be approved or imported."
+        confirmLabel="Reject PO"
+        onConfirm={reject}
+        destructive
+        busy={busyAction?.startsWith("reject-") ?? false}
+      />
+
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent>
           <DialogHeader>
@@ -391,6 +430,17 @@ function ProcurementPage() {
                 </Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="rejected">
+              Rejected
+              {rejected.length > 0 && (
+                <Badge
+                  variant="destructive"
+                  className="ml-1.5 h-4 min-w-[1rem] rounded-full p-0 text-[9px] flex items-center justify-center"
+                >
+                  {rejected.length}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="delivered">Delivered</TabsTrigger>
           </TabsList>
           <TabsContent value="pending">
@@ -399,6 +449,7 @@ function ProcurementPage() {
               projectName={projectName}
               supplierName={supplierName}
               onApprove={canApproveOrImport ? approve : undefined}
+              onReject={canApproveOrImport ? setRejectPOId : undefined}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -416,6 +467,14 @@ function ProcurementPage() {
                     }
                   : undefined
               }
+              busyAction={busyAction}
+            />
+          </TabsContent>
+          <TabsContent value="rejected">
+            <PurchaseOrderTable
+              rows={rejected}
+              projectName={projectName}
+              supplierName={supplierName}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -460,13 +519,15 @@ function ProcurementMetric({
 function PipelineBar({
   pending,
   approved,
+  rejected,
   delivered,
 }: {
   pending: number;
   approved: number;
+  rejected: number;
   delivered: number;
 }) {
-  const total = pending + approved + delivered;
+  const total = pending + approved + rejected + delivered;
   const width = (value: number) => (total ? `${(value / total) * 100}%` : "0%");
 
   return (
@@ -477,16 +538,18 @@ function PipelineBar({
           <div className="flex gap-3 text-muted-foreground">
             <span>{pending} pending</span>
             <span>{approved} awaiting receipt</span>
+            <span>{rejected} rejected</span>
             <span>{delivered} delivered</span>
           </div>
         </div>
         <div
           className="flex h-2.5 overflow-hidden rounded-full bg-muted"
           role="img"
-          aria-label={`${pending} pending, ${approved} awaiting receipt, ${delivered} delivered`}
+          aria-label={`${pending} pending, ${approved} awaiting receipt, ${rejected} rejected, ${delivered} delivered`}
         >
           <span className="bg-warning" style={{ width: width(pending) }} />
           <span className="bg-primary" style={{ width: width(approved) }} />
+          <span className="bg-destructive" style={{ width: width(rejected) }} />
           <span className="bg-success" style={{ width: width(delivered) }} />
         </div>
       </CardContent>
@@ -525,6 +588,7 @@ function PurchaseOrderTable({
   projectName,
   supplierName,
   onApprove,
+  onReject,
   onImport,
   busyAction,
 }: {
@@ -532,6 +596,7 @@ function PurchaseOrderTable({
   projectName: (id: number) => string;
   supplierName: (id: number) => string;
   onApprove?: (poId: number) => void;
+  onReject?: (poId: number) => void;
   onImport?: (poId: number) => void;
   busyAction?: string | null;
 }) {
@@ -583,17 +648,32 @@ function PurchaseOrderTable({
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  {po.status === "PENDING" && onApprove && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-xs"
-                      onClick={() => onApprove(po.poId)}
-                      disabled={busyAction !== null}
-                    >
-                      <Check className="h-3 w-3 mr-1" />{" "}
-                      {busyAction === `approve-${po.poId}` ? "Approving..." : "Approve"}
-                    </Button>
+                  {po.status === "PENDING" && (onApprove || onReject) && (
+                    <div className="flex justify-end gap-1">
+                      {onReject && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          onClick={() => onReject(po.poId)}
+                          disabled={busyAction !== null}
+                        >
+                          <X className="h-3 w-3 mr-1" /> Reject
+                        </Button>
+                      )}
+                      {onApprove && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs"
+                          onClick={() => onApprove(po.poId)}
+                          disabled={busyAction !== null}
+                        >
+                          <Check className="h-3 w-3 mr-1" />{" "}
+                          {busyAction === `approve-${po.poId}` ? "Approving..." : "Approve"}
+                        </Button>
+                      )}
+                    </div>
                   )}
                   {po.status === "APPROVED" && onImport && (
                     <Button
