@@ -53,6 +53,7 @@ const EMPTY_FORM: MaterialForm = { materialName: "", unit: "", categoryId: "" };
 function MaterialsPage() {
   const session = useSession();
   const isLive = !!session?.token;
+  const canManageCatalog = session?.role === "ADMIN";
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<MaterialResponse | null>(null);
   const [form, setForm] = useState<MaterialForm>(EMPTY_FORM);
@@ -161,7 +162,7 @@ function MaterialsPage() {
         title="Material Catalog"
         description="Materials available for purchase orders and warehouse inventory."
         actions={
-          isLive ? (
+          isLive && canManageCatalog ? (
             <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
               <PackagePlus className="h-3.5 w-3.5 mr-1" /> Add material
             </Button>
@@ -254,13 +255,16 @@ function MaterialsPage() {
                   <TableHead>Material</TableHead>
                   <TableHead>Unit</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {canManageCatalog && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(materials ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell
+                      colSpan={canManageCatalog ? 5 : 4}
+                      className="text-center py-8 text-muted-foreground"
+                    >
                       No materials yet
                     </TableCell>
                   </TableRow>
@@ -276,28 +280,30 @@ function MaterialsPage() {
                       {categories?.find((category) => category.id === material.categoryId)
                         ?.categoryName ?? `#${material.categoryId}`}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          onClick={() => openEdit(material)}
-                          aria-label={`Edit ${material.materialName}`}
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={() => setDeleting(material)}
-                          aria-label={`Delete ${material.materialName}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {canManageCatalog && (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => openEdit(material)}
+                            aria-label={`Edit ${material.materialName}`}
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            onClick={() => setDeleting(material)}
+                            aria-label={`Delete ${material.materialName}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

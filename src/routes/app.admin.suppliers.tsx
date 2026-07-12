@@ -45,6 +45,7 @@ export const Route = createFileRoute("/app/admin/suppliers")({
 function SuppliersPage() {
   const session = useSession();
   const isLive = !!session?.token;
+  const canManageSuppliers = session?.role === "ADMIN";
 
   const {
     data: suppliers,
@@ -140,7 +141,7 @@ function SuppliersPage() {
         title="Suppliers"
         description="Approved vendors used across purchase orders."
         actions={
-          isLive ? (
+          isLive && canManageSuppliers ? (
             <div className="flex gap-2">
               <Button
                 size="sm"

@@ -73,6 +73,7 @@ function ProjectsList() {
   const [form, setForm] = useState({
     projectName: "",
     address: "",
+    totalProjectBudget: "0",
     startDate: "",
     baselineEnd: "",
   });
@@ -104,6 +105,12 @@ function ProjectsList() {
       return;
     }
 
+    const totalProjectBudget = Number(form.totalProjectBudget);
+    if (!Number.isFinite(totalProjectBudget) || totalProjectBudget < 0) {
+      toast.error("Project budget must be 0 or greater");
+      return;
+    }
+
     if (!session?.userId) {
       toast.error("Could not resolve the signed-in Project Manager");
       return;
@@ -114,6 +121,7 @@ function ProjectsList() {
       const response = await projectsApi.create({
         projectName: form.projectName.trim(),
         address: form.address.trim() || undefined,
+        totalProjectBudget,
         startDate: form.startDate,
         pmUserID: session.userId,
         baselineStart: form.startDate,
@@ -123,10 +131,20 @@ function ProjectsList() {
       if (response.isSuccess) {
         toast.success("Project created");
         setCreating(false);
-        setForm({ projectName: "", address: "", startDate: "", baselineEnd: "" });
+        setForm({
+          projectName: "",
+          address: "",
+          totalProjectBudget: "0",
+          startDate: "",
+          baselineEnd: "",
+        });
         refetch();
       } else {
-        toast.error(response.errorMessage ?? "Create failed");
+        toast.error(
+          response.errorMessage ??
+            (typeof response.result === "string" ? response.result : null) ??
+            "Create failed",
+        );
       }
     } catch {
       toast.error("Could not reach the backend");
@@ -285,6 +303,21 @@ function ProjectsList() {
               />
             </div>
             <div>
+              <Label htmlFor="project-budget">Total project budget (VND)</Label>
+              <Input
+                id="project-budget"
+                type="number"
+                min="0"
+                step="1000"
+                value={form.totalProjectBudget}
+                onChange={(e) => setForm((f) => ({ ...f, totalProjectBudget: e.target.value }))}
+                disabled={saving}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Enter 0 only when this project should not enforce a PO budget limit.
+              </p>
+            </div>
+            <div>
               <Label htmlFor="project-start">Start date</Label>
               <Input
                 id="project-start"
@@ -337,6 +370,7 @@ function ProjectsList() {
                   <TableHead>Project</TableHead>
                   <TableHead>Address</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Budget</TableHead>
                   <TableHead>Start date</TableHead>
                   <TableHead>Created</TableHead>
                 </TableRow>
@@ -344,7 +378,7 @@ function ProjectsList() {
               <TableBody>
                 {(liveProjects ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       No projects yet
                     </TableCell>
                   </TableRow>
@@ -372,6 +406,9 @@ function ProjectsList() {
                       >
                         {project.status.replace("_", " ")}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {project.totalProjectBudget.toLocaleString()} {project.currency}
                     </TableCell>
                     <TableCell className="text-sm">{formatDate(project.startDate)}</TableCell>
                     <TableCell className="text-sm">{formatDate(project.createdDate)}</TableCell>

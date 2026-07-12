@@ -636,7 +636,14 @@ function MaterialRequestsPage() {
                   )}
                   {visibleRequests.map((request) => (
                     <TableRow key={request.requestId}>
-                      <TableCell className="font-mono text-xs">#{request.requestId}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        <p>#{request.requestId}</p>
+                        {request.taskId && (
+                          <p className="mt-0.5 text-[10px] text-muted-foreground">
+                            Task #{request.taskId}
+                          </p>
+                        )}
+                      </TableCell>
                       <TableCell className="font-medium">
                         {projects.find((project) => project.projectId === request.projectId)
                           ?.projectName ?? `Project #${request.projectId}`}
@@ -649,7 +656,9 @@ function MaterialRequestsPage() {
                           {(request.items ?? []).map((item) => (
                             <p key={item.itemId} className="text-xs">
                               {item.materialName}{" "}
-                              <span className="text-muted-foreground">× {item.quantity}</span>
+                              <span className="text-muted-foreground">
+                                × {item.quantity} {item.unit ?? ""}
+                              </span>
                             </p>
                           ))}
                         </div>
@@ -760,6 +769,12 @@ function MaterialRequestsPage() {
                   <p className="font-medium">{formatDate(selectedRequest.requestDate)}</p>
                 </div>
                 <div>
+                  <p className="text-xs text-muted-foreground">Source task</p>
+                  <p className="font-medium">
+                    {selectedRequest.taskId ? `Task #${selectedRequest.taskId}` : "Manual request"}
+                  </p>
+                </div>
+                <div>
                   <p className="text-xs text-muted-foreground">Status</p>
                   <div className="flex flex-wrap gap-1">
                     <Badge variant="outline" className={statusClass(selectedRequest.status)}>
@@ -789,7 +804,9 @@ function MaterialRequestsPage() {
                     {(selectedRequest.items ?? []).map((item) => (
                       <TableRow key={item.itemId}>
                         <TableCell className="font-medium">{item.materialName}</TableCell>
-                        <TableCell className="text-right tabular-nums">{item.quantity}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {item.quantity} {item.unit ?? ""}
+                        </TableCell>
                         <TableCell>{formatDate(item.neededByDate)}</TableCell>
                       </TableRow>
                     ))}

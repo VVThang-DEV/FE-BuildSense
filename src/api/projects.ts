@@ -27,10 +27,50 @@ export type ProjectResponse = {
 export type CreateProjectRequest = {
   projectName: string;
   address?: string;
+  totalProjectBudget: number;
   startDate: string;
   pmUserID: number;
   baselineStart: string;
   baselineEnd: string;
+};
+
+export type ProjectMaterialRequirement = {
+  materialId: number;
+  materialName: string;
+  taskName?: string | null;
+  grossQuantityRequired: number;
+  unit: string;
+};
+
+export type MRPCalculationResponse = {
+  materialId: number;
+  materialName: string;
+  unit: string;
+  totalGrossRequired: number;
+  currentInventory: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  onOrderQuantity: number;
+  netQuantityRequired: number;
+  earliestStartDate: string;
+};
+
+export type AdjustProjectBudgetRequest = {
+  projectId: number;
+  amount: number;
+  reason: string;
+};
+
+export type ProjectBudgetHistoryResponse = {
+  id: number;
+  projectId: number;
+  amountChanged: number;
+  previousBudget: number;
+  newBudget: number;
+  currency: string;
+  reason: string;
+  updatedByUserId: number;
+  createdAt: string;
 };
 
 const STATUS_BY_NUMBER: Record<number, ProjectStatus> = {
@@ -91,7 +131,16 @@ export const projectsApi = {
       result: response.result ? normalizeProject(response.result) : response.result,
     };
   },
-  create: (body: CreateProjectRequest) => apiClient.post<string>("/api/projects", body),
+  create: async (body: CreateProjectRequest) => {
+    const response = await apiClient.post<RawProjectResponse | string>("/api/projects", body);
+    return {
+      ...response,
+      result:
+        response.isSuccess && typeof response.result === "object" && response.result !== null
+          ? normalizeProject(response.result)
+          : response.result,
+    };
+  },
   importFromWord: async (file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -104,4 +153,12 @@ export const projectsApi = {
       result: response.result ? normalizeProject(response.result) : response.result,
     };
   },
+  getMaterialRequirements: (projectId: number) =>
+    apiClient.get<ProjectMaterialRequirement[]>(`/api/Projects/${projectId}/material-requirements`),
+  calculateMrp: (projectId: number) =>
+    apiClient.get<MRPCalculationResponse[]>(`/api/Projects/${projectId}/calculate-mrp`),
+  adjustBudget: (body: AdjustProjectBudgetRequest) =>
+    apiClient.post<ProjectBudgetHistoryResponse>("/api/Projects/adjust-budget", body),
+  getBudgetHistories: (projectId: number) =>
+    apiClient.get<ProjectBudgetHistoryResponse[]>(`/api/Projects/${projectId}/budget-histories`),
 };

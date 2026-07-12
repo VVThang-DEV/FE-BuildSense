@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   Clock3,
   Download,
+  Eye,
   PackageCheck,
   Plus,
   Truck,
@@ -58,11 +59,29 @@ export const Route = createFileRoute("/app/procurement")({
   component: ProcurementPage,
 });
 
+function purchaseOrderErrorMessage(result: unknown, fallback: string): string {
+  if (typeof result === "string" && result.trim()) return result;
+  if (typeof result !== "object" || result === null) return fallback;
+
+  const budget = result as {
+    message?: string;
+    remainingBudget?: number;
+    currentOrder?: number;
+    currency?: string;
+  };
+  if (typeof budget.remainingBudget !== "number" || typeof budget.currentOrder !== "number") {
+    return budget.message || fallback;
+  }
+  const currency = budget.currency || "VND";
+  return `${budget.message || "Purchase order exceeds project budget"}. Remaining: ${budget.remainingBudget.toLocaleString()} ${currency}; this order: ${budget.currentOrder.toLocaleString()} ${currency}.`;
+}
+
 function ProcurementPage() {
   const session = useSession();
   const isLive = !!session?.token;
-  const canCreate = session?.role === "PM" || session?.role === "ADMIN";
-  const canApproveOrImport = session?.role === "WAREHOUSE_MANAGER" || session?.role === "ADMIN";
+  const canCreate = session?.role === "WAREHOUSE_MANAGER" || session?.role === "ADMIN";
+  const canApproveOrReject = session?.role === "PM" || session?.role === "ADMIN";
+  const canImport = session?.role === "WAREHOUSE_MANAGER" || session?.role === "ADMIN";
   const [creating, setCreating] = useState(false);
   const [newPO, setNewPO] = useState({
     projectId: "",
@@ -75,6 +94,7 @@ function ProcurementPage() {
   const [importPOId, setImportPOId] = useState<number | null>(null);
   const [importWarehouseId, setImportWarehouseId] = useState("");
   const [rejectPOId, setRejectPOId] = useState<number | null>(null);
+  const [selectedPOId, setSelectedPOId] = useState<number | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const {
@@ -187,6 +207,16 @@ function ProcurementPage() {
       toast.error("Project, supplier and material are required");
       return;
     }
+    const quantity = Number(newPO.quantity);
+    const unitPrice = Number(newPO.unitPrice);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast.error("Quantity must be greater than 0");
+      return;
+    }
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      toast.error("Unit price cannot be negative");
+      return;
+    }
     setBusyAction("create");
     try {
       const response = await purchaseOrdersApi.create({
@@ -195,8 +225,8 @@ function ProcurementPage() {
         items: [
           {
             materialId: Number(newPO.materialId),
-            quantity: Number(newPO.quantity) || 1,
-            unitPrice: Number(newPO.unitPrice) || 0,
+            quantity,
+            unitPrice,
           },
         ],
       });
@@ -206,7 +236,9 @@ function ProcurementPage() {
         setNewPO({ projectId: "", supplierId: "", materialId: "", quantity: "1", unitPrice: "0" });
         refetchPOs();
       } else {
-        toast.error(response.errorMessage ?? "Create failed");
+        toast.error(
+          response.errorMessage ?? purchaseOrderErrorMessage(response.result, "Create failed"),
+        );
       }
     } catch {
       toast.error("Could not reach the backend");
@@ -232,6 +264,7 @@ function ProcurementPage() {
     liveProjects?.find((project) => project.projectId === id)?.projectName ?? `#${id}`;
   const supplierName = (id: number) =>
     liveSuppliers?.find((supplier) => supplier.supplierId === id)?.companyName ?? `#${id}`;
+  const selectedPO = scopedPOs.find((po) => po.poId === selectedPOId) ?? null;
 
   return (
     <div className="max-w-[1400px] mx-auto">
@@ -363,6 +396,89 @@ function ProcurementPage() {
         busy={busyAction?.startsWith("reject-") ?? false}
       />
 
+      <Dialog open={selectedPOId !== null} onOpenChange={(open) => !open && setSelectedPOId(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Purchase Order #{selectedPOId}</DialogTitle>
+          </DialogHeader>
+          {selectedPO && (
+            <div className="space-y-4">
+              <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <POInfo
+                  label="Project"
+                  value={selectedPO.projectName || projectName(selectedPO.projectId)}
+                />
+                <POInfo
+                  label="Supplier"
+                  value={selectedPO.supplierName || supplierName(selectedPO.supplierId)}
+                />
+                <POInfo label="Status" value={selectedPO.status} />
+                <POInfo label="Currency" value={selectedPO.currency} />
+                <POInfo
+                  label="Order date"
+                  value={
+                    selectedPO.orderDate ? new Date(selectedPO.orderDate).toLocaleDateString() : "-"
+                  }
+                />
+                <POInfo
+                  label="Delivery date"
+                  value={
+                    selectedPO.deliveryDate
+                      ? new Date(selectedPO.deliveryDate).toLocaleDateString()
+                      : "-"
+                  }
+                />
+                <POInfo label="Items" value={String(selectedPO.items.length)} />
+                <POInfo
+                  label="Total"
+                  value={`${selectedPO.totalAmount.toLocaleString()} ${selectedPO.currency}`}
+                />
+              </div>
+              <div className="overflow-hidden rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Material</TableHead>
+                      <TableHead className="text-right">Quantity</TableHead>
+                      <TableHead className="text-right">Unit price</TableHead>
+                      <TableHead className="text-right">Subtotal</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedPO.items.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                          No line-item details returned by the backend.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {selectedPO.items.map((item) => (
+                      <TableRow key={item.orderLineItemId || `${item.materialId}-${item.quantity}`}>
+                        <TableCell>
+                          <p className="font-medium">{item.materialName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Material #{item.materialId}
+                          </p>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {item.quantity.toLocaleString()} {item.unit}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {item.unitPrice.toLocaleString()} {selectedPO.currency}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {item.subTotal.toLocaleString()} {selectedPO.currency}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent>
           <DialogHeader>
@@ -448,8 +564,9 @@ function ProcurementPage() {
               rows={pending}
               projectName={projectName}
               supplierName={supplierName}
-              onApprove={canApproveOrImport ? approve : undefined}
-              onReject={canApproveOrImport ? setRejectPOId : undefined}
+              onApprove={canApproveOrReject ? approve : undefined}
+              onReject={canApproveOrReject ? setRejectPOId : undefined}
+              onView={setSelectedPOId}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -459,7 +576,7 @@ function ProcurementPage() {
               projectName={projectName}
               supplierName={supplierName}
               onImport={
-                canApproveOrImport
+                canImport
                   ? (poId) => {
                       setImportPOId(poId);
                       setImportWarehouseId("");
@@ -467,6 +584,7 @@ function ProcurementPage() {
                     }
                   : undefined
               }
+              onView={setSelectedPOId}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -475,6 +593,7 @@ function ProcurementPage() {
               rows={rejected}
               projectName={projectName}
               supplierName={supplierName}
+              onView={setSelectedPOId}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -483,6 +602,7 @@ function ProcurementPage() {
               rows={delivered}
               projectName={projectName}
               supplierName={supplierName}
+              onView={setSelectedPOId}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -513,6 +633,15 @@ function ProcurementMetric({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function POInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="font-medium">{value}</p>
+    </div>
   );
 }
 
@@ -589,6 +718,7 @@ function PurchaseOrderTable({
   supplierName,
   onApprove,
   onReject,
+  onView,
   onImport,
   busyAction,
 }: {
@@ -597,6 +727,7 @@ function PurchaseOrderTable({
   supplierName: (id: number) => string;
   onApprove?: (poId: number) => void;
   onReject?: (poId: number) => void;
+  onView?: (poId: number) => void;
   onImport?: (poId: number) => void;
   busyAction?: string | null;
 }) {
@@ -648,44 +779,56 @@ function PurchaseOrderTable({
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  {po.status === "PENDING" && (onApprove || onReject) && (
-                    <div className="flex justify-end gap-1">
-                      {onReject && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs text-destructive hover:text-destructive"
-                          onClick={() => onReject(po.poId)}
-                          disabled={busyAction !== null}
-                        >
-                          <X className="h-3 w-3 mr-1" /> Reject
-                        </Button>
-                      )}
-                      {onApprove && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={() => onApprove(po.poId)}
-                          disabled={busyAction !== null}
-                        >
-                          <Check className="h-3 w-3 mr-1" />{" "}
-                          {busyAction === `approve-${po.poId}` ? "Approving..." : "Approve"}
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                  {po.status === "APPROVED" && onImport && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs"
-                      onClick={() => onImport(po.poId)}
-                      disabled={busyAction !== null}
-                    >
-                      <Download className="h-3 w-3 mr-1" /> Import
-                    </Button>
-                  )}
+                  <div className="flex justify-end gap-1">
+                    {onView && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs"
+                        onClick={() => onView(po.poId)}
+                      >
+                        <Eye className="mr-1 h-3 w-3" /> Details
+                      </Button>
+                    )}
+                    {po.status === "PENDING" && (onApprove || onReject) && (
+                      <>
+                        {onReject && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs text-destructive hover:text-destructive"
+                            onClick={() => onReject(po.poId)}
+                            disabled={busyAction !== null}
+                          >
+                            <X className="h-3 w-3 mr-1" /> Reject
+                          </Button>
+                        )}
+                        {onApprove && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            onClick={() => onApprove(po.poId)}
+                            disabled={busyAction !== null}
+                          >
+                            <Check className="h-3 w-3 mr-1" />{" "}
+                            {busyAction === `approve-${po.poId}` ? "Approving..." : "Approve"}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    {po.status === "APPROVED" && onImport && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => onImport(po.poId)}
+                        disabled={busyAction !== null}
+                      >
+                        <Download className="h-3 w-3 mr-1" /> Import
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

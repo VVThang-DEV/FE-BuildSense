@@ -1,5 +1,5 @@
 import { useMemo, useState, type ChangeEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   BarChart3,
@@ -9,7 +9,9 @@ import {
   Eye,
   ImageIcon,
   Plus,
+  PackagePlus,
   Send,
+  Trash2,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -35,9 +37,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { requireApiResult } from "@/api/client";
 import { progressReportsApi } from "@/api/progressReports";
 import { type TaskResponse, tasksApi } from "@/api/tasks";
+import { materialsApi } from "@/api/materials";
+import { materialRequestsApi } from "@/api/materialRequests";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { isCloudinaryConfigured, uploadSitePhoto } from "@/lib/cloudinary";
@@ -54,6 +65,11 @@ type TaskForm = {
   plannedBudget: string;
   baselineStart: string;
   baselineEnd: string;
+};
+
+type TaskMaterialForm = {
+  materialId: string;
+  quantity: string;
 };
 
 type ReportForm = {
@@ -115,15 +131,20 @@ function validHttpsUrl(value: string): boolean {
 }
 
 export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardProps) {
+  const queryClient = useQueryClient();
   const session = useSession();
   const canManageTasks = session?.role === "PM";
   const [taskForm, setTaskForm] = useState<TaskForm>(() => newTaskForm());
+  const [taskMaterials, setTaskMaterials] = useState<TaskMaterialForm[]>([]);
   const [reportForm, setReportForm] = useState<ReportForm>(initialReportForm);
   const [creatingTask, setCreatingTask] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [materialAction, setMaterialAction] = useState<string | null>(null);
+  const [assignMaterialId, setAssignMaterialId] = useState("");
+  const [assignMaterialQuantity, setAssignMaterialQuantity] = useState("1");
   const [reportPhoto, setReportPhoto] = useState<{
     url: string;
     date: string;
@@ -144,6 +165,14 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       [],
     enabled: !!session?.token && projectId > 0,
     staleTime: 10_000,
+  });
+
+  const { data: materials = [] } = useQuery({
+    queryKey: ["materials"],
+    queryFn: async () =>
+      requireApiResult(await materialsApi.getAll(), "Could not load materials") ?? [],
+    enabled: !!session?.token,
+    staleTime: 30_000,
   });
 
   const selectedTask = useMemo(
@@ -245,6 +274,26 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       toast.error("Baseline end cannot be before baseline start");
       return;
     }
+    const materialRows = taskMaterials.map((item) => ({
+      materialId: Number(item.materialId),
+      grossQuantityRequired: Number(item.quantity),
+    }));
+    if (
+      materialRows.some(
+        (item) =>
+          !Number.isInteger(item.materialId) ||
+          item.materialId <= 0 ||
+          !Number.isFinite(item.grossQuantityRequired) ||
+          item.grossQuantityRequired <= 0,
+      )
+    ) {
+      toast.error("Every material requirement needs a material and quantity greater than 0");
+      return;
+    }
+    if (new Set(materialRows.map((item) => item.materialId)).size !== materialRows.length) {
+      toast.error("A material can only appear once on a task");
+      return;
+    }
 
     setCreatingTask(true);
     try {
@@ -257,12 +306,20 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         plannedBudget: Number(taskForm.plannedBudget) || 0,
         baselineStart: `${taskForm.baselineStart}T00:00:00.000Z`,
         baselineEnd: `${taskForm.baselineEnd}T00:00:00.000Z`,
+        materials: materialRows,
       });
 
       if (response.isSuccess) {
         toast.success(responseMessage(response.result, "Task created"));
         setTaskForm(newTaskForm());
-        refetchTasks();
+        setTaskMaterials([]);
+        await refetchTasks();
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["project-material-requirements", projectId],
+          }),
+          queryClient.invalidateQueries({ queryKey: ["project-mrp", projectId] }),
+        ]);
       } else {
         toast.error(
           response.errorMessage ?? responseMessage(response.result, "Could not create task"),
@@ -272,6 +329,62 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       toast.error("Could not reach the backend. Check the API server and try again.");
     } finally {
       setCreatingTask(false);
+    }
+  };
+
+  const assignMaterial = async () => {
+    if (!selectedTask || !assignMaterialId || Number(assignMaterialQuantity) <= 0) {
+      toast.error("Select a material and enter a quantity greater than 0");
+      return;
+    }
+    setMaterialAction(`assign-${selectedTask.taskId}`);
+    try {
+      const response = await tasksApi.assignMaterial(selectedTask.taskId, {
+        materialId: Number(assignMaterialId),
+        grossQuantityRequired: Number(assignMaterialQuantity),
+      });
+      if (!response.isSuccess) {
+        toast.error(
+          response.errorMessage ??
+            responseMessage(response.result, "Could not save material requirement"),
+        );
+        return;
+      }
+      toast.success("Task material requirement saved");
+      setAssignMaterialId("");
+      setAssignMaterialQuantity("1");
+      await refetchTasks();
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-material-requirements", projectId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["project-mrp", projectId] }),
+      ]);
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setMaterialAction(null);
+    }
+  };
+
+  const createMaterialRequestFromTask = async () => {
+    if (!selectedTask) return;
+    setMaterialAction(`request-${selectedTask.taskId}`);
+    try {
+      const response = await materialRequestsApi.createFromTask(selectedTask.taskId);
+      if (!response.isSuccess) {
+        toast.error(
+          response.errorMessage ??
+            responseMessage(response.result, "Could not create material request"),
+        );
+        return;
+      }
+      toast.success(`Material request created from ${selectedTask.taskName}`);
+      await queryClient.invalidateQueries({ queryKey: ["material-requests"] });
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setMaterialAction(null);
     }
   };
 
@@ -412,6 +525,105 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                 />
               </div>
             </div>
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium">Material requirements</p>
+                  <p className="text-xs text-muted-foreground">
+                    Optional planned quantities for this task.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setTaskMaterials((rows) => [...rows, { materialId: "", quantity: "1" }])
+                  }
+                  disabled={creatingTask}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" /> Add material
+                </Button>
+              </div>
+              {taskMaterials.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No planned materials added.</p>
+              ) : (
+                <div className="space-y-2">
+                  {taskMaterials.map((row, index) => {
+                    const material = materials.find(
+                      (item) => item.materialId === Number(row.materialId),
+                    );
+                    return (
+                      <div
+                        key={index}
+                        className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_36px]"
+                      >
+                        <Select
+                          value={row.materialId}
+                          onValueChange={(value) =>
+                            setTaskMaterials((rows) =>
+                              rows.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, materialId: value } : item,
+                              ),
+                            )
+                          }
+                          disabled={creatingTask}
+                        >
+                          <SelectTrigger aria-label={`Material ${index + 1}`}>
+                            <SelectValue placeholder="Select material" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {materials.map((item) => (
+                              <SelectItem key={item.materialId} value={String(item.materialId)}>
+                                {item.materialName} ({item.unit})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={row.quantity}
+                            onChange={(event) =>
+                              setTaskMaterials((rows) =>
+                                rows.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, quantity: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                            disabled={creatingTask}
+                            aria-label={`Quantity for material ${index + 1}`}
+                          />
+                          {material?.unit && (
+                            <span className="pointer-events-none absolute right-3 top-2 text-xs text-muted-foreground">
+                              {material.unit}
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() =>
+                            setTaskMaterials((rows) =>
+                              rows.filter((_, itemIndex) => itemIndex !== index),
+                            )
+                          }
+                          disabled={creatingTask}
+                          aria-label="Remove material"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <div className="flex justify-end">
               <Button onClick={submitTask} disabled={creatingTask}>
                 <Plus className="mr-1.5 h-4 w-4" />
@@ -527,6 +739,83 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   }
                 />
                 <InfoBlock label="Remaining" value={`${selectedRemaining}%`} />
+              </div>
+
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Planned materials</p>
+                    <p className="text-xs text-muted-foreground">
+                      Gross requirements currently assigned to this task.
+                    </p>
+                  </div>
+                  {canManageTasks && (selectedTask.materialRequirements ?? []).length > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={createMaterialRequestFromTask}
+                      disabled={materialAction !== null}
+                    >
+                      <PackagePlus className="mr-1.5 h-4 w-4" />
+                      {materialAction === `request-${selectedTask.taskId}`
+                        ? "Creating request..."
+                        : "Create material request"}
+                    </Button>
+                  )}
+                </div>
+                {(selectedTask.materialRequirements ?? []).length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No material requirements assigned yet.
+                  </p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {(selectedTask.materialRequirements ?? []).map((item) => (
+                      <div
+                        key={item.materialId}
+                        className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm"
+                      >
+                        <span>{item.materialName}</span>
+                        <span className="font-medium tabular-nums">
+                          {item.grossQuantityRequired.toLocaleString()} {item.unit}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {canManageTasks && (
+                  <div className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_160px_auto]">
+                    <Select value={assignMaterialId} onValueChange={setAssignMaterialId}>
+                      <SelectTrigger aria-label="Material to assign">
+                        <SelectValue placeholder="Add or update material" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {materials.map((item) => (
+                          <SelectItem key={item.materialId} value={String(item.materialId)}>
+                            {item.materialName} ({item.unit})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={assignMaterialQuantity}
+                      onChange={(event) => setAssignMaterialQuantity(event.target.value)}
+                      aria-label="Gross material quantity"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={assignMaterial}
+                      disabled={materialAction !== null || !assignMaterialId}
+                    >
+                      Save requirement
+                    </Button>
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Creating a request reserves the full gross quantity. Duplicate task requests are
+                  not yet blocked by the backend.
+                </p>
               </div>
 
               {canReportSelected && (

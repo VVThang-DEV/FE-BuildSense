@@ -8,6 +8,8 @@ import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { ProjectTaskBoard } from "@/components/project-task-board";
+import { ProjectMaterialPlanning } from "@/components/project-material-planning";
+import { ProjectBudgetPanel } from "@/components/project-budget-panel";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
 
@@ -140,6 +142,14 @@ function ProjectDetail() {
           <div className="mt-4">
             <ProjectTaskBoard projectId={project.projectId} projectName={project.projectName} />
           </div>
+          <ProjectBudgetPanel
+            projectId={project.projectId}
+            budget={project.totalProjectBudget}
+            currency={project.currency}
+            canAdjust={session?.role === "ADMIN"}
+            onUpdated={() => refetch()}
+          />
+          <ProjectMaterialPlanning projectId={project.projectId} />
         </>
       )}
     </div>

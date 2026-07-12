@@ -37,6 +37,7 @@ export const Route = createFileRoute("/app/admin/warehouses")({
 function WarehousesPage() {
   const session = useSession();
   const isLive = !!session?.token;
+  const canCreateWarehouse = session?.role === "ADMIN";
 
   const {
     data: warehouses,
@@ -101,7 +102,7 @@ function WarehousesPage() {
         title="Warehouses"
         description="Manage material warehouses and view real-time inventory levels."
         actions={
-          isLive ? (
+          isLive && canCreateWarehouse ? (
             <Button size="sm" className="h-8 text-xs" onClick={() => setCreating(true)}>
               <Plus className="h-3.5 w-3.5 mr-1" /> New warehouse
             </Button>

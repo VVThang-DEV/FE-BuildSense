@@ -70,7 +70,7 @@ export const NAV: NavItem[] = [
     to: "/app/admin/categories",
     label: "Categories",
     icon: Tags,
-    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
+    roles: ["ADMIN"],
     group: "Setup",
   },
   {
