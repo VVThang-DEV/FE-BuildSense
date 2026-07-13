@@ -76,6 +76,10 @@ function purchaseOrderErrorMessage(result: unknown, fallback: string): string {
   return `${budget.message || "Purchase order exceeds project budget"}. Remaining: ${budget.remainingBudget.toLocaleString()} ${currency}; this order: ${budget.currentOrder.toLocaleString()} ${currency}.`;
 }
 
+function formatMoney(value: number, currency = "VND"): string {
+  return `${value.toLocaleString()} ${currency}`;
+}
+
 function ProcurementPage() {
   const session = useSession();
   const isLive = !!session?.token;
@@ -264,6 +268,9 @@ function ProcurementPage() {
     liveProjects?.find((project) => project.projectId === id)?.projectName ?? `#${id}`;
   const supplierName = (id: number) =>
     liveSuppliers?.find((supplier) => supplier.supplierId === id)?.companyName ?? `#${id}`;
+  const selectedMaterial = liveMaterials?.find(
+    (material) => material.materialId === Number(newPO.materialId),
+  );
   const selectedPO = scopedPOs.find((po) => po.poId === selectedPOId) ?? null;
 
   return (
@@ -290,8 +297,8 @@ function ProcurementPage() {
             <ProcurementMetric icon={PackageCheck} label="Delivered" value={delivered.length} />
             <ProcurementMetric
               icon={CircleDollarSign}
-              label="Pipeline value"
-              value={pipelineValue.toLocaleString()}
+              label="Pipeline value (VND)"
+              value={formatMoney(pipelineValue)}
             />
           </div>
           <PipelineBar
@@ -341,13 +348,15 @@ function ProcurementPage() {
             >
               {(liveMaterials ?? []).map((material) => (
                 <SelectItem key={material.materialId} value={String(material.materialId)}>
-                  {material.materialName}
+                  {material.materialName} ({material.unit})
                 </SelectItem>
               ))}
             </SelectField>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label htmlFor="po-quantity">Quantity</Label>
+                <Label htmlFor="po-quantity">
+                  Quantity{selectedMaterial?.unit ? ` (${selectedMaterial.unit})` : ""}
+                </Label>
                 <Input
                   id="po-quantity"
                   type="number"
@@ -430,8 +439,8 @@ function ProcurementPage() {
                 />
                 <POInfo label="Items" value={String(selectedPO.items.length)} />
                 <POInfo
-                  label="Total"
-                  value={`${selectedPO.totalAmount.toLocaleString()} ${selectedPO.currency}`}
+                  label="Order value"
+                  value={formatMoney(selectedPO.totalAmount, selectedPO.currency)}
                 />
               </div>
               <div className="overflow-hidden rounded-lg border">
@@ -440,6 +449,7 @@ function ProcurementPage() {
                     <TableRow>
                       <TableHead>Material</TableHead>
                       <TableHead className="text-right">Quantity</TableHead>
+                      <TableHead>Unit</TableHead>
                       <TableHead className="text-right">Unit price</TableHead>
                       <TableHead className="text-right">Subtotal</TableHead>
                     </TableRow>
@@ -447,7 +457,7 @@ function ProcurementPage() {
                   <TableBody>
                     {selectedPO.items.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                        <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                           No line-item details returned by the backend.
                         </TableCell>
                       </TableRow>
@@ -461,13 +471,14 @@ function ProcurementPage() {
                           </p>
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {item.quantity.toLocaleString()} {item.unit}
+                          {item.quantity.toLocaleString()}
                         </TableCell>
+                        <TableCell>{item.unit || "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {item.unitPrice.toLocaleString()} {selectedPO.currency}
+                          {formatMoney(item.unitPrice, selectedPO.currency)}
                         </TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
-                          {item.subTotal.toLocaleString()} {selectedPO.currency}
+                          {formatMoney(item.subTotal, selectedPO.currency)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -741,7 +752,7 @@ function PurchaseOrderTable({
               <TableHead>PO #</TableHead>
               <TableHead>Project</TableHead>
               <TableHead>Supplier</TableHead>
-              <TableHead className="text-right">Total</TableHead>
+              <TableHead className="text-right">Order value</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -763,7 +774,7 @@ function PurchaseOrderTable({
                 <TableCell className="font-medium">{projectName(po.projectId)}</TableCell>
                 <TableCell>{supplierName(po.supplierId)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {po.totalAmount.toLocaleString()}
+                  {formatMoney(po.totalAmount, po.currency)}
                 </TableCell>
                 <TableCell className="text-xs">
                   {po.orderDate ? new Date(po.orderDate).toLocaleDateString() : "-"}
