@@ -4,6 +4,7 @@ import { CircleDollarSign, History, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { projectsApi } from "@/api/projects";
 import { purchaseOrdersApi } from "@/api/purchaseOrders";
+import { usersApi } from "@/api/users";
 import { requireApiResult } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,12 +70,22 @@ export function ProjectBudgetPanel({
     staleTime: 10_000,
   });
 
+  const usersQuery = useQuery({
+    queryKey: ["users"],
+    queryFn: async () =>
+      requireApiResult(await usersApi.getAll(), "Could not load account names") ?? [],
+    enabled: canAdjust,
+    staleTime: 30_000,
+  });
+
   const projectOrders = (ordersQuery.data ?? []).filter((order) => order.projectId === projectId);
   const pendingAmount = sumOrders(projectOrders, "PENDING");
   const committedAmount = sumOrders(projectOrders, "APPROVED");
   const actualAmount = sumOrders(projectOrders, "DELIVERED");
   const heldBudget = pendingAmount + committedAmount + actualAmount;
   const remainingBudget = budget - heldBudget;
+  const updatedByAccount = (userId: number) =>
+    (usersQuery.data ?? []).find((account) => account.id === userId);
 
   const closeDialog = () => {
     if (saving) return;
@@ -242,7 +253,22 @@ export function ProjectBudgetPanel({
                     <TableCell className="text-right font-medium tabular-nums">
                       {item.newBudget.toLocaleString()} {currency}
                     </TableCell>
-                    <TableCell className="text-right">User #{item.updatedByUserId}</TableCell>
+                    <TableCell className="text-right">
+                      {(() => {
+                        const account = updatedByAccount(item.updatedByUserId);
+                        const fullName = account
+                          ? `${account.firstName} ${account.lastName}`.trim()
+                          : "";
+                        return (
+                          <>
+                            <p>{fullName || account?.email || `User #${item.updatedByUserId}`}</p>
+                            {fullName && account?.email && (
+                              <p className="text-xs text-muted-foreground">{account.email}</p>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

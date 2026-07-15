@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -125,7 +126,37 @@ function UsersPage() {
         });
         refetch();
       } else {
-        toast.error(response.errorMessage ?? "Registration failed");
+        const errorMessage = response.errorMessage ?? "Registration failed";
+        const emailDeliveryIssue = /verification email|send.*email/i.test(errorMessage);
+
+        if (emailDeliveryIssue) {
+          const usersResponse = await usersApi.getAll();
+          const normalizedEmail = inv.email.trim().toLowerCase();
+          const accountWasCreated =
+            usersResponse.isSuccess &&
+            usersResponse.result.some(
+              (user) => user.email.trim().toLowerCase() === normalizedEmail,
+            );
+
+          if (accountWasCreated) {
+            toast.warning(
+              `Account created for ${inv.email}. The backend reported a verification-email issue; check the inbox before retrying. The user must verify the email before signing in`,
+            );
+            setOpen(false);
+            setInv({
+              firstName: "",
+              lastName: "",
+              email: "",
+              password: "",
+              confirmPassword: "",
+              role: "PM",
+            });
+            await refetch();
+            return;
+          }
+        }
+
+        toast.error(errorMessage);
       }
     } catch {
       toast.error("Could not reach the backend");
@@ -154,6 +185,9 @@ function UsersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Account</DialogTitle>
+            <DialogDescription>
+              Add a backend user and send a verification email to activate their account.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             <div>
