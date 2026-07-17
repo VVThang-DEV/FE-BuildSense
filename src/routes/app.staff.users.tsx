@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -94,26 +95,64 @@ function UsersPage() {
   });
 
   const submitInvite = async () => {
-    if (!inv.firstName.trim() || !inv.email.trim() || !inv.password.trim()) {
-      toast.error("First name, email and password are required");
+    if (
+      !inv.firstName.trim() ||
+      !inv.lastName.trim() ||
+      !inv.email.trim() ||
+      !inv.password.trim()
+    ) {
+      toast.error("First name, last name, email, and password are required");
       return;
     }
     if (inv.password !== inv.confirmPassword) {
       toast.error("Passwords do not match");
       return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inv.email.trim())) {
+      toast.error("Enter a valid email address");
+      return;
+    }
+    if (
+      inv.password.length < 10 ||
+      inv.password.length > 128 ||
+      !/[a-z]/.test(inv.password) ||
+      !/[A-Z]/.test(inv.password) ||
+      !/\d/.test(inv.password)
+    ) {
+      toast.error("Use 10-128 characters with uppercase, lowercase, and a number");
+      return;
+    }
     setInvLoading(true);
     try {
       const response = await authApi.register({
-        email: inv.email,
+        email: inv.email.trim(),
         password: inv.password,
         confirmPassword: inv.confirmPassword,
-        firstName: inv.firstName,
-        lastName: inv.lastName,
-        role: BACKEND_ROLE_VALUE[inv.role],
+        firstName: inv.firstName.trim(),
+        lastName: inv.lastName.trim(),
       });
-      if (response.isSuccess) {
-        toast.success(`Account created for ${inv.email}`);
+      // Registration intentionally creates CUSTOMER accounts. Promote the new
+      // account through the admin-only role endpoint after it has an ID.
+      const createdUserId = typeof response.result === "number" ? response.result : 0;
+      if (createdUserId > 0) {
+        const roleResponse = await usersApi.updateRole(createdUserId, {
+          role: BACKEND_ROLE_VALUE[inv.role],
+        });
+        if (!roleResponse.isSuccess) {
+          toast.warning(
+            `Account #${createdUserId} was created, but its role is still CUSTOMER: ${roleResponse.errorMessage ?? "role update failed"}`,
+          );
+          await refetch();
+          return;
+        }
+
+        if (response.isSuccess) {
+          toast.success(`Account created for ${inv.email} as ${BACKEND_ROLE_LABEL[inv.role]}`);
+        } else {
+          toast.warning(
+            `Account and role were created, but the verification email was not sent. Use resend verification before sign-in.`,
+          );
+        }
         setOpen(false);
         setInv({
           firstName: "",
@@ -123,7 +162,7 @@ function UsersPage() {
           confirmPassword: "",
           role: "PM",
         });
-        refetch();
+        await refetch();
       } else {
         toast.error(response.errorMessage ?? "Registration failed");
       }
@@ -154,6 +193,9 @@ function UsersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Account</DialogTitle>
+            <DialogDescription>
+              Add a backend user and send a verification email to activate their account.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -162,6 +204,7 @@ function UsersPage() {
                 id="account-first-name"
                 value={inv.firstName}
                 onChange={(e) => setInv((f) => ({ ...f, firstName: e.target.value }))}
+                maxLength={100}
               />
             </div>
             <div>
@@ -170,6 +213,7 @@ function UsersPage() {
                 id="account-last-name"
                 value={inv.lastName}
                 onChange={(e) => setInv((f) => ({ ...f, lastName: e.target.value }))}
+                maxLength={100}
               />
             </div>
           </div>
@@ -181,6 +225,7 @@ function UsersPage() {
                 type="email"
                 value={inv.email}
                 onChange={(e) => setInv((f) => ({ ...f, email: e.target.value }))}
+                maxLength={150}
               />
             </div>
             <div>
@@ -190,6 +235,7 @@ function UsersPage() {
                 type="password"
                 value={inv.password}
                 onChange={(e) => setInv((f) => ({ ...f, password: e.target.value }))}
+                maxLength={128}
               />
             </div>
             <div>
@@ -332,6 +378,27 @@ function UsersPage() {
                                 </DropdownMenuItem>
                               ),
                             )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={async () => {
+                                setUpdatingUserId(user.id);
+                                try {
+                                  const response = await authApi.adminResetPassword(user.id);
+                                  if (!response.isSuccess)
+                                    toast.error(
+                                      response.errorMessage ?? "Could not send reset instructions",
+                                    );
+                                  else
+                                    toast.success(
+                                      `Password reset instructions queued for ${user.email}`,
+                                    );
+                                } finally {
+                                  setUpdatingUserId(null);
+                                }
+                              }}
+                            >
+                              Send password reset
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

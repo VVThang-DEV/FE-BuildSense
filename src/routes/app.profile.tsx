@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
-import { useSession } from "@/lib/session";
+import { logout, useSession } from "@/lib/session";
+import { authApi } from "@/api/auth";
 import { usersApi, BACKEND_ROLE_LABEL } from "@/api/users";
 import { requireApiResult } from "@/api/client";
 
@@ -22,6 +23,7 @@ export const Route = createFileRoute("/app/profile")({
 
 function ProfilePage() {
   const session = useSession();
+  const navigate = useNavigate();
   const isLive = !!session?.token;
 
   const {
@@ -43,6 +45,8 @@ function ProfilePage() {
   const [form, setForm] = useState({ firstName: "", lastName: "", phoneNumber: "" });
   const [formInit, setFormInit] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     if (!profile || formInit) return;
@@ -66,6 +70,37 @@ function ProfilePage() {
       toast.error("Update failed — check your connection");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const changePassword = async () => {
+    if (
+      passwordForm.next !== passwordForm.confirm ||
+      passwordForm.next.length < 10 ||
+      !/[a-z]/.test(passwordForm.next) ||
+      !/[A-Z]/.test(passwordForm.next) ||
+      !/\d/.test(passwordForm.next)
+    ) {
+      toast.error(
+        "New passwords must match and contain uppercase, lowercase, a number, and 10+ characters",
+      );
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const response = await authApi.changePassword({
+        currentPassword: passwordForm.current,
+        newPassword: passwordForm.next,
+        confirmPassword: passwordForm.confirm,
+      });
+      if (!response.isSuccess) toast.error(response.errorMessage ?? "Password change failed");
+      else {
+        toast.success("Password changed. Sign in again on all devices");
+        logout();
+        navigate({ to: "/login" });
+      }
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -202,6 +237,48 @@ function ProfilePage() {
           </CardContent>
         </Card>
       </div>
+      <Card className="mt-4 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-sm">Change password</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <Label>Current password</Label>
+            <Input
+              type="password"
+              value={passwordForm.current}
+              onChange={(event) =>
+                setPasswordForm((current) => ({ ...current, current: event.target.value }))
+              }
+            />
+          </div>
+          <div>
+            <Label>New password</Label>
+            <Input
+              type="password"
+              value={passwordForm.next}
+              onChange={(event) =>
+                setPasswordForm((current) => ({ ...current, next: event.target.value }))
+              }
+            />
+          </div>
+          <div>
+            <Label>Confirm password</Label>
+            <Input
+              type="password"
+              value={passwordForm.confirm}
+              onChange={(event) =>
+                setPasswordForm((current) => ({ ...current, confirm: event.target.value }))
+              }
+            />
+          </div>
+          <div className="sm:col-span-3 flex justify-end">
+            <Button disabled={changingPassword || !passwordForm.current} onClick={changePassword}>
+              Change password
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

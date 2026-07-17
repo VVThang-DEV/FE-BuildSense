@@ -9,8 +9,19 @@ export type Session = {
   avatar: string;
   /** JWT from real backend login. */
   token?: string;
+  /** Opaque refresh token used to rotate the authenticated session. */
+  refreshToken?: string;
+  accessTokenExpiresAt?: string;
+  refreshTokenExpiresAt?: string;
   /** Numeric user ID from backend. */
   userId?: number;
+};
+
+export type AuthTokens = {
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: string;
+  refreshTokenExpiresAt: string;
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -92,6 +103,12 @@ function normalizeStoredSession(session: Session): Session | null {
   return null;
 }
 
+function isDateExpired(value?: string): boolean {
+  if (!value) return false;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) && Date.now() >= timestamp;
+}
+
 function snapshot(): Session | null {
   if (typeof window === "undefined") return null;
   try {
@@ -101,7 +118,7 @@ function snapshot(): Session | null {
     cachedRaw = raw;
     cachedSession = raw ? normalizeStoredSession(JSON.parse(raw) as Session) : null;
 
-    if (!cachedSession || (cachedSession.token && isTokenExpired(cachedSession.token))) {
+    if (!cachedSession || isDateExpired(cachedSession.refreshTokenExpiresAt)) {
       window.localStorage.removeItem(KEY);
       cachedRaw = null;
       cachedSession = null;
@@ -113,8 +130,9 @@ function snapshot(): Session | null {
   }
 }
 
-/** Create a real session from a JWT returned by POST /api/auth/login. */
-export function loginWithToken(token: string): Session {
+/** Create or rotate a real session from the token pair returned by the backend. */
+export function loginWithTokens(tokens: AuthTokens): Session {
+  const token = tokens.accessToken;
   const claims = decodeJwt(token);
   const fullName = readClaim(
     claims,
@@ -146,6 +164,9 @@ export function loginWithToken(token: string): Session {
     email,
     avatar,
     token,
+    refreshToken: tokens.refreshToken,
+    accessTokenExpiresAt: tokens.accessTokenExpiresAt,
+    refreshTokenExpiresAt: tokens.refreshTokenExpiresAt,
     userId,
   };
   const raw = JSON.stringify(session);
@@ -154,6 +175,17 @@ export function loginWithToken(token: string): Session {
   cachedSession = session;
   emit();
   return session;
+}
+
+export function updateSessionTokens(tokens: AuthTokens): Session {
+  return loginWithTokens(tokens);
+}
+
+export function getRefreshToken(): string | null {
+  const session = snapshot();
+  return session?.refreshToken && !isDateExpired(session.refreshTokenExpiresAt)
+    ? session.refreshToken
+    : null;
 }
 
 export function getToken(): string | null {

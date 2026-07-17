@@ -11,3 +11,4 @@ export * from "./suppliers";
 export * from "./tasks";
 export * from "./users";
 export * from "./warehouses";
+export * from "./warehouseTransfers";

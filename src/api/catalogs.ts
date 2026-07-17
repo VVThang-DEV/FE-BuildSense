@@ -2,9 +2,12 @@ import { apiClient } from "./client";
 
 export type CreateCatalogRequest = {
   supplierId: number;
-  materialId: number;
+  variantId: number;
+  supplierSku?: string;
   unitPrice: number;
+  minimumOrderQuantity: number;
   leadTimeDays: number;
+  isAvailable: boolean;
 };
 
 export const catalogsApi = {

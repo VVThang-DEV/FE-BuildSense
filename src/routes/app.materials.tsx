@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Edit, PackagePlus, Trash2 } from "lucide-react";
+import { Edit, Layers3, PackagePlus, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,11 +53,19 @@ const EMPTY_FORM: MaterialForm = { materialName: "", unit: "", categoryId: "" };
 function MaterialsPage() {
   const session = useSession();
   const isLive = !!session?.token;
+  const canManageCatalog = session?.role === "ADMIN";
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<MaterialResponse | null>(null);
   const [form, setForm] = useState<MaterialForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<MaterialResponse | null>(null);
+  const [variantMaterial, setVariantMaterial] = useState<MaterialResponse | null>(null);
+  const [variantForm, setVariantForm] = useState({
+    variantName: "",
+    sku: "",
+    brand: "",
+    unit: "",
+  });
 
   const {
     data: materials,
@@ -121,7 +129,23 @@ function MaterialsPage() {
           });
 
       if (response.isSuccess) {
-        toast.success(editing ? "Material updated" : "Material added");
+        if (!editing && typeof response.result === "object" && response.result) {
+          const variantResponse = await materialsApi.createVariant({
+            materialId: response.result.materialId,
+            variantName: "Standard",
+            unit: form.unit.trim(),
+            isActive: true,
+          });
+          if (!variantResponse.isSuccess) {
+            toast.warning(
+              `Material created, but its standard variant failed: ${variantResponse.errorMessage ?? "add one manually"}`,
+            );
+          } else {
+            toast.success("Material and standard variant added");
+          }
+        } else {
+          toast.success("Material updated");
+        }
         setOpen(false);
         setForm(EMPTY_FORM);
         setEditing(null);
@@ -129,6 +153,40 @@ function MaterialsPage() {
       } else {
         toast.error(response.errorMessage ?? "Request failed");
       }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openVariant = (material: MaterialResponse) => {
+    setVariantMaterial(material);
+    setVariantForm({ variantName: "", sku: "", brand: "", unit: material.defaultUnit });
+  };
+
+  const submitVariant = async () => {
+    if (!variantMaterial || !variantForm.variantName.trim() || !variantForm.unit.trim()) {
+      toast.error("Variant name and unit are required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await materialsApi.createVariant({
+        materialId: variantMaterial.materialId,
+        variantName: variantForm.variantName.trim(),
+        sku: variantForm.sku.trim() || undefined,
+        brand: variantForm.brand.trim() || undefined,
+        unit: variantForm.unit.trim(),
+        isActive: true,
+      });
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Could not add variant");
+        return;
+      }
+      toast.success("Material variant added");
+      setVariantMaterial(null);
+      await refetch();
     } catch {
       toast.error("Could not reach the backend");
     } finally {
@@ -161,7 +219,7 @@ function MaterialsPage() {
         title="Material Catalog"
         description="Materials available for purchase orders and warehouse inventory."
         actions={
-          isLive ? (
+          isLive && canManageCatalog ? (
             <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
               <PackagePlus className="h-3.5 w-3.5 mr-1" /> Add material
             </Button>
@@ -181,6 +239,7 @@ function MaterialsPage() {
                 id="material-name"
                 value={form.materialName}
                 onChange={(e) => setForm((f) => ({ ...f, materialName: e.target.value }))}
+                maxLength={200}
                 disabled={saving}
               />
             </div>
@@ -190,6 +249,7 @@ function MaterialsPage() {
                 id="material-unit"
                 value={form.unit}
                 onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
+                maxLength={50}
                 placeholder="bags / kg / m3"
                 disabled={saving}
               />
@@ -231,6 +291,68 @@ function MaterialsPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!variantMaterial} onOpenChange={(next) => !next && setVariantMaterial(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add variant to {variantMaterial?.materialName}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="variant-name">Variant name</Label>
+              <Input
+                id="variant-name"
+                value={variantForm.variantName}
+                onChange={(event) =>
+                  setVariantForm((current) => ({ ...current, variantName: event.target.value }))
+                }
+                maxLength={250}
+              />
+            </div>
+            <div>
+              <Label htmlFor="variant-unit">Unit</Label>
+              <Input
+                id="variant-unit"
+                value={variantForm.unit}
+                onChange={(event) =>
+                  setVariantForm((current) => ({ ...current, unit: event.target.value }))
+                }
+                maxLength={50}
+              />
+            </div>
+            <div>
+              <Label htmlFor="variant-sku">SKU</Label>
+              <Input
+                id="variant-sku"
+                value={variantForm.sku}
+                onChange={(event) =>
+                  setVariantForm((current) => ({ ...current, sku: event.target.value }))
+                }
+                maxLength={100}
+              />
+            </div>
+            <div>
+              <Label htmlFor="variant-brand">Brand</Label>
+              <Input
+                id="variant-brand"
+                value={variantForm.brand}
+                onChange={(event) =>
+                  setVariantForm((current) => ({ ...current, brand: event.target.value }))
+                }
+                maxLength={150}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVariantMaterial(null)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={submitVariant} disabled={saving}>
+              {saving ? "Adding..." : "Add variant"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card className="shadow-sm">
         <CardContent className="p-0">
           {!isLive ? (
@@ -253,14 +375,18 @@ function MaterialsPage() {
                   <TableHead>ID</TableHead>
                   <TableHead>Material</TableHead>
                   <TableHead>Unit</TableHead>
+                  <TableHead>Variants</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {canManageCatalog && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(materials ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell
+                      colSpan={canManageCatalog ? 6 : 5}
+                      className="text-center py-8 text-muted-foreground"
+                    >
                       No materials yet
                     </TableCell>
                   </TableRow>
@@ -272,32 +398,50 @@ function MaterialsPage() {
                     </TableCell>
                     <TableCell className="font-medium">{material.materialName}</TableCell>
                     <TableCell>{material.unit}</TableCell>
+                    <TableCell className="text-sm">
+                      {material.variants.length > 0 ? (
+                        material.variants.map((variant) => variant.variantName).join(", ")
+                      ) : (
+                        <span className="text-destructive">No active variant</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {categories?.find((category) => category.id === material.categoryId)
                         ?.categoryName ?? `#${material.categoryId}`}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          onClick={() => openEdit(material)}
-                          aria-label={`Edit ${material.materialName}`}
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={() => setDeleting(material)}
-                          aria-label={`Delete ${material.materialName}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {canManageCatalog && (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => openVariant(material)}
+                            aria-label={`Add variant to ${material.materialName}`}
+                          >
+                            <Layers3 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => openEdit(material)}
+                            aria-label={`Edit ${material.materialName}`}
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            onClick={() => setDeleting(material)}
+                            aria-label={`Delete ${material.materialName}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

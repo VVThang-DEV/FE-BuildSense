@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { ROLE_HOME, loginWithToken, useMounted, useSession } from "@/lib/session";
+import { ROLE_HOME, loginWithTokens, useMounted, useSession } from "@/lib/session";
 import { authApi } from "@/api/auth";
 import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
@@ -55,7 +55,10 @@ function LoginPage() {
   }
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || !password.trim()) {
+      setError("Enter a valid email address and password");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -64,7 +67,7 @@ function LoginPage() {
         setError(response.errorMessage ?? "Invalid email or password");
         return;
       }
-      const nextSession = loginWithToken(response.result);
+      const nextSession = loginWithTokens(response.result);
       navigate({ to: ROLE_HOME[nextSession.role] });
     } catch {
       setError("Cannot reach the backend. Check that the API is running on localhost:5290.");
@@ -261,6 +264,11 @@ function LoginPage() {
               Just registered?{" "}
               <Link to="/verify" className="font-medium text-primary hover:underline">
                 Verify your email
+              </Link>
+            </p>
+            <p className="text-center text-xs">
+              <Link to="/forgot-password" className="font-medium text-primary hover:underline">
+                Forgot your password?
               </Link>
             </p>
           </div>

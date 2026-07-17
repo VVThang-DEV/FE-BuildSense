@@ -12,10 +12,12 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VerifyRouteImport } from './routes/verify'
 import { Route as SiteRouteImport } from './routes/site'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as CustomerRouteImport } from './routes/customer'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppWarehouseTransfersRouteImport } from './routes/app.warehouse-transfers'
 import { Route as AppSiteRouteImport } from './routes/app.site'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
 import { Route as AppProjectsRouteImport } from './routes/app.projects'
@@ -24,6 +26,7 @@ import { Route as AppProcurementRouteImport } from './routes/app.procurement'
 import { Route as AppPortalRouteImport } from './routes/app.portal'
 import { Route as AppMaterialsRouteImport } from './routes/app.materials'
 import { Route as AppMaterialRequestsRouteImport } from './routes/app.material-requests'
+import { Route as AppInventoryGovernanceRouteImport } from './routes/app.inventory-governance'
 import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
 import { Route as AppCheckRouteImport } from './routes/app.check'
 import { Route as AppAiRouteImport } from './routes/app.ai'
@@ -54,6 +57,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CustomerRoute = CustomerRouteImport.update({
   id: '/customer',
   path: '/customer',
@@ -72,6 +80,11 @@ const IndexRoute = IndexRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWarehouseTransfersRoute = AppWarehouseTransfersRouteImport.update({
+  id: '/warehouse-transfers',
+  path: '/warehouse-transfers',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSiteRoute = AppSiteRouteImport.update({
@@ -112,6 +125,11 @@ const AppMaterialsRoute = AppMaterialsRouteImport.update({
 const AppMaterialRequestsRoute = AppMaterialRequestsRouteImport.update({
   id: '/material-requests',
   path: '/material-requests',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInventoryGovernanceRoute = AppInventoryGovernanceRouteImport.update({
+  id: '/inventory-governance',
+  path: '/inventory-governance',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -189,12 +207,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/customer': typeof CustomerRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
   '/verify': typeof VerifyRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/inventory-governance': typeof AppInventoryGovernanceRoute
   '/app/material-requests': typeof AppMaterialRequestsRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/portal': typeof AppPortalRoute
@@ -203,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/app/projects': typeof AppProjectsRouteWithChildren
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
+  '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
   '/app/': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
@@ -219,12 +240,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/customer': typeof CustomerRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
   '/verify': typeof VerifyRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/inventory-governance': typeof AppInventoryGovernanceRoute
   '/app/material-requests': typeof AppMaterialRequestsRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/portal': typeof AppPortalRoute
@@ -232,6 +255,7 @@ export interface FileRoutesByTo {
   '/app/profile': typeof AppProfileRoute
   '/app/projects': typeof AppProjectsRouteWithChildren
   '/app/reports': typeof AppReportsRoute
+  '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
   '/app': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
@@ -250,12 +274,14 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/customer': typeof CustomerRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
   '/verify': typeof VerifyRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/inventory-governance': typeof AppInventoryGovernanceRoute
   '/app/material-requests': typeof AppMaterialRequestsRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/portal': typeof AppPortalRoute
@@ -264,6 +290,7 @@ export interface FileRoutesById {
   '/app/projects': typeof AppProjectsRouteWithChildren
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
+  '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
   '/app/': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
@@ -283,12 +310,14 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/customer'
+    | '/forgot-password'
     | '/login'
     | '/site'
     | '/verify'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
+    | '/app/inventory-governance'
     | '/app/material-requests'
     | '/app/materials'
     | '/app/portal'
@@ -297,6 +326,7 @@ export interface FileRouteTypes {
     | '/app/projects'
     | '/app/reports'
     | '/app/site'
+    | '/app/warehouse-transfers'
     | '/app/'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
@@ -313,12 +343,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/customer'
+    | '/forgot-password'
     | '/login'
     | '/site'
     | '/verify'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
+    | '/app/inventory-governance'
     | '/app/material-requests'
     | '/app/materials'
     | '/app/portal'
@@ -326,6 +358,7 @@ export interface FileRouteTypes {
     | '/app/profile'
     | '/app/projects'
     | '/app/reports'
+    | '/app/warehouse-transfers'
     | '/app'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
@@ -343,12 +376,14 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/customer'
+    | '/forgot-password'
     | '/login'
     | '/site'
     | '/verify'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
+    | '/app/inventory-governance'
     | '/app/material-requests'
     | '/app/materials'
     | '/app/portal'
@@ -357,6 +392,7 @@ export interface FileRouteTypes {
     | '/app/projects'
     | '/app/reports'
     | '/app/site'
+    | '/app/warehouse-transfers'
     | '/app/'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
@@ -375,6 +411,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   CustomerRoute: typeof CustomerRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   SiteRoute: typeof SiteRoute
   VerifyRoute: typeof VerifyRoute
@@ -403,6 +440,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/customer': {
       id: '/customer'
       path: '/customer'
@@ -429,6 +473,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/warehouse-transfers': {
+      id: '/app/warehouse-transfers'
+      path: '/warehouse-transfers'
+      fullPath: '/app/warehouse-transfers'
+      preLoaderRoute: typeof AppWarehouseTransfersRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/site': {
@@ -485,6 +536,13 @@ declare module '@tanstack/react-router' {
       path: '/material-requests'
       fullPath: '/app/material-requests'
       preLoaderRoute: typeof AppMaterialRequestsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/inventory-governance': {
+      id: '/app/inventory-governance'
+      path: '/inventory-governance'
+      fullPath: '/app/inventory-governance'
+      preLoaderRoute: typeof AppInventoryGovernanceRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/dashboard': {
@@ -619,6 +677,7 @@ interface AppRouteChildren {
   AppAiRoute: typeof AppAiRoute
   AppCheckRoute: typeof AppCheckRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppInventoryGovernanceRoute: typeof AppInventoryGovernanceRoute
   AppMaterialRequestsRoute: typeof AppMaterialRequestsRoute
   AppMaterialsRoute: typeof AppMaterialsRoute
   AppPortalRoute: typeof AppPortalRoute
@@ -627,6 +686,7 @@ interface AppRouteChildren {
   AppProjectsRoute: typeof AppProjectsRouteWithChildren
   AppReportsRoute: typeof AppReportsRoute
   AppSiteRoute: typeof AppSiteRouteWithChildren
+  AppWarehouseTransfersRoute: typeof AppWarehouseTransfersRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAdminCategoriesRoute: typeof AppAdminCategoriesRoute
   AppAdminSuppliersRoute: typeof AppAdminSuppliersRoute
@@ -641,6 +701,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAiRoute: AppAiRoute,
   AppCheckRoute: AppCheckRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppInventoryGovernanceRoute: AppInventoryGovernanceRoute,
   AppMaterialRequestsRoute: AppMaterialRequestsRoute,
   AppMaterialsRoute: AppMaterialsRoute,
   AppPortalRoute: AppPortalRoute,
@@ -649,6 +710,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppProjectsRoute: AppProjectsRouteWithChildren,
   AppReportsRoute: AppReportsRoute,
   AppSiteRoute: AppSiteRouteWithChildren,
+  AppWarehouseTransfersRoute: AppWarehouseTransfersRoute,
   AppIndexRoute: AppIndexRoute,
   AppAdminCategoriesRoute: AppAdminCategoriesRoute,
   AppAdminSuppliersRoute: AppAdminSuppliersRoute,
@@ -665,6 +727,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   CustomerRoute: CustomerRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   SiteRoute: SiteRoute,
   VerifyRoute: VerifyRoute,

@@ -1,6 +1,12 @@
 import { apiClient } from "./client";
 
-type ProjectStatus = "PLANNING" | "IN_PROGRESS" | "COMPLETED" | "DELAYED";
+export type ProjectStatus =
+  | "PLANNING"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "DELAYED"
+  | "PAUSED"
+  | "CANCELLED";
 
 type RawProjectResponse = Omit<Partial<ProjectResponse>, "status"> & {
   baselineStart?: string;
@@ -15,6 +21,7 @@ export type ProjectResponse = {
   baselineStart: string;
   baselineEnd: string;
   totalProjectBudget: number;
+  actualCost: number;
   currency: string;
   pmUserID: number;
   pmName: string;
@@ -22,15 +29,83 @@ export type ProjectResponse = {
   totalAIAlerts: number;
   status: ProjectStatus;
   createdDate: string;
+  rowVersion: string;
 };
 
 export type CreateProjectRequest = {
   projectName: string;
   address?: string;
+  totalProjectBudget: number;
   startDate: string;
   pmUserID: number;
   baselineStart: string;
   baselineEnd: string;
+};
+
+export type ProjectMaterialRequirement = {
+  variantId: number;
+  materialId: number;
+  materialName: string;
+  variantName?: string | null;
+  taskName?: string | null;
+  grossQuantityRequired: number;
+  unit: string;
+};
+
+export type MRPCalculationResponse = {
+  variantId: number;
+  warehouseId?: number | null;
+  inventoryScope: "WAREHOUSE" | "ALL_WAREHOUSES" | string;
+  materialId: number;
+  materialName: string;
+  variantName: string;
+  unit: string;
+  totalGrossRequired: number;
+  issuedToProjectTasks: number;
+  remainingGrossRequired: number;
+  currentInventory: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  onOrderQuantity: number;
+  netQuantityRequired: number;
+  earliestStartDate: string;
+  planningRunId: number;
+  planningVersion: number;
+  transferRecommendations: MRPTransferRecommendation[];
+};
+
+export type MRPTransferRecommendation = {
+  sourceWarehouseId: number;
+  destinationWarehouseId: number;
+  variantId: number;
+  suggestedQuantity: number;
+};
+
+export type UpdateProjectRequest = {
+  projectName: string;
+  address?: string;
+  startDate: string;
+  baselineStart: string;
+  baselineEnd: string;
+  rowVersion: string;
+};
+
+export type AdjustProjectBudgetRequest = {
+  projectId: number;
+  amount: number;
+  reason: string;
+};
+
+export type ProjectBudgetHistoryResponse = {
+  id: number;
+  projectId: number;
+  amountChanged: number;
+  previousBudget: number;
+  newBudget: number;
+  currency: string;
+  reason: string;
+  updatedByUserId: number;
+  createdAt: string;
 };
 
 const STATUS_BY_NUMBER: Record<number, ProjectStatus> = {
@@ -38,6 +113,8 @@ const STATUS_BY_NUMBER: Record<number, ProjectStatus> = {
   1: "IN_PROGRESS",
   2: "COMPLETED",
   3: "DELAYED",
+  4: "PAUSED",
+  5: "CANCELLED",
 };
 
 function normalizeStatus(status: RawProjectResponse["status"]): ProjectStatus {
@@ -46,7 +123,14 @@ function normalizeStatus(status: RawProjectResponse["status"]): ProjectStatus {
     const numeric = Number(status);
     if (Number.isInteger(numeric)) return STATUS_BY_NUMBER[numeric] ?? "PLANNING";
     const upper = status.toUpperCase();
-    if (upper === "IN_PROGRESS" || upper === "COMPLETED" || upper === "DELAYED") return upper;
+    if (
+      upper === "IN_PROGRESS" ||
+      upper === "COMPLETED" ||
+      upper === "DELAYED" ||
+      upper === "PAUSED" ||
+      upper === "CANCELLED"
+    )
+      return upper;
   }
   return "PLANNING";
 }
@@ -66,6 +150,7 @@ function normalizeProject(project: RawProjectResponse): ProjectResponse {
     baselineStart: normalizeDate(project.baselineStart),
     baselineEnd: normalizeDate(project.baselineEnd),
     totalProjectBudget: project.totalProjectBudget ?? 0,
+    actualCost: project.actualCost ?? 0,
     currency: project.currency ?? "VND",
     pmUserID: project.pmUserID ?? 0,
     pmName: project.pmName ?? "",
@@ -73,6 +158,7 @@ function normalizeProject(project: RawProjectResponse): ProjectResponse {
     totalAIAlerts: project.totalAIAlerts ?? 0,
     status: normalizeStatus(project.status),
     createdDate: normalizeDate(project.createdDate),
+    rowVersion: project.rowVersion ?? "",
   };
 }
 
@@ -91,7 +177,16 @@ export const projectsApi = {
       result: response.result ? normalizeProject(response.result) : response.result,
     };
   },
-  create: (body: CreateProjectRequest) => apiClient.post<string>("/api/projects", body),
+  create: async (body: CreateProjectRequest) => {
+    const response = await apiClient.post<RawProjectResponse | string>("/api/projects", body);
+    return {
+      ...response,
+      result:
+        response.isSuccess && typeof response.result === "object" && response.result !== null
+          ? normalizeProject(response.result)
+          : response.result,
+    };
+  },
   importFromWord: async (file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -104,4 +199,30 @@ export const projectsApi = {
       result: response.result ? normalizeProject(response.result) : response.result,
     };
   },
+  getMaterialRequirements: (projectId: number) =>
+    apiClient.get<ProjectMaterialRequirement[]>(`/api/Projects/${projectId}/material-requirements`),
+  calculateMrp: (projectId: number, warehouseId?: number) =>
+    apiClient.get<MRPCalculationResponse[]>(
+      `/api/Projects/${projectId}/calculate-mrp${warehouseId ? `?warehouseId=${warehouseId}` : ""}`,
+    ),
+  adjustBudget: (body: AdjustProjectBudgetRequest) =>
+    apiClient.post<ProjectBudgetHistoryResponse>("/api/Projects/adjust-budget", body),
+  getBudgetHistories: (projectId: number) =>
+    apiClient.get<ProjectBudgetHistoryResponse[]>(`/api/Projects/${projectId}/budget-histories`),
+  update: (projectId: number, body: UpdateProjectRequest) =>
+    apiClient.put<ProjectResponse>(`/api/Projects/${projectId}`, body),
+  changeStatus: (
+    projectId: number,
+    action: "start" | "pause" | "cancel" | "reopen" | "complete",
+    rowVersion: string,
+  ) =>
+    apiClient.post<{ projectId: number; status: ProjectStatus; rowVersion: string }>(
+      `/api/Projects/${projectId}/${action}`,
+      { rowVersion },
+    ),
+  reassignProjectManager: (projectId: number, projectManagerUserId: number, rowVersion: string) =>
+    apiClient.put<ProjectResponse>(`/api/Projects/${projectId}/project-manager`, {
+      projectManagerUserId,
+      rowVersion,
+    }),
 };
