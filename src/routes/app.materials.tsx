@@ -239,6 +239,7 @@ function MaterialsPage() {
                 id="material-name"
                 value={form.materialName}
                 onChange={(e) => setForm((f) => ({ ...f, materialName: e.target.value }))}
+                maxLength={200}
                 disabled={saving}
               />
             </div>
@@ -248,6 +249,7 @@ function MaterialsPage() {
                 id="material-unit"
                 value={form.unit}
                 onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
+                maxLength={50}
                 placeholder="bags / kg / m3"
                 disabled={saving}
               />

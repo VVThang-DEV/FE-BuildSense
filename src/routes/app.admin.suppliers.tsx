@@ -199,6 +199,7 @@ function SuppliersPage() {
                 id="supplier-company"
                 value={form.companyName}
                 onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))}
+                maxLength={200}
                 placeholder="Acme Materials Ltd."
               />
             </div>
@@ -209,6 +210,7 @@ function SuppliersPage() {
                 type="email"
                 value={form.contactEmail}
                 onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))}
+                maxLength={150}
                 placeholder="contact@supplier.com"
               />
             </div>
@@ -218,6 +220,7 @@ function SuppliersPage() {
                 id="supplier-phone"
                 value={form.contactPhone}
                 onChange={(e) => setForm((f) => ({ ...f, contactPhone: e.target.value }))}
+                maxLength={20}
                 placeholder="+84 98 765 4321"
               />
             </div>

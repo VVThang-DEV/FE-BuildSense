@@ -71,13 +71,6 @@ function WarehouseTransfersPage() {
       requireApiResult(await warehousesApi.getAll(), "Could not load managed warehouses") ?? [],
     enabled: !!session?.token,
   });
-  const warehouseDirectoryQuery = useQuery({
-    queryKey: ["warehouses", "directory"],
-    queryFn: async () =>
-      requireApiResult(await warehousesApi.getDirectory(), "Could not load warehouse directory") ??
-      [],
-    enabled: !!session?.token && canCreate,
-  });
   const materialsQuery = useQuery({
     queryKey: ["materials", "transfer-variants"],
     queryFn: async () =>
@@ -255,7 +248,7 @@ function WarehouseTransfersPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          {ownsSource && transfer.status === "REQUESTED" && (
+                          {ownsDestination && transfer.status === "REQUESTED" && (
                             <>
                               <Button
                                 size="sm"
@@ -351,22 +344,18 @@ function WarehouseTransfersPage() {
               </Select>
             </div>
             <div>
-              <Label>Destination warehouse</Label>
-              <Select value={destinationWarehouseId} onValueChange={setDestinationWarehouseId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select destination warehouse" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(warehouseDirectoryQuery.data ?? [])
-                    .filter((warehouse) => String(warehouse.warehouseId) !== sourceWarehouseId)
-                    .map((warehouse) => (
-                      <SelectItem key={warehouse.warehouseId} value={String(warehouse.warehouseId)}>
-                        {warehouse.warehouseName}
-                        {warehouse.location ? ` â€” ${warehouse.location}` : ""}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="destination-warehouse">Destination warehouse ID</Label>
+              <Input
+                id="destination-warehouse"
+                type="number"
+                min="1"
+                value={destinationWarehouseId}
+                onChange={(event) => setDestinationWarehouseId(event.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                The backend exposes only warehouses you manage. Enter the destination ID supplied by
+                operations.
+              </p>
             </div>
             <div>
               <Label>Material variant</Label>

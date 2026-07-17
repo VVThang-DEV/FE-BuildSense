@@ -52,7 +52,6 @@ import { purchaseOrdersApi, type PurchaseOrderResponse } from "@/api/purchaseOrd
 import { projectsApi } from "@/api/projects";
 import { suppliersApi } from "@/api/suppliers";
 import { warehousesApi } from "@/api/warehouses";
-import { catalogsApi } from "@/api/catalogs";
 import { requireApiResult } from "@/api/client";
 import { materialRequestsApi } from "@/api/materialRequests";
 
@@ -86,7 +85,7 @@ function ProcurementPage() {
   const session = useSession();
   const isLive = !!session?.token;
   const canCreate = session?.role === "WAREHOUSE_MANAGER";
-  const canApproveOrReject = session?.role === "WAREHOUSE_MANAGER";
+  const canApproveOrReject = session?.role === "ADMIN" || session?.role === "PM";
   const canImport = session?.role === "WAREHOUSE_MANAGER";
   const [creating, setCreating] = useState(false);
   const [newPO, setNewPO] = useState({
@@ -134,12 +133,6 @@ function ProcurementPage() {
     queryFn: async () =>
       requireApiResult(await suppliersApi.getAll(), "Could not load suppliers") ?? [],
     enabled: isLive,
-  });
-  const { data: liveCatalogs } = useQuery({
-    queryKey: ["catalogs", "available"],
-    queryFn: async () =>
-      requireApiResult(await catalogsApi.getAll(), "Could not load supplier catalog") ?? [],
-    enabled: isLive && canCreate,
   });
   const { data: liveWarehouses } = useQuery({
     queryKey: ["warehouses"],
@@ -242,11 +235,6 @@ function ProcurementPage() {
     const selectedShortage = shortageOptions.find(
       (option) => option.item.itemId === Number(newPO.requestItemId),
     );
-    const selectedCatalog = (liveCatalogs ?? []).find(
-      (entry) =>
-        entry.supplierId === Number(newPO.supplierId) &&
-        entry.variantId === Number(newPO.variantId),
-    );
     if (!Number.isFinite(quantity) || quantity <= 0) {
       toast.error("Quantity must be greater than 0");
       return;
@@ -257,10 +245,6 @@ function ProcurementPage() {
     }
     if (!selectedShortage || quantity > selectedShortage.shortage) {
       toast.error("Quantity cannot exceed the selected request shortage");
-      return;
-    }
-    if (!selectedCatalog || quantity < selectedCatalog.minimumOrderQuantity) {
-      toast.error("The selected supplier catalog cannot fulfill this quantity");
       return;
     }
     setBusyAction("create");
@@ -337,11 +321,6 @@ function ProcurementPage() {
   );
   const selectedShortage = shortageOptions.find(
     (option) => option.item.itemId === Number(newPO.requestItemId),
-  );
-  const eligibleCatalogs = (liveCatalogs ?? []).filter(
-    (entry) =>
-      entry.variantId === Number(newPO.variantId) &&
-      (!selectedShortage || entry.minimumOrderQuantity <= selectedShortage.shortage),
   );
 
   return (
@@ -437,29 +416,18 @@ function ProcurementPage() {
             <SelectField
               label="Supplier"
               value={newPO.supplierId}
-              onValueChange={(value) => {
-                const catalog = eligibleCatalogs.find(
-                  (entry) => entry.supplierId === Number(value),
-                );
-                setNewPO((po) => ({
-                  ...po,
-                  supplierId: value,
-                  unitPrice: String(catalog?.unitPrice ?? 0),
-                }));
-              }}
-              placeholder={
-                newPO.variantId && eligibleCatalogs.length === 0
-                  ? "No supplier can fulfill this shortage"
-                  : "Select supplier"
+              onValueChange={(value) =>
+                setNewPO((po) => ({ ...po, supplierId: value, unitPrice: "0" }))
               }
+              placeholder="Select supplier"
             >
-              {eligibleCatalogs.map((catalog) => (
-                <SelectItem key={catalog.catalogId} value={String(catalog.supplierId)}>
-                  {catalog.supplierName} â€” {formatMoney(catalog.unitPrice)}
+              {(liveSuppliers ?? []).map((supplier) => (
+                <SelectItem key={supplier.supplierId} value={String(supplier.supplierId)}>
+                  {supplier.companyName}
                 </SelectItem>
               ))}
             </SelectField>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
               <div>
                 <Label htmlFor="po-quantity">
                   Quantity{selectedShortage?.item.unit ? ` (${selectedShortage.item.unit})` : ""}
@@ -467,10 +435,7 @@ function ProcurementPage() {
                 <Input
                   id="po-quantity"
                   type="number"
-                  min={
-                    eligibleCatalogs.find((entry) => entry.supplierId === Number(newPO.supplierId))
-                      ?.minimumOrderQuantity || 0.01
-                  }
+                  min="0.01"
                   max={selectedShortage?.shortage}
                   step="0.01"
                   value={newPO.quantity}
@@ -480,13 +445,11 @@ function ProcurementPage() {
                   Cannot exceed the selected request shortage.
                 </p>
               </div>
-              <div>
-                <Label htmlFor="po-unit-price">Unit price</Label>
-                <Input id="po-unit-price" type="number" min="0" value={newPO.unitPrice} readOnly />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The backend uses the supplier catalog price.
-                </p>
-              </div>
+              <p className="rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
+                The backend applies the authoritative supplier-catalog price and minimum order
+                quantity. Because this backend version has no catalog-read endpoint, an unavailable
+                supplier is reported when the order is submitted.
+              </p>
             </div>
           </div>
           <DialogFooter>

@@ -290,6 +290,7 @@ function ProjectsList() {
                 id="project-name"
                 value={form.projectName}
                 onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
+                maxLength={200}
                 disabled={saving}
               />
             </div>
@@ -299,6 +300,7 @@ function ProjectsList() {
                 id="project-address"
                 value={form.address}
                 onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                maxLength={500}
                 disabled={saving}
               />
             </div>

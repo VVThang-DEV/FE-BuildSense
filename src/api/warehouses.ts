@@ -10,11 +10,6 @@ export type WarehouseResponse = {
   createdDate?: string;
 };
 
-export type WarehouseDirectoryResponse = Pick<
-  WarehouseResponse,
-  "warehouseId" | "warehouseName" | "location"
->;
-
 export type InventoryItem = {
   inventoryId: number;
   warehouseId: number;
@@ -76,6 +71,15 @@ export type InventoryAdjustmentRequest = {
   rowVersion?: string;
 };
 
+export type InventoryReturnRequest = {
+  warehouseId: number;
+  variantId: number;
+  quantity: number;
+  materialRequestId?: number;
+  note?: string;
+  rowVersion?: string;
+};
+
 function normalizeInventoryItem(item: RawInventoryItem, index: number): InventoryItem {
   return {
     inventoryId: item.inventoryId ?? index,
@@ -105,7 +109,6 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
 
 export const warehousesApi = {
   getAll: () => apiClient.get<WarehouseResponse[]>("/api/warehouses"),
-  getDirectory: () => apiClient.get<WarehouseDirectoryResponse[]>("/api/warehouses/directory"),
   create: (body: { managerId: number; warehouseName: string; location: string }) =>
     apiClient.post<string>("/api/warehouses", body),
   getInventory: async (id: number) => {
@@ -118,6 +121,16 @@ export const warehousesApi = {
   adjustInventory: async (body: InventoryAdjustmentRequest) => {
     const response = await apiClient.post<RawInventoryItem>(
       "/api/warehouses/inventory/adjust",
+      body,
+    );
+    return {
+      ...response,
+      result: response.result ? normalizeInventoryItem(response.result, 0) : response.result,
+    };
+  },
+  returnInventory: async (body: InventoryReturnRequest) => {
+    const response = await apiClient.post<RawInventoryItem>(
+      "/api/warehouses/inventory/return",
       body,
     );
     return {

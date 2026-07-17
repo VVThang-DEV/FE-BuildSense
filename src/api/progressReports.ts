@@ -3,6 +3,7 @@ import { apiClient } from "./client";
 export type SubmitProgressReportRequest = {
   taskId: number;
   progressIncrement: number;
+  actualCostIncrement: number;
   notes?: string;
   sitePhotoUrl?: string;
 };
@@ -15,6 +16,7 @@ export type ProgressReportResponse = {
   reportedByName: string;
   reportDate: string;
   progressIncrement: number;
+  actualCostIncrement: number;
   notes?: string | null;
   sitePhotoUrl?: string | null;
 };

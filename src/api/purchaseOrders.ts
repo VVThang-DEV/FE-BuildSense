@@ -40,6 +40,7 @@ export type PurchaseOrderResponse = {
   approvedByUserId?: number | null;
   approvedAt?: string | null;
   note?: string | null;
+  rowVersion: string;
   currency: string;
   items: PurchaseOrderItem[];
 };
@@ -109,6 +110,7 @@ function normalizePurchaseOrder(po: RawPurchaseOrderResponse): PurchaseOrderResp
     approvedByUserId: po.approvedByUserId ?? null,
     approvedAt: po.approvedAt ?? null,
     note: po.note ?? null,
+    rowVersion: po.rowVersion ?? "",
     currency: po.currency ?? "VND",
     items: (po.items ?? []).map((item) => ({
       orderLineItemId: item.orderLineItemId ?? 0,

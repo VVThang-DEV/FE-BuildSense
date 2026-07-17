@@ -113,14 +113,13 @@ function UsersPage() {
       return;
     }
     if (
-      inv.password.length < 12 ||
+      inv.password.length < 10 ||
       inv.password.length > 128 ||
       !/[a-z]/.test(inv.password) ||
       !/[A-Z]/.test(inv.password) ||
-      !/\d/.test(inv.password) ||
-      !/[^A-Za-z0-9]/.test(inv.password)
+      !/\d/.test(inv.password)
     ) {
-      toast.error("Use 12-128 characters with upper/lowercase, a number, and a symbol");
+      toast.error("Use 10-128 characters with uppercase, lowercase, and a number");
       return;
     }
     setInvLoading(true);

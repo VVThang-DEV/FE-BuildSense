@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Plus, Eye, History, SlidersHorizontal, Warehouse } from "lucide-react";
+import { Plus, Eye, History, RotateCcw, SlidersHorizontal, Warehouse } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,6 +70,13 @@ function WarehousesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [adjustment, setAdjustment] = useState({ variantId: "", quantityDelta: "", note: "" });
+  const [returning, setReturning] = useState(false);
+  const [inventoryReturn, setInventoryReturn] = useState({
+    variantId: "",
+    quantity: "",
+    materialRequestId: "",
+    note: "",
+  });
 
   const managersQuery = useQuery({
     queryKey: ["users", "warehouse-managers"],
@@ -101,7 +108,7 @@ function WarehousesPage() {
     queryKey: ["materials", "warehouse-adjustment"],
     queryFn: async () =>
       requireApiResult(await materialsApi.getAll(), "Could not load material variants") ?? [],
-    enabled: isLive && canAdjustInventory && adjusting,
+    enabled: isLive && canAdjustInventory && (adjusting || returning),
     staleTime: 30_000,
   });
   const variants = (materialsQuery.data ?? []).flatMap((material) =>
@@ -181,6 +188,49 @@ function WarehousesPage() {
     }
   };
 
+  const submitReturn = async () => {
+    const variantId = Number(inventoryReturn.variantId);
+    const quantity = Number(inventoryReturn.quantity);
+    const materialRequestId = inventoryReturn.materialRequestId
+      ? Number(inventoryReturn.materialRequestId)
+      : undefined;
+    if (!selectedId || !variantId || !Number.isFinite(quantity) || quantity <= 0) {
+      toast.error("Select a variant and enter a return quantity greater than 0");
+      return;
+    }
+    if (
+      materialRequestId !== undefined &&
+      (!Number.isInteger(materialRequestId) || materialRequestId <= 0)
+    ) {
+      toast.error("Material request ID must be a positive whole number");
+      return;
+    }
+    const current = inventory?.find((item) => item.variantId === variantId);
+    setSaving(true);
+    try {
+      const response = await warehousesApi.returnInventory({
+        warehouseId: selectedId,
+        variantId,
+        quantity,
+        materialRequestId,
+        note: inventoryReturn.note.trim() || undefined,
+        rowVersion: current?.rowVersion,
+      });
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Inventory return failed");
+        return;
+      }
+      toast.success("Inventory return recorded");
+      setReturning(false);
+      setInventoryReturn({ variantId: "", quantity: "", materialRequestId: "", note: "" });
+      await Promise.all([refetchInventory(), transactionsQuery.refetch()]);
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
@@ -208,6 +258,7 @@ function WarehousesPage() {
                 id="warehouse-name"
                 value={form.warehouseName}
                 onChange={(e) => setForm((f) => ({ ...f, warehouseName: e.target.value }))}
+                maxLength={250}
                 placeholder="Main Site Warehouse"
                 disabled={saving}
               />
@@ -244,6 +295,7 @@ function WarehousesPage() {
                 id="warehouse-location"
                 value={form.location}
                 onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
+                maxLength={500}
                 placeholder="Block A, Ground Floor"
                 disabled={saving}
               />
@@ -320,6 +372,84 @@ function WarehousesPage() {
             </Button>
             <Button onClick={submitAdjustment} disabled={saving}>
               {saving ? "Applying..." : "Apply adjustment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={returning} onOpenChange={setReturning}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Record inventory return</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Material variant</Label>
+              <Select
+                value={inventoryReturn.variantId}
+                onValueChange={(variantId) =>
+                  setInventoryReturn((current) => ({ ...current, variantId }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select returned variant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {variants.map((variant) => (
+                    <SelectItem key={variant.variantId} value={String(variant.variantId)}>
+                      {variant.label} ({variant.unit})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="return-quantity">Returned quantity</Label>
+              <Input
+                id="return-quantity"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={inventoryReturn.quantity}
+                onChange={(event) =>
+                  setInventoryReturn((current) => ({ ...current, quantity: event.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <Label htmlFor="return-request-id">Material request ID (optional)</Label>
+              <Input
+                id="return-request-id"
+                type="number"
+                min="1"
+                step="1"
+                value={inventoryReturn.materialRequestId}
+                onChange={(event) =>
+                  setInventoryReturn((current) => ({
+                    ...current,
+                    materialRequestId: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label htmlFor="return-note">Return note</Label>
+              <Textarea
+                id="return-note"
+                value={inventoryReturn.note}
+                onChange={(event) =>
+                  setInventoryReturn((current) => ({ ...current, note: event.target.value }))
+                }
+                maxLength={1000}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReturning(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={submitReturn} disabled={saving}>
+              {saving ? "Recording..." : "Record return"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -403,9 +533,14 @@ function WarehousesPage() {
                     "Inventory"}
                 </CardTitle>
                 {canAdjustInventory && (
-                  <Button size="sm" variant="outline" onClick={() => setAdjusting(true)}>
-                    <SlidersHorizontal className="mr-1 h-3.5 w-3.5" /> Adjust
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="outline" onClick={() => setReturning(true)}>
+                      <RotateCcw className="mr-1 h-3.5 w-3.5" /> Return
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setAdjusting(true)}>
+                      <SlidersHorizontal className="mr-1 h-3.5 w-3.5" /> Adjust
+                    </Button>
+                  </div>
                 )}
               </div>
             </CardHeader>

@@ -74,6 +74,7 @@ type TaskMaterialForm = {
 
 type ReportForm = {
   progressIncrement: string;
+  actualCostIncrement: string;
   notes: string;
   sitePhotoUrl: string;
 };
@@ -98,6 +99,7 @@ function newTaskForm(): TaskForm {
 
 const initialReportForm: ReportForm = {
   progressIncrement: "5",
+  actualCostIncrement: "0",
   notes: "",
   sitePhotoUrl: "",
 };
@@ -220,13 +222,19 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const selectedRemaining = selectedTask
     ? Math.max(0, 100 - Number(selectedTask.actualProgressPct || 0))
     : 0;
-  const canReportSelected = !!selectedTask && selectedRemaining > 0 && canManageTasks;
+  const canReportSelected =
+    !!selectedTask &&
+    selectedRemaining > 0 &&
+    (canManageTasks || selectedTask.assignedToUserID === session?.userId);
 
   const reportIncrement = Number(reportForm.progressIncrement);
+  const actualCostIncrement = Number(reportForm.actualCostIncrement);
   const reportFormValid =
     Number.isFinite(reportIncrement) &&
     reportIncrement > 0 &&
     reportIncrement <= selectedRemaining &&
+    Number.isFinite(actualCostIncrement) &&
+    actualCostIncrement >= 0 &&
     reportForm.notes.length <= 1000 &&
     validHttpsUrl(reportForm.sitePhotoUrl);
 
@@ -275,6 +283,11 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       toast.error("Phase and task name are required");
       return;
     }
+    const plannedBudget = Number(taskForm.plannedBudget);
+    if (!Number.isFinite(plannedBudget) || plannedBudget < 0) {
+      toast.error("Planned budget must be 0 or greater");
+      return;
+    }
     if (!session?.userId) {
       toast.error("Could not resolve the signed-in Project Manager");
       return;
@@ -316,7 +329,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         taskName: taskForm.taskName.trim(),
         // Task assignment is outside the current scope, so the owning PM manages the task.
         assignedToUserID: session.userId,
-        plannedBudget: Number(taskForm.plannedBudget) || 0,
+        plannedBudget,
         baselineStart: `${taskForm.baselineStart}T00:00:00.000Z`,
         baselineEnd: `${taskForm.baselineEnd}T00:00:00.000Z`,
         materials: materialRows,
@@ -404,12 +417,17 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const submitReport = async () => {
     if (!selectedTask) return;
     const progressIncrement = Number(reportForm.progressIncrement);
+    const actualCostIncrement = Number(reportForm.actualCostIncrement);
     if (!Number.isFinite(progressIncrement) || progressIncrement <= 0) {
       toast.error("Progress increment must be greater than 0");
       return;
     }
     if (progressIncrement > selectedRemaining) {
       toast.error(`Only ${selectedRemaining}% progress remains for this task`);
+      return;
+    }
+    if (!Number.isFinite(actualCostIncrement) || actualCostIncrement < 0) {
+      toast.error("Actual cost increment must be 0 or greater");
       return;
     }
     if (reportForm.notes.length > 1000) {
@@ -426,6 +444,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       const response = await progressReportsApi.create({
         taskId: selectedTask.taskId,
         progressIncrement,
+        actualCostIncrement,
         notes: reportForm.notes.trim() || undefined,
         sitePhotoUrl: reportForm.sitePhotoUrl.trim() || undefined,
       });
@@ -481,6 +500,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   onChange={(event) =>
                     setTaskForm((current) => ({ ...current, phaseName: event.target.value }))
                   }
+                  maxLength={100}
                   disabled={creatingTask}
                 />
               </div>
@@ -493,6 +513,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   onChange={(event) =>
                     setTaskForm((current) => ({ ...current, taskName: event.target.value }))
                   }
+                  maxLength={200}
                   disabled={creatingTask}
                 />
               </div>
@@ -828,8 +849,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   </div>
                 )}
                 <p className="text-[11px] text-muted-foreground">
-                  Creating a request reserves the full gross quantity. Duplicate task requests are
-                  not yet blocked by the backend.
+                  Creating a request reserves the full gross quantity. The backend prevents a second
+                  active or issued request for the same task.
                 </p>
               </div>
 
@@ -839,7 +860,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                     <BarChart3 className="h-4 w-4 text-primary" />
                     <p className="text-sm font-medium">Submit progress report</p>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+                  <div className="grid gap-3 md:grid-cols-3">
                     <div>
                       <Label htmlFor="progress-increment">Progress completed today (%)</Label>
                       <Input
@@ -859,6 +880,26 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       />
                       <p className="mt-1 text-xs text-muted-foreground">
                         Current: {100 - selectedRemaining}% · Remaining: {selectedRemaining}%
+                      </p>
+                    </div>
+                    <div>
+                      <Label htmlFor="actual-cost-increment">Actual cost added</Label>
+                      <Input
+                        id="actual-cost-increment"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={reportForm.actualCostIncrement}
+                        onChange={(event) =>
+                          setReportForm((current) => ({
+                            ...current,
+                            actualCostIncrement: event.target.value,
+                          }))
+                        }
+                        disabled={submittingReport}
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Added to the task&apos;s cumulative actual cost.
                       </p>
                     </div>
                     <div>
@@ -973,13 +1014,14 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         <TableHead>Date</TableHead>
                         <TableHead>Reporter</TableHead>
                         <TableHead className="text-right">Increment</TableHead>
+                        <TableHead className="text-right">Cost added</TableHead>
                         <TableHead>Notes / photo</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {reports.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                          <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                             No progress reports yet.
                           </TableCell>
                         </TableRow>
@@ -994,6 +1036,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-right tabular-nums">
                             +{report.progressIncrement}%
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-right tabular-nums">
+                            {formatMoney(report.actualCostIncrement)}
                           </TableCell>
                           <TableCell className="max-w-sm text-sm text-muted-foreground">
                             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">

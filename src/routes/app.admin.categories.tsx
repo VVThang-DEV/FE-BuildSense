@@ -141,6 +141,7 @@ function CategoriesPage() {
               id="category-name"
               value={categoryName}
               onChange={(event) => setCategoryName(event.target.value)}
+              maxLength={150}
               disabled={saving}
             />
           </div>

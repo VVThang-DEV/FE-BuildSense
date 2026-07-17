@@ -46,6 +46,7 @@ export type MaterialRequestResponse = {
   approvedByUserId?: number | null;
   approvedAt?: string | null;
   decisionNote?: string | null;
+  rowVersion: string;
   items: MaterialRequestDetail[];
 };
 
