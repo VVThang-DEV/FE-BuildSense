@@ -5,6 +5,7 @@ export type WarehouseTransferStatus =
   | "APPROVED"
   | "IN_TRANSIT"
   | "RECEIVED"
+  | "CLOSED_WITH_VARIANCE"
   | "REJECTED"
   | "CANCELLED";
 
@@ -18,6 +19,9 @@ export type WarehouseTransferItem = {
   requestedQuantity: number;
   shippedQuantity: number;
   receivedQuantity: number;
+  damagedQuantity: number;
+  lostQuantity: number;
+  unitCost: number;
 };
 
 export type WarehouseTransferResponse = {
@@ -59,7 +63,15 @@ export const warehouseTransfersApi = {
     apiClient.put<WarehouseTransferResponse>(`/api/WarehouseTransfers/${id}/reject`),
   ship: (id: number) =>
     apiClient.post<WarehouseTransferResponse>(`/api/WarehouseTransfers/${id}/ship`),
-  receive: (id: number, items?: { transferItemId: number; quantity: number }[]) =>
+  receive: (
+    id: number,
+    items?: {
+      transferItemId: number;
+      quantity: number;
+      damagedQuantity: number;
+      lostQuantity: number;
+    }[],
+  ) =>
     apiClient.post<WarehouseTransferResponse>(
       `/api/WarehouseTransfers/${id}/receive`,
       items ? { items } : undefined,

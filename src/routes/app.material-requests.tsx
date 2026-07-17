@@ -86,10 +86,13 @@ function formatDate(value: string): string {
 }
 
 function statusClass(status: string): string {
-  if (status === "APPROVED") return "border-success/30 bg-success/10 text-success";
-  if (status === "ISSUED") return "border-primary/30 bg-primary/10 text-primary";
+  if (status === "APPROVED" || status === "PARTIALLY_APPROVED")
+    return "border-success/30 bg-success/10 text-success";
+  if (status === "ISSUED" || status === "PARTIALLY_ISSUED")
+    return "border-primary/30 bg-primary/10 text-primary";
   if (status === "RELEASED") return "border-muted-foreground/30 bg-muted text-muted-foreground";
-  if (status === "REJECTED") return "border-destructive/30 bg-destructive/10 text-destructive";
+  if (status === "REJECTED" || status === "CANCELLED")
+    return "border-destructive/30 bg-destructive/10 text-destructive";
   return "border-warning/35 bg-warning/10 text-warning-foreground";
 }
 
@@ -452,6 +455,62 @@ function MaterialRequestsPage() {
     }
   };
 
+  const cancelPendingRequest = async (request: MaterialRequestResponse) => {
+    const reason = window.prompt("Optional cancellation reason") ?? undefined;
+    if (reason === undefined) return;
+    setProcessing("release");
+    try {
+      const response = await materialRequestsApi.cancelPending(
+        request.requestId,
+        request.rowVersion,
+        reason.trim() || undefined,
+      );
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Could not cancel material request");
+        if (response.statusCode === 409) await refetchRequests();
+        return;
+      }
+      toast.success(`Request #${request.requestId} cancelled`);
+      await refetchRequests();
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const editPendingRequest = async (request: MaterialRequestResponse) => {
+    const requestNote = window.prompt("Request note", request.requestNote ?? "");
+    if (requestNote === null) return;
+    const items: { itemId: number; quantity: number; neededByDate: string; note?: string }[] = [];
+    for (const item of request.items) {
+      const quantity = window.prompt(`Quantity for ${item.materialName}`, String(item.quantity));
+      const neededByDate = window.prompt(
+        `Needed-by date for ${item.materialName} (YYYY-MM-DD)`,
+        item.neededByDate.slice(0, 10),
+      );
+      if (quantity === null || neededByDate === null) return;
+      if (!Number.isFinite(Number(quantity)) || Number(quantity) <= 0 || !neededByDate) {
+        toast.error("Every quantity and needed-by date must be valid");
+        return;
+      }
+      items.push({
+        itemId: item.itemId,
+        quantity: Number(quantity),
+        neededByDate,
+        note: item.note ?? undefined,
+      });
+    }
+    const response = await materialRequestsApi.updatePending(request.requestId, {
+      rowVersion: request.rowVersion,
+      requestNote: requestNote || undefined,
+      items,
+    });
+    if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update request");
+    else {
+      toast.success(`Request #${request.requestId} updated`);
+      await refetchRequests();
+    }
+  };
+
   return (
     <div className="max-w-[1200px] mx-auto">
       <PageHeader
@@ -688,9 +747,12 @@ function MaterialRequestsPage() {
                   <SelectItem value="ALL">All statuses</SelectItem>
                   <SelectItem value="PENDING">Pending</SelectItem>
                   <SelectItem value="APPROVED">Approved</SelectItem>
+                  <SelectItem value="PARTIALLY_APPROVED">Partially approved</SelectItem>
                   <SelectItem value="REJECTED">Rejected</SelectItem>
                   <SelectItem value="ISSUED">Issued</SelectItem>
+                  <SelectItem value="PARTIALLY_ISSUED">Partially issued</SelectItem>
                   <SelectItem value="RELEASED">Released</SelectItem>
+                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -813,28 +875,54 @@ function MaterialRequestsPage() {
                               </Button>
                             </>
                           )}
-                          {canDecide && request.status === "APPROVED" && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 text-xs"
-                                onClick={() => openDecision("issue", request)}
-                                disabled={processing !== null}
-                              >
-                                Issue
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 text-xs text-destructive"
-                                onClick={() => openDecision("release", request)}
-                                disabled={processing !== null}
-                              >
-                                Release
-                              </Button>
-                            </>
-                          )}
+                          {canCreate &&
+                            request.requestedBy === session?.userId &&
+                            request.status === "PENDING" && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 text-xs"
+                                  onClick={() => editPendingRequest(request)}
+                                  disabled={processing !== null}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 text-xs text-destructive"
+                                  onClick={() => cancelPendingRequest(request)}
+                                  disabled={processing !== null}
+                                >
+                                  Cancel
+                                </Button>
+                              </>
+                            )}
+                          {canDecide &&
+                            (request.status === "APPROVED" ||
+                              request.status === "PARTIALLY_APPROVED") && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 text-xs"
+                                  onClick={() => openDecision("issue", request)}
+                                  disabled={processing !== null}
+                                >
+                                  Issue
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 text-xs text-destructive"
+                                  onClick={() => openDecision("release", request)}
+                                  disabled={processing !== null}
+                                >
+                                  Release
+                                </Button>
+                              </>
+                            )}
                         </div>
                       </TableCell>
                     </TableRow>

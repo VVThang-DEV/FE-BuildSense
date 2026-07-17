@@ -16,7 +16,15 @@ export type CreateMaterialRequestRequest = {
   items: MaterialRequestItem[];
 };
 
-export type MaterialRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "ISSUED" | "RELEASED";
+export type MaterialRequestStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "PARTIALLY_APPROVED"
+  | "REJECTED"
+  | "ISSUED"
+  | "PARTIALLY_ISSUED"
+  | "RELEASED"
+  | "CANCELLED";
 
 export type MaterialRequestDetail = {
   itemId: number;
@@ -41,7 +49,7 @@ export type MaterialRequestResponse = {
   requestedBy: number;
   requestedByName: string;
   requestDate: string;
-  status: MaterialRequestStatus | string;
+  status: MaterialRequestStatus;
   requestNote?: string | null;
   approvedByUserId?: number | null;
   approvedAt?: string | null;
@@ -54,6 +62,12 @@ export type ApproveMaterialRequest = {
   warehouseId: number;
   decisionNote?: string;
   items: { itemId: number; approvedQuantity: number }[];
+};
+
+export type UpdatePendingMaterialRequest = {
+  rowVersion: string;
+  requestNote?: string;
+  items: { itemId: number; quantity: number; neededByDate: string; note?: string }[];
 };
 
 export const materialRequestsApi = {
@@ -76,4 +90,11 @@ export const materialRequestsApi = {
     apiClient.put<MaterialRequestResponse>(`/api/MaterialRequest/${requestId}/issue`),
   release: (requestId: number) =>
     apiClient.put<MaterialRequestResponse>(`/api/MaterialRequest/${requestId}/release`),
+  updatePending: (requestId: number, body: UpdatePendingMaterialRequest) =>
+    apiClient.put<MaterialRequestResponse>(`/api/MaterialRequest/${requestId}`, body),
+  cancelPending: (requestId: number, rowVersion: string, reason?: string) =>
+    apiClient.put<MaterialRequestResponse>(`/api/MaterialRequest/${requestId}/cancel`, {
+      rowVersion,
+      reason,
+    }),
 };

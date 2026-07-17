@@ -101,6 +101,9 @@ function ProcurementPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importPOId, setImportPOId] = useState<number | null>(null);
   const [receiptQuantities, setReceiptQuantities] = useState<Record<number, string>>({});
+  const [receiptDamaged, setReceiptDamaged] = useState<Record<number, string>>({});
+  const [receiptMissing, setReceiptMissing] = useState<Record<number, string>>({});
+  const [receiptFinalDelivery, setReceiptFinalDelivery] = useState(false);
   const [receiptNote, setReceiptNote] = useState("");
   const [rejectPOId, setRejectPOId] = useState<number | null>(null);
   const [selectedPOId, setSelectedPOId] = useState<number | null>(null);
@@ -185,6 +188,35 @@ function ProcurementPage() {
     }
   };
 
+  const ship = async (poId: number) => {
+    setBusyAction(`ship-${poId}`);
+    try {
+      const response = await purchaseOrdersApi.ship(poId);
+      if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not mark PO shipped");
+      else {
+        toast.success(`PO #${poId} marked as shipped`);
+        await refetchPOs();
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const cancel = async (poId: number) => {
+    if (!window.confirm(`Cancel PO #${poId}?`)) return;
+    setBusyAction(`cancel-${poId}`);
+    try {
+      const response = await purchaseOrdersApi.cancel(poId);
+      if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not cancel PO");
+      else {
+        toast.success(`PO #${poId} cancelled`);
+        await refetchPOs();
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const importToWarehouse = async () => {
     const po = (livePOs ?? []).find((item) => item.poId === importPOId);
     if (!po) {
@@ -195,24 +227,49 @@ function ProcurementPage() {
       .map((item) => ({
         lineItemId: item.orderLineItemId,
         quantity: Number(receiptQuantities[item.orderLineItemId] ?? 0),
-        remaining: item.quantity - item.receivedQuantity,
+        damagedQuantity: Number(receiptDamaged[item.orderLineItemId] ?? 0),
+        missingQuantity: Number(receiptMissing[item.orderLineItemId] ?? 0),
+        remaining:
+          item.quantity - item.receivedQuantity - item.damagedQuantity - item.missingQuantity,
       }))
-      .filter((item) => item.quantity > 0);
-    if (items.length === 0 || items.some((item) => item.quantity > item.remaining)) {
-      toast.error("Enter at least one receipt quantity within the remaining ordered amount");
+      .filter((item) => item.quantity + item.damagedQuantity + item.missingQuantity > 0);
+    if (
+      items.length === 0 ||
+      items.some(
+        (item) =>
+          item.quantity < 0 ||
+          item.damagedQuantity < 0 ||
+          item.missingQuantity < 0 ||
+          item.quantity + item.damagedQuantity + item.missingQuantity > item.remaining,
+      )
+    ) {
+      toast.error("Accepted, damaged, and missing quantities must fit within the remaining order");
+      return;
+    }
+    if (!receiptFinalDelivery && items.some((item) => item.missingQuantity > 0)) {
+      toast.error("Missing quantities can only be recorded on a final delivery");
       return;
     }
     setBusyAction(`import-${importPOId}`);
     try {
       const response = await purchaseOrdersApi.receive(importPOId!, {
         note: receiptNote.trim() || undefined,
-        items: items.map(({ lineItemId, quantity }) => ({ lineItemId, quantity })),
+        isFinalDelivery: receiptFinalDelivery,
+        items: items.map(({ lineItemId, quantity, damagedQuantity, missingQuantity }) => ({
+          lineItemId,
+          quantity,
+          damagedQuantity,
+          missingQuantity,
+        })),
       });
       if (response.isSuccess) {
         toast.success(`PO #${importPOId} imported to warehouse`);
         setImportOpen(false);
         setImportPOId(null);
         setReceiptQuantities({});
+        setReceiptDamaged({});
+        setReceiptMissing({});
+        setReceiptFinalDelivery(false);
         setReceiptNote("");
         refetchPOs();
       } else {
@@ -298,9 +355,13 @@ function ProcurementPage() {
   const scopedPOs =
     session?.role === "PM" ? allPOs.filter((po) => pmProjectIds.has(po.projectId)) : allPOs;
   const pending = scopedPOs.filter((po) => po.status === "PENDING");
-  const approved = scopedPOs.filter((po) => po.status === "APPROVED");
-  const rejected = scopedPOs.filter((po) => po.status === "REJECTED");
-  const delivered = scopedPOs.filter((po) => po.status === "DELIVERED");
+  const approved = scopedPOs.filter((po) =>
+    ["APPROVED", "PROCESSING", "SHIPPED", "PARTIALLY_RECEIVED"].includes(po.status),
+  );
+  const rejected = scopedPOs.filter((po) => ["REJECTED", "CANCELLED"].includes(po.status));
+  const delivered = scopedPOs.filter((po) =>
+    ["DELIVERED", "CLOSED_WITH_VARIANCE"].includes(po.status),
+  );
   const pipelineValue = scopedPOs.reduce((sum, po) => sum + po.totalAmount, 0);
   const projectName = (id: number) =>
     liveProjects?.find((project) => project.projectId === id)?.projectName ?? `#${id}`;
@@ -576,7 +637,7 @@ function ProcurementPage() {
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Import PO #{importPOId} to Warehouse</DialogTitle>
+            <DialogTitle>Receive PO #{importPOId} delivery</DialogTitle>
           </DialogHeader>
           {selectedImportPO && (
             <div className="space-y-3">
@@ -588,11 +649,15 @@ function ProcurementPage() {
                 . The PO warehouse is locked.
               </p>
               {selectedImportPO.items.map((item) => {
-                const remaining = item.quantity - item.receivedQuantity;
+                const remaining =
+                  item.quantity -
+                  item.receivedQuantity -
+                  item.damagedQuantity -
+                  item.missingQuantity;
                 return (
                   <div
                     key={item.orderLineItemId}
-                    className="grid grid-cols-[1fr_140px] items-end gap-3 rounded-lg border p-3"
+                    className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_repeat(3,110px)] sm:items-end"
                   >
                     <div>
                       <p className="text-sm font-medium">{item.materialName}</p>
@@ -601,7 +666,7 @@ function ProcurementPage() {
                       </p>
                     </div>
                     <div>
-                      <Label htmlFor={`receipt-${item.orderLineItemId}`}>Receive</Label>
+                      <Label htmlFor={`receipt-${item.orderLineItemId}`}>Accepted</Label>
                       <Input
                         id={`receipt-${item.orderLineItemId}`}
                         type="number"
@@ -617,9 +682,52 @@ function ProcurementPage() {
                         }
                       />
                     </div>
+                    <div>
+                      <Label htmlFor={`damaged-${item.orderLineItemId}`}>Damaged</Label>
+                      <Input
+                        id={`damaged-${item.orderLineItemId}`}
+                        type="number"
+                        min="0"
+                        max={remaining}
+                        step="0.01"
+                        value={receiptDamaged[item.orderLineItemId] ?? "0"}
+                        onChange={(event) =>
+                          setReceiptDamaged((current) => ({
+                            ...current,
+                            [item.orderLineItemId]: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`missing-${item.orderLineItemId}`}>Missing</Label>
+                      <Input
+                        id={`missing-${item.orderLineItemId}`}
+                        type="number"
+                        min="0"
+                        max={remaining}
+                        step="0.01"
+                        disabled={!receiptFinalDelivery}
+                        value={receiptMissing[item.orderLineItemId] ?? "0"}
+                        onChange={(event) =>
+                          setReceiptMissing((current) => ({
+                            ...current,
+                            [item.orderLineItemId]: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
                   </div>
                 );
               })}
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={receiptFinalDelivery}
+                  onChange={(event) => setReceiptFinalDelivery(event.target.checked)}
+                />
+                This is the final delivery
+              </label>
               <div>
                 <Label htmlFor="receipt-note">Receipt note</Label>
                 <Textarea
@@ -702,6 +810,7 @@ function ProcurementPage() {
               onApprove={canApproveOrReject ? approve : undefined}
               onReject={canApproveOrReject ? setRejectPOId : undefined}
               onView={setSelectedPOId}
+              onCancel={cancel}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -719,7 +828,15 @@ function ProcurementPage() {
                         Object.fromEntries(
                           (po?.items ?? []).map((item) => [
                             item.orderLineItemId,
-                            String(Math.max(0, item.quantity - item.receivedQuantity)),
+                            String(
+                              Math.max(
+                                0,
+                                item.quantity -
+                                  item.receivedQuantity -
+                                  item.damagedQuantity -
+                                  item.missingQuantity,
+                              ),
+                            ),
                           ]),
                         ),
                       );
@@ -729,6 +846,8 @@ function ProcurementPage() {
                   : undefined
               }
               onView={setSelectedPOId}
+              onShip={canImport ? ship : undefined}
+              onCancel={cancel}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -864,6 +983,8 @@ function PurchaseOrderTable({
   onReject,
   onView,
   onImport,
+  onShip,
+  onCancel,
   busyAction,
 }: {
   rows: PurchaseOrderResponse[];
@@ -873,6 +994,8 @@ function PurchaseOrderTable({
   onReject?: (poId: number) => void;
   onView?: (poId: number) => void;
   onImport?: (poId: number) => void;
+  onShip?: (poId: number) => void;
+  onCancel?: (poId: number) => void;
   busyAction?: string | null;
 }) {
   const items = rows ?? [];
@@ -961,17 +1084,48 @@ function PurchaseOrderTable({
                         )}
                       </>
                     )}
-                    {po.status === "APPROVED" && onImport && (
+                    {["APPROVED", "PROCESSING", "SHIPPED", "PARTIALLY_RECEIVED"].includes(
+                      po.status,
+                    ) &&
+                      onImport && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={() => onImport(po.poId)}
+                          disabled={busyAction !== null}
+                        >
+                          <Download className="h-3 w-3 mr-1" /> Import
+                        </Button>
+                      )}
+                    {po.status === "APPROVED" && onShip && (
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        onClick={() => onImport(po.poId)}
-                        disabled={busyAction !== null}
+                        variant="ghost"
+                        disabled={!!busyAction}
+                        onClick={() => onShip(po.poId)}
                       >
-                        <Download className="h-3 w-3 mr-1" /> Import
+                        <Truck className="mr-1 h-3 w-3" /> Ship
                       </Button>
                     )}
+                    {[
+                      "PENDING",
+                      "APPROVED",
+                      "PROCESSING",
+                      "SHIPPED",
+                      "PARTIALLY_RECEIVED",
+                    ].includes(po.status) &&
+                      onCancel && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive"
+                          disabled={!!busyAction}
+                          onClick={() => onCancel(po.poId)}
+                        >
+                          Cancel
+                        </Button>
+                      )}
                   </div>
                 </TableCell>
               </TableRow>

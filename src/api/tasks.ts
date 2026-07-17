@@ -24,7 +24,13 @@ export type TaskMaterialResponse = TaskMaterialRequest & {
   unit: string;
 };
 
-export type TaskStatus = "PENDING" | "ACTIVE" | "COMPLETED" | string;
+export type TaskStatus =
+  | "PENDING"
+  | "ACTIVE"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "REJECTED"
+  | "CANCELLED";
 
 export type TaskResponse = {
   taskId: number;
@@ -39,13 +45,25 @@ export type TaskResponse = {
   status: TaskStatus;
   baselineStart: string;
   baselineEnd: string;
+  rowVersion: string;
   materialRequirements: TaskMaterialResponse[];
+};
+
+export type UpdateTaskRequest = Omit<CreateTaskRequest, "projectId" | "materials"> & {
+  rowVersion: string;
 };
 
 export const tasksApi = {
   create: (body: CreateTaskRequest) => apiClient.post<string>("/api/Task", body),
   getByProject: (projectId: number) =>
     apiClient.get<TaskResponse[]>(`/api/Task/project/${projectId}`),
+  getAssigned: () => apiClient.get<TaskResponse[]>("/api/Task/assigned"),
+  update: (taskId: number, body: UpdateTaskRequest) =>
+    apiClient.put<TaskResponse>(`/api/Task/${taskId}`, body),
+  changeStatus: (taskId: number, action: "cancel" | "reject" | "reopen", rowVersion: string) =>
+    apiClient.post<{ taskId: number; status: TaskStatus }>(`/api/Task/${taskId}/${action}`, {
+      rowVersion,
+    }),
   assignMaterial: (taskId: number, body: TaskMaterialRequest) =>
     apiClient.post<TaskMaterialResponse>(`/api/Projects/tasks/${taskId}/materials`, body),
 };

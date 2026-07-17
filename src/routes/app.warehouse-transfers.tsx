@@ -141,6 +141,44 @@ function WarehouseTransfersPage() {
     transfer: WarehouseTransferResponse,
     action: "approve" | "reject" | "ship" | "receive" | "cancel",
   ) => {
+    let receiptItems:
+      | {
+          transferItemId: number;
+          quantity: number;
+          damagedQuantity: number;
+          lostQuantity: number;
+        }[]
+      | undefined;
+    if (action === "receive") {
+      receiptItems = [];
+      for (const item of transfer.items) {
+        const remaining =
+          item.shippedQuantity - item.receivedQuantity - item.damagedQuantity - item.lostQuantity;
+        if (remaining <= 0) continue;
+        const accepted = window.prompt(
+          `Accepted quantity for ${item.materialName}`,
+          String(remaining),
+        );
+        const damaged = window.prompt(`Damaged quantity for ${item.materialName}`, "0");
+        const lost = window.prompt(`Lost quantity for ${item.materialName}`, "0");
+        if (accepted === null || damaged === null || lost === null) return;
+        const values = [Number(accepted), Number(damaged), Number(lost)];
+        if (
+          values.some((value) => !Number.isFinite(value) || value < 0) ||
+          values.reduce((a, b) => a + b, 0) > remaining
+        ) {
+          toast.error(`Receipt quantities for ${item.materialName} exceed the shipped remainder`);
+          return;
+        }
+        receiptItems.push({
+          transferItemId: item.transferItemId,
+          quantity: values[0],
+          damagedQuantity: values[1],
+          lostQuantity: values[2],
+        });
+      }
+      if (receiptItems.length === 0) return;
+    }
     setBusy(`${action}-${transfer.transferId}`);
     try {
       const response =
@@ -151,15 +189,7 @@ function WarehouseTransfersPage() {
             : action === "ship"
               ? await warehouseTransfersApi.ship(transfer.transferId)
               : action === "receive"
-                ? await warehouseTransfersApi.receive(
-                    transfer.transferId,
-                    transfer.items
-                      .filter((item) => item.shippedQuantity > item.receivedQuantity)
-                      .map((item) => ({
-                        transferItemId: item.transferItemId,
-                        quantity: item.shippedQuantity - item.receivedQuantity,
-                      })),
-                  )
+                ? await warehouseTransfersApi.receive(transfer.transferId, receiptItems)
                 : await warehouseTransfersApi.cancel(transfer.transferId);
       if (!response.isSuccess) {
         toast.error(response.errorMessage ?? `Could not ${action} transfer`);
@@ -237,6 +267,14 @@ function WarehouseTransfersPage() {
                           <p key={item.transferItemId} className="text-xs">
                             {item.materialName} / {item.variantName}: {item.requestedQuantity}{" "}
                             {item.unit}
+                            {(item.receivedQuantity > 0 ||
+                              item.damagedQuantity > 0 ||
+                              item.lostQuantity > 0) && (
+                              <span className="block text-muted-foreground">
+                                Received {item.receivedQuantity}, damaged {item.damagedQuantity},
+                                lost {item.lostQuantity}
+                              </span>
+                            )}
                           </p>
                         ))}
                       </TableCell>

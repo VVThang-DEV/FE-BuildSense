@@ -11,8 +11,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { ROLE_LABELS, logout, type Role, type Session } from "@/lib/session";
+import { getRefreshToken, ROLE_LABELS, logout, type Role, type Session } from "@/lib/session";
 import { navForRole } from "@/lib/nav";
+import { authApi } from "@/api/auth";
 import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
 const ROLE_BADGE_STYLE: Record<Role, string> = {
@@ -38,9 +39,14 @@ export function AppShell({ session }: { session: Session }) {
     return Array.from(m.entries());
   }, [items]);
 
-  const onLogout = () => {
-    logout();
-    navigate({ to: "/login" });
+  const onLogout = async () => {
+    const refreshToken = getRefreshToken();
+    try {
+      if (refreshToken) await authApi.logout(refreshToken);
+    } finally {
+      logout();
+      navigate({ to: "/login" });
+    }
   };
 
   const SidebarContent = () => (

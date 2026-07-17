@@ -378,6 +378,27 @@ function UsersPage() {
                                 </DropdownMenuItem>
                               ),
                             )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={async () => {
+                                setUpdatingUserId(user.id);
+                                try {
+                                  const response = await authApi.adminResetPassword(user.id);
+                                  if (!response.isSuccess)
+                                    toast.error(
+                                      response.errorMessage ?? "Could not send reset instructions",
+                                    );
+                                  else
+                                    toast.success(
+                                      `Password reset instructions queued for ${user.email}`,
+                                    );
+                                } finally {
+                                  setUpdatingUserId(null);
+                                }
+                              }}
+                            >
+                              Send password reset
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

@@ -66,6 +66,13 @@ export const NAV: NavItem[] = [
     group: "Operations",
   },
   {
+    to: "/app/inventory-governance",
+    label: "Inventory Governance",
+    icon: ClipboardList,
+    roles: ["ADMIN", "WAREHOUSE_MANAGER"],
+    group: "Operations",
+  },
+  {
     to: "/app/site/report",
     label: "Daily Progress",
     icon: ClipboardList,

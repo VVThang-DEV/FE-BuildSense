@@ -70,6 +70,8 @@ const PROJECT_STATUS_HEALTH: Record<ProjectResponse["status"], keyof typeof heal
   IN_PROGRESS: "on-track",
   COMPLETED: "on-track",
   DELAYED: "delayed",
+  PAUSED: "at-risk",
+  CANCELLED: "at-risk",
 };
 
 const CHART_COLORS = {

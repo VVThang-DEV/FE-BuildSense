@@ -119,7 +119,10 @@ function responseMessage(result: unknown, fallback: string): string {
 
 function statusClass(status: string): string {
   if (status === "COMPLETED") return "border-success/30 bg-success/10 text-success";
-  if (status === "ACTIVE") return "border-primary/30 bg-primary/10 text-primary";
+  if (status === "ACTIVE" || status === "IN_PROGRESS")
+    return "border-primary/30 bg-primary/10 text-primary";
+  if (status === "REJECTED" || status === "CANCELLED")
+    return "border-destructive/30 bg-destructive/10 text-destructive";
   return "border-warning/35 bg-warning/10 text-warning-foreground";
 }
 
@@ -141,6 +144,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const [reportForm, setReportForm] = useState<ReportForm>(initialReportForm);
   const [creatingTask, setCreatingTask] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
+  const [reviewingReport, setReviewingReport] = useState<number | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
@@ -450,9 +454,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       });
 
       if (response.isSuccess) {
-        const previousProgress = Number(selectedTask.actualProgressPct || 0);
-        const nextProgress = Math.min(100, previousProgress + progressIncrement);
-        toast.success(`Task progress updated from ${previousProgress}% to ${nextProgress}%`);
+        toast.success("Progress report submitted for Project Manager approval");
         setReportForm(initialReportForm);
         setPhotoPreviewUrl("");
         await refetchTasks();
@@ -466,6 +468,112 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       toast.error("Could not reach the backend. Check the API server and try again.");
     } finally {
       setSubmittingReport(false);
+    }
+  };
+
+  const reviewReport = async (
+    report: (typeof reports)[number],
+    action: "approve" | "reject" | "reverse",
+  ) => {
+    const reviewNote = window.prompt(`Optional note for ${action}`);
+    if (reviewNote === null) return;
+    const wouldOverrun =
+      action === "approve" &&
+      !!selectedTask &&
+      selectedTask.actualCost + report.actualCostIncrement > selectedTask.plannedBudget;
+    const allowCostOverrun = wouldOverrun
+      ? window.confirm("This approval exceeds the task budget. Approve the cost overrun?")
+      : false;
+    if (wouldOverrun && !allowCostOverrun) return;
+    setReviewingReport(report.reportId);
+    try {
+      const response =
+        action === "approve"
+          ? await progressReportsApi.approve(report.reportId, {
+              rowVersion: report.rowVersion,
+              reviewNote: reviewNote.trim() || undefined,
+              allowCostOverrun,
+            })
+          : action === "reject"
+            ? await progressReportsApi.reject(report.reportId, {
+                rowVersion: report.rowVersion,
+                reviewNote: reviewNote.trim() || undefined,
+              })
+            : await progressReportsApi.reverse(report.reportId, {
+                rowVersion: report.rowVersion,
+                reviewNote: reviewNote.trim() || undefined,
+              });
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? `Could not ${action} report`);
+        if (response.statusCode === 409) await refetchReports();
+        return;
+      }
+      toast.success(`Progress report ${action}d`);
+      await Promise.all([refetchReports(), refetchTasks()]);
+    } finally {
+      setReviewingReport(null);
+    }
+  };
+
+  const changeTaskStatus = async (task: TaskResponse, action: "cancel" | "reject" | "reopen") => {
+    if (!window.confirm(`${action} task “${task.taskName}”?`)) return;
+    const response = await tasksApi.changeStatus(task.taskId, action, task.rowVersion);
+    if (!response.isSuccess) {
+      toast.error(response.errorMessage ?? `Could not ${action} task`);
+      return;
+    }
+    toast.success(`Task ${action}d`);
+    await refetchTasks();
+  };
+
+  const editTask = async (task: TaskResponse) => {
+    const phaseName = window.prompt("Phase", task.phaseName);
+    const taskName = window.prompt("Task name", task.taskName);
+    const assignee = window.prompt("Assigned user ID", String(task.assignedToUserID));
+    const budget = window.prompt("Planned budget", String(task.plannedBudget));
+    const baselineStart = window.prompt(
+      "Baseline start (YYYY-MM-DD)",
+      task.baselineStart.slice(0, 10),
+    );
+    const baselineEnd = window.prompt("Baseline end (YYYY-MM-DD)", task.baselineEnd.slice(0, 10));
+    if (!phaseName || !taskName || !assignee || !budget || !baselineStart || !baselineEnd) return;
+    const response = await tasksApi.update(task.taskId, {
+      phaseName,
+      taskName,
+      assignedToUserID: Number(assignee),
+      plannedBudget: Number(budget),
+      baselineStart,
+      baselineEnd,
+      rowVersion: task.rowVersion,
+    });
+    if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update task");
+    else {
+      toast.success("Task updated");
+      await refetchTasks();
+    }
+  };
+
+  const correctReport = async (report: (typeof reports)[number]) => {
+    const progress = window.prompt(
+      "Corrected progress increment",
+      String(report.progressIncrement),
+    );
+    const cost = window.prompt(
+      "Corrected actual cost increment",
+      String(report.actualCostIncrement),
+    );
+    if (progress === null || cost === null) return;
+    const response = await progressReportsApi.correct(report.reportId, {
+      progressIncrement: Number(progress),
+      actualCostIncrement: Number(cost),
+      notes: report.notes ?? undefined,
+      sitePhotoUrl: report.sitePhotoUrl ?? undefined,
+      rowVersion: report.rowVersion,
+    });
+    if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not create correction");
+    else {
+      toast.success("Correction submitted for approval");
+      await refetchReports();
     }
   };
 
@@ -745,6 +853,44 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         <Eye className="mr-1 h-3.5 w-3.5" />
                         Open
                       </Button>
+                      {canManageTasks &&
+                        task.status !== "COMPLETED" &&
+                        task.status !== "CANCELLED" && (
+                          <Button size="sm" variant="ghost" onClick={() => editTask(task)}>
+                            Edit
+                          </Button>
+                        )}
+                      {canManageTasks && task.status === "PENDING" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => changeTaskStatus(task, "reject")}
+                        >
+                          Reject
+                        </Button>
+                      )}
+                      {canManageTasks &&
+                        task.status !== "COMPLETED" &&
+                        task.status !== "CANCELLED" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive"
+                            onClick={() => changeTaskStatus(task, "cancel")}
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                      {canManageTasks &&
+                        (task.status === "REJECTED" || task.status === "CANCELLED") && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => changeTaskStatus(task, "reopen")}
+                          >
+                            Reopen
+                          </Button>
+                        )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1015,13 +1161,15 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         <TableHead>Reporter</TableHead>
                         <TableHead className="text-right">Increment</TableHead>
                         <TableHead className="text-right">Cost added</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead>Notes / photo</TableHead>
+                        <TableHead className="text-right">Review</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {reports.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                          <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                             No progress reports yet.
                           </TableCell>
                         </TableRow>
@@ -1039,6 +1187,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-right tabular-nums">
                             {formatMoney(report.actualCostIncrement)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{report.status}</Badge>
                           </TableCell>
                           <TableCell className="max-w-sm text-sm text-muted-foreground">
                             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_80px]">
@@ -1070,6 +1221,50 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                                 </button>
                               )}
                             </div>
+                          </TableCell>
+                          <TableCell className="text-right whitespace-nowrap">
+                            {canManageTasks && report.status === "PENDING" && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={reviewingReport === report.reportId}
+                                  onClick={() => reviewReport(report, "approve")}
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive"
+                                  disabled={reviewingReport === report.reportId}
+                                  onClick={() => reviewReport(report, "reject")}
+                                >
+                                  Reject
+                                </Button>
+                              </>
+                            )}
+                            {canManageTasks && report.status === "APPROVED" && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={reviewingReport === report.reportId}
+                                  onClick={() => correctReport(report)}
+                                >
+                                  Correct
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive"
+                                  disabled={reviewingReport === report.reportId}
+                                  onClick={() => reviewReport(report, "reverse")}
+                                >
+                                  Reverse
+                                </Button>
+                              </>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

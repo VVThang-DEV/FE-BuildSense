@@ -26,7 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
-import { warehousesApi } from "@/api/warehouses";
+import { warehousesApi, type InventoryAdjustmentReason } from "@/api/warehouses";
 import { usersApi } from "@/api/users";
 import { materialsApi } from "@/api/materials";
 import { requireApiResult } from "@/api/client";
@@ -69,12 +69,31 @@ function WarehousesPage() {
   const [form, setForm] = useState({ managerId: "", warehouseName: "", location: "" });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [adjusting, setAdjusting] = useState(false);
-  const [adjustment, setAdjustment] = useState({ variantId: "", quantityDelta: "", note: "" });
+  const [adjustment, setAdjustment] = useState<{
+    variantId: string;
+    quantityDelta: string;
+    reasonCode: InventoryAdjustmentReason;
+    note: string;
+  }>({
+    variantId: "",
+    quantityDelta: "",
+    reasonCode: "CYCLE_COUNT",
+    note: "",
+  });
   const [returning, setReturning] = useState(false);
-  const [inventoryReturn, setInventoryReturn] = useState({
+  const [inventoryReturn, setInventoryReturn] = useState<{
+    variantId: string;
+    quantity: string;
+    materialRequestId: string;
+    reasonCode: "UNUSED" | "EXCESS_ISSUE" | "DAMAGED";
+    condition: "USABLE" | "QUARANTINED";
+    note: string;
+  }>({
     variantId: "",
     quantity: "",
     materialRequestId: "",
+    reasonCode: "UNUSED",
+    condition: "USABLE",
     note: "",
   });
 
@@ -170,6 +189,7 @@ function WarehousesPage() {
         warehouseId: selectedId,
         variantId,
         quantityDelta,
+        reasonCode: adjustment.reasonCode,
         note: adjustment.note.trim() || undefined,
         rowVersion: current?.rowVersion,
       });
@@ -177,10 +197,9 @@ function WarehousesPage() {
         toast.error(response.errorMessage ?? "Inventory adjustment failed");
         return;
       }
-      toast.success("Inventory adjusted");
+      toast.success("Inventory adjustment submitted for administrator review");
       setAdjusting(false);
-      setAdjustment({ variantId: "", quantityDelta: "", note: "" });
-      await Promise.all([refetchInventory(), transactionsQuery.refetch()]);
+      setAdjustment({ variantId: "", quantityDelta: "", reasonCode: "CYCLE_COUNT", note: "" });
     } catch {
       toast.error("Could not reach the backend");
     } finally {
@@ -191,18 +210,13 @@ function WarehousesPage() {
   const submitReturn = async () => {
     const variantId = Number(inventoryReturn.variantId);
     const quantity = Number(inventoryReturn.quantity);
-    const materialRequestId = inventoryReturn.materialRequestId
-      ? Number(inventoryReturn.materialRequestId)
-      : undefined;
+    const materialRequestId = Number(inventoryReturn.materialRequestId);
     if (!selectedId || !variantId || !Number.isFinite(quantity) || quantity <= 0) {
       toast.error("Select a variant and enter a return quantity greater than 0");
       return;
     }
-    if (
-      materialRequestId !== undefined &&
-      (!Number.isInteger(materialRequestId) || materialRequestId <= 0)
-    ) {
-      toast.error("Material request ID must be a positive whole number");
+    if (!Number.isInteger(materialRequestId) || materialRequestId <= 0) {
+      toast.error("An issued material request ID is required");
       return;
     }
     const current = inventory?.find((item) => item.variantId === variantId);
@@ -213,6 +227,8 @@ function WarehousesPage() {
         variantId,
         quantity,
         materialRequestId,
+        reasonCode: inventoryReturn.reasonCode,
+        condition: inventoryReturn.condition,
         note: inventoryReturn.note.trim() || undefined,
         rowVersion: current?.rowVersion,
       });
@@ -222,7 +238,14 @@ function WarehousesPage() {
       }
       toast.success("Inventory return recorded");
       setReturning(false);
-      setInventoryReturn({ variantId: "", quantity: "", materialRequestId: "", note: "" });
+      setInventoryReturn({
+        variantId: "",
+        quantity: "",
+        materialRequestId: "",
+        reasonCode: "UNUSED",
+        condition: "USABLE",
+        note: "",
+      });
       await Promise.all([refetchInventory(), transactionsQuery.refetch()]);
     } catch {
       toast.error("Could not reach the backend");
@@ -355,6 +378,29 @@ function WarehousesPage() {
               />
             </div>
             <div>
+              <Label>Reason code</Label>
+              <Select
+                value={adjustment.reasonCode}
+                onValueChange={(reasonCode) =>
+                  setAdjustment((current) => ({
+                    ...current,
+                    reasonCode: reasonCode as typeof current.reasonCode,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CYCLE_COUNT">Cycle count</SelectItem>
+                  <SelectItem value="DAMAGE">Damage</SelectItem>
+                  <SelectItem value="LOSS">Loss</SelectItem>
+                  <SelectItem value="DATA_CORRECTION">Data correction</SelectItem>
+                  <SelectItem value="OPENING_BALANCE">Opening balance</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label htmlFor="adjustment-note">Reason</Label>
               <Textarea
                 id="adjustment-note"
@@ -417,7 +463,7 @@ function WarehousesPage() {
               />
             </div>
             <div>
-              <Label htmlFor="return-request-id">Material request ID (optional)</Label>
+              <Label htmlFor="return-request-id">Issued material request ID</Label>
               <Input
                 id="return-request-id"
                 type="number"
@@ -431,6 +477,49 @@ function WarehousesPage() {
                   }))
                 }
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Return reason</Label>
+                <Select
+                  value={inventoryReturn.reasonCode}
+                  onValueChange={(reasonCode) =>
+                    setInventoryReturn((current) => ({
+                      ...current,
+                      reasonCode: reasonCode as typeof current.reasonCode,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UNUSED">Unused</SelectItem>
+                    <SelectItem value="EXCESS_ISSUE">Excess issue</SelectItem>
+                    <SelectItem value="DAMAGED">Damaged</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Condition</Label>
+                <Select
+                  value={inventoryReturn.condition}
+                  onValueChange={(condition) =>
+                    setInventoryReturn((current) => ({
+                      ...current,
+                      condition: condition as typeof current.condition,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USABLE">Usable</SelectItem>
+                    <SelectItem value="QUARANTINED">Quarantined</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div>
               <Label htmlFor="return-note">Return note</Label>
