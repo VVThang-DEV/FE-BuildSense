@@ -33,7 +33,7 @@ export const NAV: NavItem[] = [
     to: "/app/projects",
     label: "Projects",
     icon: FolderKanban,
-    roles: ["ADMIN", "PM"],
+    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
     group: "Overview",
   },
 
@@ -56,6 +56,13 @@ export const NAV: NavItem[] = [
     label: "Procurement",
     icon: ShoppingCart,
     roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
+    group: "Operations",
+  },
+  {
+    to: "/app/warehouse-transfers",
+    label: "Warehouse Transfers",
+    icon: Truck,
+    roles: ["ADMIN", "WAREHOUSE_MANAGER"],
     group: "Operations",
   },
   {

@@ -16,6 +16,7 @@ import { Route as CustomerRouteImport } from './routes/customer'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppWarehouseTransfersRouteImport } from './routes/app.warehouse-transfers'
 import { Route as AppSiteRouteImport } from './routes/app.site'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
 import { Route as AppProjectsRouteImport } from './routes/app.projects'
@@ -72,6 +73,11 @@ const IndexRoute = IndexRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWarehouseTransfersRoute = AppWarehouseTransfersRouteImport.update({
+  id: '/warehouse-transfers',
+  path: '/warehouse-transfers',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSiteRoute = AppSiteRouteImport.update({
@@ -203,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/app/projects': typeof AppProjectsRouteWithChildren
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
+  '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
   '/app/': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
@@ -232,6 +239,7 @@ export interface FileRoutesByTo {
   '/app/profile': typeof AppProfileRoute
   '/app/projects': typeof AppProjectsRouteWithChildren
   '/app/reports': typeof AppReportsRoute
+  '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
   '/app': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
@@ -264,6 +272,7 @@ export interface FileRoutesById {
   '/app/projects': typeof AppProjectsRouteWithChildren
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
+  '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
   '/app/': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
@@ -297,6 +306,7 @@ export interface FileRouteTypes {
     | '/app/projects'
     | '/app/reports'
     | '/app/site'
+    | '/app/warehouse-transfers'
     | '/app/'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
@@ -326,6 +336,7 @@ export interface FileRouteTypes {
     | '/app/profile'
     | '/app/projects'
     | '/app/reports'
+    | '/app/warehouse-transfers'
     | '/app'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
@@ -357,6 +368,7 @@ export interface FileRouteTypes {
     | '/app/projects'
     | '/app/reports'
     | '/app/site'
+    | '/app/warehouse-transfers'
     | '/app/'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
@@ -429,6 +441,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/warehouse-transfers': {
+      id: '/app/warehouse-transfers'
+      path: '/warehouse-transfers'
+      fullPath: '/app/warehouse-transfers'
+      preLoaderRoute: typeof AppWarehouseTransfersRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/site': {
@@ -627,6 +646,7 @@ interface AppRouteChildren {
   AppProjectsRoute: typeof AppProjectsRouteWithChildren
   AppReportsRoute: typeof AppReportsRoute
   AppSiteRoute: typeof AppSiteRouteWithChildren
+  AppWarehouseTransfersRoute: typeof AppWarehouseTransfersRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAdminCategoriesRoute: typeof AppAdminCategoriesRoute
   AppAdminSuppliersRoute: typeof AppAdminSuppliersRoute
@@ -649,6 +669,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppProjectsRoute: AppProjectsRouteWithChildren,
   AppReportsRoute: AppReportsRoute,
   AppSiteRoute: AppSiteRouteWithChildren,
+  AppWarehouseTransfersRoute: AppWarehouseTransfersRoute,
   AppIndexRoute: AppIndexRoute,
   AppAdminCategoriesRoute: AppAdminCategoriesRoute,
   AppAdminSuppliersRoute: AppAdminSuppliersRoute,

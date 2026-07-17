@@ -35,18 +35,26 @@ export type CreateProjectRequest = {
 };
 
 export type ProjectMaterialRequirement = {
+  variantId: number;
   materialId: number;
   materialName: string;
+  variantName?: string | null;
   taskName?: string | null;
   grossQuantityRequired: number;
   unit: string;
 };
 
 export type MRPCalculationResponse = {
+  variantId: number;
+  warehouseId?: number | null;
+  inventoryScope: "WAREHOUSE" | "ALL_WAREHOUSES" | string;
   materialId: number;
   materialName: string;
+  variantName: string;
   unit: string;
   totalGrossRequired: number;
+  issuedToProjectTasks: number;
+  remainingGrossRequired: number;
   currentInventory: number;
   reservedQuantity: number;
   availableQuantity: number;
@@ -155,8 +163,10 @@ export const projectsApi = {
   },
   getMaterialRequirements: (projectId: number) =>
     apiClient.get<ProjectMaterialRequirement[]>(`/api/Projects/${projectId}/material-requirements`),
-  calculateMrp: (projectId: number) =>
-    apiClient.get<MRPCalculationResponse[]>(`/api/Projects/${projectId}/calculate-mrp`),
+  calculateMrp: (projectId: number, warehouseId?: number) =>
+    apiClient.get<MRPCalculationResponse[]>(
+      `/api/Projects/${projectId}/calculate-mrp${warehouseId ? `?warehouseId=${warehouseId}` : ""}`,
+    ),
   adjustBudget: (body: AdjustProjectBudgetRequest) =>
     apiClient.post<ProjectBudgetHistoryResponse>("/api/Projects/adjust-budget", body),
   getBudgetHistories: (projectId: number) =>

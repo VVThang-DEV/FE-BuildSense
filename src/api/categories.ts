@@ -11,8 +11,8 @@ export type CategoryRequest = {
   categoryName: string;
 };
 
-const CATEGORY_ROUTE = "/api/Categories";
-const LEGACY_CATEGORY_ROUTE = "/api/Category";
+const CATEGORY_ROUTE = "/api/Category";
+const LEGACY_CATEGORY_ROUTE = "/api/Categories";
 
 async function withCategoryFallback<T>(
   request: (route: string) => Promise<ApiEnvelope<T>>,

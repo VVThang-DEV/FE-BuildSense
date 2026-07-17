@@ -77,10 +77,20 @@ function SuppliersPage() {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogForm, setCatalogForm] = useState({
     supplierId: "",
-    materialId: "",
+    variantId: "",
+    supplierSku: "",
     unitPrice: "",
+    minimumOrderQuantity: "0",
     leadTimeDays: "",
   });
+  const variants = (materials ?? []).flatMap((material) =>
+    material.variants
+      .filter((variant) => variant.isActive)
+      .map((variant) => ({
+        ...variant,
+        label: `${material.materialName} â€” ${variant.variantName}`,
+      })),
+  );
 
   const submitCreate = async () => {
     if (!form.companyName.trim()) {
@@ -108,22 +118,40 @@ function SuppliersPage() {
   };
 
   const submitCatalog = async () => {
-    if (!catalogForm.supplierId || !catalogForm.materialId || !catalogForm.unitPrice) {
-      toast.error("Supplier, material and unit price are required");
+    if (!catalogForm.supplierId || !catalogForm.variantId || !catalogForm.unitPrice) {
+      toast.error("Supplier, material variant, and unit price are required");
+      return;
+    }
+    if (
+      Number(catalogForm.unitPrice) < 0 ||
+      Number(catalogForm.minimumOrderQuantity) < 0 ||
+      Number(catalogForm.leadTimeDays) < 0
+    ) {
+      toast.error("Price, minimum quantity, and lead time cannot be negative");
       return;
     }
     setSaving(true);
     try {
       const response = await catalogsApi.create({
         supplierId: Number(catalogForm.supplierId),
-        materialId: Number(catalogForm.materialId),
+        variantId: Number(catalogForm.variantId),
+        supplierSku: catalogForm.supplierSku.trim() || undefined,
         unitPrice: Number(catalogForm.unitPrice),
+        minimumOrderQuantity: Number(catalogForm.minimumOrderQuantity) || 0,
         leadTimeDays: Number(catalogForm.leadTimeDays) || 0,
+        isAvailable: true,
       });
       if (response.isSuccess) {
         toast.success("Supplier catalog entry added");
         setCatalogOpen(false);
-        setCatalogForm({ supplierId: "", materialId: "", unitPrice: "", leadTimeDays: "" });
+        setCatalogForm({
+          supplierId: "",
+          variantId: "",
+          supplierSku: "",
+          unitPrice: "",
+          minimumOrderQuantity: "0",
+          leadTimeDays: "",
+        });
       } else {
         toast.error(response.errorMessage ?? "Create failed");
       }
@@ -230,22 +258,31 @@ function SuppliersPage() {
               </Select>
             </div>
             <div>
-              <Label id="catalog-material-label">Material</Label>
+              <Label id="catalog-material-label">Material variant</Label>
               <Select
-                value={catalogForm.materialId}
-                onValueChange={(value) => setCatalogForm((f) => ({ ...f, materialId: value }))}
+                value={catalogForm.variantId}
+                onValueChange={(value) => setCatalogForm((f) => ({ ...f, variantId: value }))}
               >
                 <SelectTrigger aria-labelledby="catalog-material-label">
-                  <SelectValue placeholder="Select material" />
+                  <SelectValue placeholder="Select material variant" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(materials ?? []).map((material) => (
-                    <SelectItem key={material.materialId} value={String(material.materialId)}>
-                      {material.materialName}
+                  {variants.map((variant) => (
+                    <SelectItem key={variant.variantId} value={String(variant.variantId)}>
+                      {variant.label} ({variant.unit})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label htmlFor="catalog-sku">Supplier SKU</Label>
+              <Input
+                id="catalog-sku"
+                value={catalogForm.supplierSku}
+                onChange={(e) => setCatalogForm((f) => ({ ...f, supplierSku: e.target.value }))}
+                maxLength={100}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -256,6 +293,19 @@ function SuppliersPage() {
                   min="0"
                   value={catalogForm.unitPrice}
                   onChange={(e) => setCatalogForm((f) => ({ ...f, unitPrice: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="catalog-minimum">Minimum order</Label>
+                <Input
+                  id="catalog-minimum"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={catalogForm.minimumOrderQuantity}
+                  onChange={(e) =>
+                    setCatalogForm((f) => ({ ...f, minimumOrderQuantity: e.target.value }))
+                  }
                 />
               </div>
               <div>

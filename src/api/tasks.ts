@@ -12,12 +12,14 @@ export type CreateTaskRequest = {
 };
 
 export type TaskMaterialRequest = {
-  materialId: number;
+  variantId: number;
   grossQuantityRequired: number;
 };
 
 export type TaskMaterialResponse = TaskMaterialRequest & {
+  materialId: number;
   materialName: string;
+  variantName: string;
   taskName?: string | null;
   unit: string;
 };

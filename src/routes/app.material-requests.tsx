@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -41,6 +42,7 @@ import { QueryError } from "@/components/query-error";
 import { materialRequestsApi, type MaterialRequestResponse } from "@/api/materialRequests";
 import { materialsApi } from "@/api/materials";
 import { projectsApi } from "@/api/projects";
+import { warehousesApi } from "@/api/warehouses";
 import { requireApiResult } from "@/api/client";
 import { useSession } from "@/lib/session";
 
@@ -51,7 +53,7 @@ export const Route = createFileRoute("/app/material-requests")({
 
 type RequestLine = {
   key: number;
-  materialId: string;
+  variantKey: string;
   quantity: string;
   neededByDate: string;
 };
@@ -68,7 +70,7 @@ function defaultNeededDate(): string {
 function newLine(): RequestLine {
   return {
     key: nextLineKey++,
-    materialId: "",
+    variantKey: "",
     quantity: "1",
     neededByDate: defaultNeededDate(),
   };
@@ -85,6 +87,8 @@ function formatDate(value: string): string {
 
 function statusClass(status: string): string {
   if (status === "APPROVED") return "border-success/30 bg-success/10 text-success";
+  if (status === "ISSUED") return "border-primary/30 bg-primary/10 text-primary";
+  if (status === "RELEASED") return "border-muted-foreground/30 bg-muted text-muted-foreground";
   if (status === "REJECTED") return "border-destructive/30 bg-destructive/10 text-destructive";
   return "border-warning/35 bg-warning/10 text-warning-foreground";
 }
@@ -149,7 +153,8 @@ function requestUrgency(request: MaterialRequestResponse): RequestUrgency {
 function MaterialRequestsPage() {
   const session = useSession();
   const canReview = session?.role === "ADMIN" || session?.role === "WAREHOUSE_MANAGER";
-  const canCreate = session?.role === "ADMIN" || session?.role === "PM";
+  const canDecide = session?.role === "WAREHOUSE_MANAGER";
+  const canCreate = session?.role === "PM";
   const workflowDescription =
     session?.role === "WAREHOUSE_MANAGER"
       ? "Review pending requests, then approve stock issue or reject and release reservations."
@@ -159,11 +164,16 @@ function MaterialRequestsPage() {
   const [projectId, setProjectId] = useState("");
   const [lines, setLines] = useState<RequestLine[]>(() => [newLine()]);
   const [submitting, setSubmitting] = useState(false);
-  const [processing, setProcessing] = useState<"approve" | "reject" | null>(null);
+  const [processing, setProcessing] = useState<"approve" | "reject" | "issue" | "release" | null>(
+    null,
+  );
   const [confirming, setConfirming] = useState<{
-    action: "approve" | "reject";
+    action: "approve" | "reject" | "issue" | "release";
     request: MaterialRequestResponse;
   } | null>(null);
+  const [decisionNote, setDecisionNote] = useState("");
+  const [approvalWarehouseId, setApprovalWarehouseId] = useState("");
+  const [approvedQuantities, setApprovedQuantities] = useState<Record<number, string>>({});
   const [statusFilter, setStatusFilter] = useState(canReview ? "PENDING" : "ALL");
   const [projectFilter, setProjectFilter] = useState("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState("ALL");
@@ -181,6 +191,14 @@ function MaterialRequestsPage() {
     queryFn: async () =>
       requireApiResult(await projectsApi.getAll(), "Could not load projects") ?? [],
     enabled: !!session?.token,
+    staleTime: 30_000,
+  });
+
+  const { data: warehouses = [], isLoading: warehousesLoading } = useQuery({
+    queryKey: ["warehouses", "managed"],
+    queryFn: async () =>
+      requireApiResult(await warehousesApi.getAll(), "Could not load managed warehouses") ?? [],
+    enabled: !!session?.token && canDecide,
     staleTime: 30_000,
   });
 
@@ -272,6 +290,28 @@ function MaterialRequestsPage() {
     staleTime: 30_000,
   });
 
+  const variantOptions = materials.flatMap((material) => {
+    const activeVariants = (material.variants ?? []).filter((variant) => variant.isActive);
+    if (activeVariants.length > 0) {
+      return activeVariants.map((variant) => ({
+        key: `V:${variant.variantId}`,
+        variantId: variant.variantId,
+        materialId: material.materialId,
+        label: `${material.materialName} — ${variant.variantName}`,
+        unit: variant.unit || material.unit,
+      }));
+    }
+    return [
+      {
+        key: `M:${material.materialId}`,
+        variantId: 0,
+        materialId: material.materialId,
+        label: material.materialName,
+        unit: material.unit,
+      },
+    ];
+  });
+
   const updateLine = (key: number, update: Partial<RequestLine>) => {
     setLines((current) =>
       current.map((line) => (line.key === key ? { ...line, ...update } : line)),
@@ -290,14 +330,14 @@ function MaterialRequestsPage() {
       return;
     }
     if (
-      lines.some((line) => !line.materialId || !line.neededByDate || Number(line.quantity) <= 0)
+      lines.some((line) => !line.variantKey || !line.neededByDate || Number(line.quantity) <= 0)
     ) {
       toast.error("Complete every item with a positive quantity and needed-by date");
       return;
     }
-    const materialIds = lines.map((line) => line.materialId);
-    if (new Set(materialIds).size !== materialIds.length) {
-      toast.error("Each material can only appear once per request");
+    const variantKeys = lines.map((line) => line.variantKey);
+    if (new Set(variantKeys).size !== variantKeys.length) {
+      toast.error("Each material variant can only appear once per request");
       return;
     }
 
@@ -306,7 +346,10 @@ function MaterialRequestsPage() {
       const response = await materialRequestsApi.create({
         projectId: Number(projectId),
         items: lines.map((line) => ({
-          materialId: Number(line.materialId),
+          ...(() => {
+            const option = variantOptions.find((variant) => variant.key === line.variantKey)!;
+            return { variantId: option.variantId, materialId: option.materialId };
+          })(),
           quantity: Number(line.quantity),
           neededByDate: `${line.neededByDate}T00:00:00.000Z`,
         })),
@@ -330,15 +373,67 @@ function MaterialRequestsPage() {
     }
   };
 
-  const processRequest = async (action: "approve" | "reject") => {
+  const openDecision = (
+    action: "approve" | "reject" | "issue" | "release",
+    request: MaterialRequestResponse,
+  ) => {
+    setDecisionNote("");
+    setApprovalWarehouseId(request.warehouseId ? String(request.warehouseId) : "");
+    setApprovedQuantities(
+      Object.fromEntries(request.items.map((item) => [item.itemId, String(item.quantity)])),
+    );
+    setConfirming({ action, request });
+  };
+
+  const processRequest = async (action: "approve" | "reject" | "issue" | "release") => {
     if (!confirming) return;
     const id = confirming.request.requestId;
+    if (action === "approve") {
+      if (!approvalWarehouseId) {
+        toast.error("Select the warehouse that will reserve this stock");
+        return;
+      }
+      const quantities = confirming.request.items.map((item) => ({
+        itemId: item.itemId,
+        approvedQuantity: Number(approvedQuantities[item.itemId] ?? 0),
+      }));
+      if (
+        quantities.some(
+          (item) => !Number.isFinite(item.approvedQuantity) || item.approvedQuantity < 0,
+        ) ||
+        quantities.every((item) => item.approvedQuantity === 0)
+      ) {
+        toast.error("Approve at least one positive quantity, or reject the request");
+        return;
+      }
+      if (
+        quantities.some((item) => {
+          const requested =
+            confirming.request.items.find((line) => line.itemId === item.itemId)?.quantity ?? 0;
+          return item.approvedQuantity > requested;
+        })
+      ) {
+        toast.error("Approved quantity cannot exceed requested quantity");
+        return;
+      }
+    }
     setProcessing(action);
     try {
       const response =
         action === "approve"
-          ? await materialRequestsApi.approve(id)
-          : await materialRequestsApi.reject(id);
+          ? await materialRequestsApi.approve(id, {
+              warehouseId: Number(approvalWarehouseId),
+              decisionNote: decisionNote.trim() || undefined,
+              items: confirming.request.items.map((item) => ({
+                itemId: item.itemId,
+                approvedQuantity: Number(approvedQuantities[item.itemId] ?? 0),
+              })),
+            })
+          : action === "reject"
+            ? await materialRequestsApi.reject(id, decisionNote.trim() || undefined)
+            : action === "issue"
+              ? await materialRequestsApi.issue(id)
+              : await materialRequestsApi.release(id);
 
       if (response.isSuccess) {
         toast.success(responseMessage(response.result, `Request #${id} ${action}d`));
@@ -449,8 +544,8 @@ function MaterialRequestsPage() {
                         Material {index + 1}
                       </Label>
                       <Select
-                        value={line.materialId}
-                        onValueChange={(value) => updateLine(line.key, { materialId: value })}
+                        value={line.variantKey}
+                        onValueChange={(value) => updateLine(line.key, { variantKey: value })}
                         disabled={materialsLoading || submitting}
                       >
                         <SelectTrigger aria-labelledby={`request-material-${line.key}`}>
@@ -459,17 +554,16 @@ function MaterialRequestsPage() {
                           />
                         </SelectTrigger>
                         <SelectContent>
-                          {materials.map((material) => (
+                          {variantOptions.map((variant) => (
                             <SelectItem
-                              key={material.materialId}
-                              value={String(material.materialId)}
+                              key={variant.key}
+                              value={variant.key}
                               disabled={lines.some(
                                 (other) =>
-                                  other.key !== line.key &&
-                                  other.materialId === String(material.materialId),
+                                  other.key !== line.key && other.variantKey === variant.key,
                               )}
                             >
-                              {material.materialName} ({material.unit})
+                              {variant.label} ({variant.unit})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -595,6 +689,8 @@ function MaterialRequestsPage() {
                   <SelectItem value="PENDING">Pending</SelectItem>
                   <SelectItem value="APPROVED">Approved</SelectItem>
                   <SelectItem value="REJECTED">Rejected</SelectItem>
+                  <SelectItem value="ISSUED">Issued</SelectItem>
+                  <SelectItem value="RELEASED">Released</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -693,13 +789,13 @@ function MaterialRequestsPage() {
                             <Eye className="mr-1 h-3.5 w-3.5" />
                             Details
                           </Button>
-                          {canReview && request.status === "PENDING" && (
+                          {canDecide && request.status === "PENDING" && (
                             <>
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 className="h-8 text-xs"
-                                onClick={() => setConfirming({ action: "approve", request })}
+                                onClick={() => openDecision("approve", request)}
                                 disabled={processing !== null}
                               >
                                 <Check className="mr-1 h-3.5 w-3.5" />
@@ -709,11 +805,33 @@ function MaterialRequestsPage() {
                                 size="sm"
                                 variant="ghost"
                                 className="h-8 text-xs text-destructive"
-                                onClick={() => setConfirming({ action: "reject", request })}
+                                onClick={() => openDecision("reject", request)}
                                 disabled={processing !== null}
                               >
                                 <X className="mr-1 h-3.5 w-3.5" />
                                 Reject
+                              </Button>
+                            </>
+                          )}
+                          {canDecide && request.status === "APPROVED" && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 text-xs"
+                                onClick={() => openDecision("issue", request)}
+                                disabled={processing !== null}
+                              >
+                                Issue
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 text-xs text-destructive"
+                                onClick={() => openDecision("release", request)}
+                                disabled={processing !== null}
+                              >
+                                Release
                               </Button>
                             </>
                           )}
@@ -790,6 +908,21 @@ function MaterialRequestsPage() {
                     )}
                   </div>
                 </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Warehouse</p>
+                  <p className="font-medium">
+                    {selectedRequest.warehouseName ??
+                      (selectedRequest.warehouseId
+                        ? `Warehouse #${selectedRequest.warehouseId}`
+                        : "Unassigned")}
+                  </p>
+                </div>
+                {selectedRequest.decisionNote && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Decision note</p>
+                    <p className="font-medium">{selectedRequest.decisionNote}</p>
+                  </div>
+                )}
               </div>
               <div className="overflow-hidden rounded-lg border">
                 <Table>
@@ -797,15 +930,28 @@ function MaterialRequestsPage() {
                     <TableRow>
                       <TableHead>Material</TableHead>
                       <TableHead className="text-right">Quantity</TableHead>
+                      <TableHead className="text-right">Approved</TableHead>
+                      <TableHead className="text-right">Issued</TableHead>
                       <TableHead>Needed by</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {(selectedRequest.items ?? []).map((item) => (
                       <TableRow key={item.itemId}>
-                        <TableCell className="font-medium">{item.materialName}</TableCell>
+                        <TableCell className="font-medium">
+                          {item.materialName}
+                          {item.variantName && (
+                            <p className="text-xs text-muted-foreground">{item.variantName}</p>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {item.quantity} {item.unit ?? ""}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {item.approvedQuantity} {item.unit ?? ""}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {item.issuedQuantity} {item.unit ?? ""}
                         </TableCell>
                         <TableCell>{formatDate(item.neededByDate)}</TableCell>
                       </TableRow>
@@ -817,16 +963,129 @@ function MaterialRequestsPage() {
           ) : null}
         </DialogContent>
       </Dialog>
-      <ConfirmDialog
+      <Dialog
         open={confirming !== null}
         onOpenChange={(open) => !open && !processing && setConfirming(null)}
-        title={`${confirming?.action === "approve" ? "Approve" : "Reject"} material request?`}
-        description={`This will ${confirming?.action === "approve" ? "issue reserved stock for" : "release reserved stock from"} request #${confirming?.request.requestId ?? ""}.`}
-        confirmLabel={confirming?.action === "approve" ? "Approve request" : "Reject request"}
-        destructive={confirming?.action === "reject"}
-        busy={processing !== null}
-        onConfirm={() => confirming && processRequest(confirming.action)}
-      />
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="capitalize">
+              {confirming?.action} material request #{confirming?.request.requestId}
+            </DialogTitle>
+          </DialogHeader>
+          {confirming?.action === "approve" && (
+            <div className="space-y-3">
+              <div>
+                <Label>Managed warehouse</Label>
+                <Select
+                  value={approvalWarehouseId}
+                  onValueChange={setApprovalWarehouseId}
+                  disabled={warehousesLoading || !!confirming.request.warehouseId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select warehouse" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {warehouses
+                      .filter(
+                        (warehouse) =>
+                          !confirming.request.warehouseId ||
+                          warehouse.warehouseId === confirming.request.warehouseId,
+                      )
+                      .map((warehouse) => (
+                        <SelectItem
+                          key={warehouse.warehouseId}
+                          value={String(warehouse.warehouseId)}
+                        >
+                          {warehouse.warehouseName}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                {confirming.request.warehouseId && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    This request is already assigned; its warehouse cannot be changed in the UI.
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                {confirming.request.items.map((item) => (
+                  <div
+                    key={item.itemId}
+                    className="grid grid-cols-[1fr_140px] items-end gap-3 rounded-lg border p-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{item.materialName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Requested {item.quantity} {item.unit ?? ""}
+                      </p>
+                    </div>
+                    <div>
+                      <Label htmlFor={`approved-${item.itemId}`}>Approve quantity</Label>
+                      <Input
+                        id={`approved-${item.itemId}`}
+                        type="number"
+                        min="0"
+                        max={item.quantity}
+                        step="0.01"
+                        value={approvedQuantities[item.itemId] ?? "0"}
+                        onChange={(event) =>
+                          setApprovedQuantities((current) => ({
+                            ...current,
+                            [item.itemId]: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {(confirming?.action === "approve" || confirming?.action === "reject") && (
+            <div>
+              <Label htmlFor="decision-note">Decision note</Label>
+              <Textarea
+                id="decision-note"
+                value={decisionNote}
+                onChange={(event) => setDecisionNote(event.target.value)}
+                maxLength={1000}
+              />
+            </div>
+          )}
+          {confirming?.action === "issue" && (
+            <p className="text-sm text-muted-foreground">
+              Reserved stock will leave the assigned warehouse and the request will be marked
+              issued.
+            </p>
+          )}
+          {confirming?.action === "release" && (
+            <p className="text-sm text-muted-foreground">
+              All active reservations will be released without issuing stock.
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setConfirming(null)}
+              disabled={processing !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={
+                confirming?.action === "reject" || confirming?.action === "release"
+                  ? "destructive"
+                  : "default"
+              }
+              onClick={() => confirming && processRequest(confirming.action)}
+              disabled={processing !== null}
+            >
+              {processing ? "Processing..." : `${confirming?.action ?? "Confirm"} request`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

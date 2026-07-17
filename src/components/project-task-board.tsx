@@ -68,7 +68,7 @@ type TaskForm = {
 };
 
 type TaskMaterialForm = {
-  materialId: string;
+  variantId: string;
   quantity: string;
 };
 
@@ -143,7 +143,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [materialAction, setMaterialAction] = useState<string | null>(null);
-  const [assignMaterialId, setAssignMaterialId] = useState("");
+  const [assignVariantId, setAssignVariantId] = useState("");
   const [assignMaterialQuantity, setAssignMaterialQuantity] = useState("1");
   const [reportPhoto, setReportPhoto] = useState<{
     url: string;
@@ -174,6 +174,19 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     enabled: !!session?.token,
     staleTime: 30_000,
   });
+
+  const variants = useMemo(
+    () =>
+      materials.flatMap((material) =>
+        material.variants
+          .filter((variant) => variant.isActive)
+          .map((variant) => ({
+            ...variant,
+            label: `${material.materialName} â€” ${variant.variantName}`,
+          })),
+      ),
+    [materials],
+  );
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.taskId === selectedTaskId) ?? null,
@@ -275,23 +288,23 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       return;
     }
     const materialRows = taskMaterials.map((item) => ({
-      materialId: Number(item.materialId),
+      variantId: Number(item.variantId),
       grossQuantityRequired: Number(item.quantity),
     }));
     if (
       materialRows.some(
         (item) =>
-          !Number.isInteger(item.materialId) ||
-          item.materialId <= 0 ||
+          !Number.isInteger(item.variantId) ||
+          item.variantId <= 0 ||
           !Number.isFinite(item.grossQuantityRequired) ||
           item.grossQuantityRequired <= 0,
       )
     ) {
-      toast.error("Every material requirement needs a material and quantity greater than 0");
+      toast.error("Every material requirement needs a variant and quantity greater than 0");
       return;
     }
-    if (new Set(materialRows.map((item) => item.materialId)).size !== materialRows.length) {
-      toast.error("A material can only appear once on a task");
+    if (new Set(materialRows.map((item) => item.variantId)).size !== materialRows.length) {
+      toast.error("A material variant can only appear once on a task");
       return;
     }
 
@@ -333,14 +346,14 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   };
 
   const assignMaterial = async () => {
-    if (!selectedTask || !assignMaterialId || Number(assignMaterialQuantity) <= 0) {
-      toast.error("Select a material and enter a quantity greater than 0");
+    if (!selectedTask || !assignVariantId || Number(assignMaterialQuantity) <= 0) {
+      toast.error("Select a material variant and enter a quantity greater than 0");
       return;
     }
     setMaterialAction(`assign-${selectedTask.taskId}`);
     try {
       const response = await tasksApi.assignMaterial(selectedTask.taskId, {
-        materialId: Number(assignMaterialId),
+        variantId: Number(assignVariantId),
         grossQuantityRequired: Number(assignMaterialQuantity),
       });
       if (!response.isSuccess) {
@@ -351,7 +364,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         return;
       }
       toast.success("Task material requirement saved");
-      setAssignMaterialId("");
+      setAssignVariantId("");
       setAssignMaterialQuantity("1");
       await refetchTasks();
       await Promise.all([
@@ -538,7 +551,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   size="sm"
                   variant="outline"
                   onClick={() =>
-                    setTaskMaterials((rows) => [...rows, { materialId: "", quantity: "1" }])
+                    setTaskMaterials((rows) => [...rows, { variantId: "", quantity: "1" }])
                   }
                   disabled={creatingTask}
                 >
@@ -550,8 +563,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
               ) : (
                 <div className="space-y-2">
                   {taskMaterials.map((row, index) => {
-                    const material = materials.find(
-                      (item) => item.materialId === Number(row.materialId),
+                    const variant = variants.find(
+                      (item) => item.variantId === Number(row.variantId),
                     );
                     return (
                       <div
@@ -559,23 +572,23 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_36px]"
                       >
                         <Select
-                          value={row.materialId}
+                          value={row.variantId}
                           onValueChange={(value) =>
                             setTaskMaterials((rows) =>
                               rows.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, materialId: value } : item,
+                                itemIndex === index ? { ...item, variantId: value } : item,
                               ),
                             )
                           }
                           disabled={creatingTask}
                         >
                           <SelectTrigger aria-label={`Material ${index + 1}`}>
-                            <SelectValue placeholder="Select material" />
+                            <SelectValue placeholder="Select material variant" />
                           </SelectTrigger>
                           <SelectContent>
-                            {materials.map((item) => (
-                              <SelectItem key={item.materialId} value={String(item.materialId)}>
-                                {item.materialName} ({item.unit})
+                            {variants.map((item) => (
+                              <SelectItem key={item.variantId} value={String(item.variantId)}>
+                                {item.label} ({item.unit})
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -598,9 +611,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                             disabled={creatingTask}
                             aria-label={`Quantity for material ${index + 1}`}
                           />
-                          {material?.unit && (
+                          {variant?.unit && (
                             <span className="pointer-events-none absolute right-3 top-2 text-xs text-muted-foreground">
-                              {material.unit}
+                              {variant.unit}
                             </span>
                           )}
                         </div>
@@ -770,10 +783,12 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   <div className="grid gap-2 sm:grid-cols-2">
                     {(selectedTask.materialRequirements ?? []).map((item) => (
                       <div
-                        key={item.materialId}
+                        key={item.variantId}
                         className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm"
                       >
-                        <span>{item.materialName}</span>
+                        <span>
+                          {item.materialName} â€” {item.variantName}
+                        </span>
                         <span className="font-medium tabular-nums">
                           {item.grossQuantityRequired.toLocaleString()} {item.unit}
                         </span>
@@ -783,14 +798,14 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                 )}
                 {canManageTasks && (
                   <div className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_160px_auto]">
-                    <Select value={assignMaterialId} onValueChange={setAssignMaterialId}>
+                    <Select value={assignVariantId} onValueChange={setAssignVariantId}>
                       <SelectTrigger aria-label="Material to assign">
-                        <SelectValue placeholder="Add or update material" />
+                        <SelectValue placeholder="Add or update variant" />
                       </SelectTrigger>
                       <SelectContent>
-                        {materials.map((item) => (
-                          <SelectItem key={item.materialId} value={String(item.materialId)}>
-                            {item.materialName} ({item.unit})
+                        {variants.map((item) => (
+                          <SelectItem key={item.variantId} value={String(item.variantId)}>
+                            {item.label} ({item.unit})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -806,7 +821,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                     <Button
                       variant="outline"
                       onClick={assignMaterial}
-                      disabled={materialAction !== null || !assignMaterialId}
+                      disabled={materialAction !== null || !assignVariantId}
                     >
                       Save requirement
                     </Button>
@@ -975,7 +990,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                             {formatDate(report.reportDate)}
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
-                            {report.engineerName || `User #${report.engineerId}`}
+                            {report.reportedByName || `User #${report.reportedByUserId}`}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-right tabular-nums">
                             +{report.progressIncrement}%
@@ -991,7 +1006,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                                     setReportPhoto({
                                       url: report.sitePhotoUrl!,
                                       date: report.reportDate,
-                                      reporter: report.engineerName || `User #${report.engineerId}`,
+                                      reporter:
+                                        report.reportedByName || `User #${report.reportedByUserId}`,
                                       notes: report.notes || "No notes provided.",
                                     })
                                   }

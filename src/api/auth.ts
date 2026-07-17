@@ -1,5 +1,4 @@
 import { apiClient } from "./client";
-import type { BackendRoleValue } from "./users";
 
 export const authApi = {
   /** POST /api/auth/login → returns JWT string in result */
@@ -13,10 +12,12 @@ export const authApi = {
     confirmPassword: string;
     firstName: string;
     lastName: string;
-    role: BackendRoleValue;
   }) => apiClient.post<number>("/api/auth/register", body),
 
   /** POST /api/auth/Verification */
   verify: (userId: number, verificationCode: string) =>
     apiClient.post("/api/auth/Verification", { userId, verificationCode }),
+
+  /** POST /api/auth/resend-verification */
+  resendVerification: (email: string) => apiClient.post("/api/auth/resend-verification", { email }),
 };

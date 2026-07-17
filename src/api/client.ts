@@ -57,7 +57,15 @@ async function parseResponse<T>(res: Response): Promise<ApiEnvelope<T>> {
     }
   }
 
-  if (isApiEnvelope(payload)) return payload as ApiEnvelope<T>;
+  if (isApiEnvelope(payload)) {
+    if (res.status === 401) logout();
+    return {
+      ...(payload as ApiEnvelope<T>),
+      // The transport status is authoritative now that controllers propagate
+      // ApiResponse.StatusCode instead of flattening failures to 200/400.
+      statusCode: res.status,
+    };
+  }
 
   if (!res.ok) {
     if (res.status === 401) logout();

@@ -55,7 +55,10 @@ function LoginPage() {
   }
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || !password.trim()) {
+      setError("Enter a valid email address and password");
+      return;
+    }
     setLoading(true);
     setError("");
     try {

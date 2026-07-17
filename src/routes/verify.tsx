@@ -19,10 +19,12 @@ function VerifyPage() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [email, setEmail] = useState("");
+  const [resending, setResending] = useState(false);
 
   const handleSubmit = async () => {
-    if (!userId.trim() || !code.trim()) {
-      toast.error("Both fields are required");
+    if (!Number.isInteger(Number(userId)) || Number(userId) <= 0 || !/^\d{6}$/.test(code.trim())) {
+      toast.error("Enter a valid user ID and six-digit verification code");
       return;
     }
     setLoading(true);
@@ -39,6 +41,26 @@ function VerifyPage() {
       toast.error("Verification failed — check your connection");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resend = async () => {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      toast.error("Enter the account email address");
+      return;
+    }
+    setResending(true);
+    try {
+      const response = await authApi.resendVerification(email.trim());
+      if (response.isSuccess) {
+        toast.success("If the account is eligible, a new code has been sent.");
+      } else {
+        toast.error(response.errorMessage ?? "Could not resend the verification code");
+      }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setResending(false);
     }
   };
 
@@ -117,6 +139,23 @@ function VerifyPage() {
                   "Verify Email"
                 )}
               </Button>
+
+              <div className="rounded-lg border p-3 space-y-2">
+                <Label htmlFor="resend-email">Need a new code?</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="resend-email"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    disabled={resending}
+                  />
+                  <Button variant="outline" onClick={resend} disabled={resending}>
+                    {resending ? "Sending..." : "Resend"}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
 

@@ -11,8 +11,8 @@ export type ProgressReportResponse = {
   reportId: number;
   taskId: number;
   taskName: string;
-  engineerId: number;
-  engineerName: string;
+  reportedByUserId: number;
+  reportedByName: string;
   reportDate: string;
   progressIncrement: number;
   notes?: string | null;

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Boxes, Calculator } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import { requireApiResult } from "@/api/client";
@@ -13,8 +14,30 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { QueryError } from "@/components/query-error";
+import { warehousesApi } from "@/api/warehouses";
+import { useSession } from "@/lib/session";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
+  const session = useSession();
+  const [warehouseId, setWarehouseId] = useState("");
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", "mrp-scope"],
+    queryFn: async () =>
+      requireApiResult(await warehousesApi.getAll(), "Could not load warehouses") ?? [],
+    enabled: projectId > 0 && (session?.role === "WAREHOUSE_MANAGER" || session?.role === "ADMIN"),
+  });
+  useEffect(() => {
+    if (session?.role === "WAREHOUSE_MANAGER" && !warehouseId && warehousesQuery.data?.[0]) {
+      setWarehouseId(String(warehousesQuery.data[0].warehouseId));
+    }
+  }, [session?.role, warehouseId, warehousesQuery.data]);
   const requirementsQuery = useQuery({
     queryKey: ["project-material-requirements", projectId],
     queryFn: async () =>
@@ -26,10 +49,13 @@ export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
     staleTime: 10_000,
   });
   const mrpQuery = useQuery({
-    queryKey: ["project-mrp", projectId],
+    queryKey: ["project-mrp", projectId, warehouseId],
     queryFn: async () =>
-      requireApiResult(await projectsApi.calculateMrp(projectId), "Could not calculate MRP") ?? [],
-    enabled: projectId > 0,
+      requireApiResult(
+        await projectsApi.calculateMrp(projectId, warehouseId ? Number(warehouseId) : undefined),
+        "Could not calculate MRP",
+      ) ?? [],
+    enabled: projectId > 0 && (session?.role !== "WAREHOUSE_MANAGER" || !!warehouseId),
     staleTime: 10_000,
   });
 
@@ -96,13 +122,32 @@ export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
               variant="outline"
               className="border-warning/40 bg-warning/10 text-warning-foreground"
             >
-              Estimate only
+              {warehouseId ? "Warehouse scoped" : "All warehouses"}
             </Badge>
+            {(session?.role === "WAREHOUSE_MANAGER" || session?.role === "ADMIN") && (
+              <Select
+                value={warehouseId || "ALL"}
+                onValueChange={(value) => setWarehouseId(value === "ALL" ? "" : value)}
+              >
+                <SelectTrigger className="w-48" aria-label="MRP warehouse scope">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {session?.role === "ADMIN" && <SelectItem value="ALL">All warehouses</SelectItem>}
+                  {(warehousesQuery.data ?? []).map((warehouse) => (
+                    <SelectItem key={warehouse.warehouseId} value={String(warehouse.warehouseId)}>
+                      {warehouse.warehouseName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-foreground" />
-            Quantities are still an estimate: reservation and on-order allocation are not scoped to
-            a specific project, and issued quantities are not deducted from gross demand.
+            MRP now deducts issued quantities and counts only this project&apos;s active
+            reservations and open orders. Warehouse managers are restricted to warehouses they
+            manage.
           </p>
         </CardHeader>
         <CardContent className="p-0">
@@ -119,6 +164,8 @@ export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
                 <TableRow>
                   <TableHead>Material</TableHead>
                   <TableHead className="text-right">Gross</TableHead>
+                  <TableHead className="text-right">Issued</TableHead>
+                  <TableHead className="text-right">Remaining</TableHead>
                   <TableHead className="text-right">On hand</TableHead>
                   <TableHead className="text-right">Reserved</TableHead>
                   <TableHead className="text-right">Available</TableHead>
@@ -128,14 +175,25 @@ export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {mrp.length === 0 && <EmptyRow columns={8} label="No MRP requirements" />}
+                {mrp.length === 0 && <EmptyRow columns={10} label="No MRP requirements" />}
                 {mrp.map((item) => {
                   const unit = item.unit || unitByMaterial.get(item.materialId) || "";
                   return (
-                    <TableRow key={item.materialId}>
-                      <TableCell className="font-medium">{item.materialName}</TableCell>
+                    <TableRow key={item.variantId || item.materialId}>
+                      <TableCell className="font-medium">
+                        {item.materialName}
+                        {item.variantName && (
+                          <p className="text-xs text-muted-foreground">{item.variantName}</p>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {item.totalGrossRequired.toLocaleString()} {unit}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {item.issuedToProjectTasks.toLocaleString()} {unit}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {item.remainingGrossRequired.toLocaleString()} {unit}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {item.currentInventory.toLocaleString()} {unit}
