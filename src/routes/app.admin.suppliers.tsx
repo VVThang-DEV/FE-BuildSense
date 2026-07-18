@@ -88,7 +88,7 @@ function SuppliersPage() {
       .filter((variant) => variant.isActive)
       .map((variant) => ({
         ...variant,
-        label: `${material.materialName} â€” ${variant.variantName}`,
+        label: `${material.materialName} - ${variant.variantName}`,
       })),
   );
 

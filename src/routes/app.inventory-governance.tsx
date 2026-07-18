@@ -12,6 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -27,6 +34,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+
+type ReviewTarget =
+  | {
+      kind: "adjustment";
+      id: number;
+      rowVersion: string;
+      approve: boolean;
+      note: string;
+    }
+  | {
+      kind: "count";
+      count: PhysicalCountResponse;
+      approve: boolean;
+      note: string;
+    };
 
 export const Route = createFileRoute("/app/inventory-governance")({
   head: () => ({ meta: [{ title: "Inventory Governance - BuildSense AI" }] }),
@@ -40,6 +63,7 @@ function InventoryGovernancePage() {
   const [warehouseId, setWarehouseId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [countValues, setCountValues] = useState<Record<number, string>>({});
+  const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
 
   const warehousesQuery = useQuery({
     queryKey: ["warehouses", "governance"],
@@ -70,21 +94,35 @@ function InventoryGovernancePage() {
     enabled: !!session?.token,
   });
 
-  const reviewAdjustment = async (adjustmentId: number, rowVersion: string, approve: boolean) => {
-    const reviewNote = window.prompt(`Optional ${approve ? "approval" : "rejection"} note`);
-    if (reviewNote === null) return;
-    setBusy(`adjustment-${adjustmentId}`);
+  const submitReview = async () => {
+    if (!reviewTarget) return;
+    const target = reviewTarget;
+    const targetId = target.kind === "adjustment" ? target.id : target.count.sessionId;
+    setBusy(`${target.kind}-${targetId}`);
     try {
-      const response = await warehousesApi.reviewAdjustment(
-        adjustmentId,
-        approve,
-        rowVersion,
-        reviewNote || undefined,
-      );
-      if (!response.isSuccess) toast.error(response.errorMessage ?? "Review failed");
-      else {
-        toast.success(`Adjustment ${approve ? "approved" : "rejected"}`);
-        await adjustmentsQuery.refetch();
+      const response =
+        target.kind === "adjustment"
+          ? await warehousesApi.reviewAdjustment(
+              target.id,
+              target.approve,
+              target.rowVersion,
+              target.note.trim() || undefined,
+            )
+          : await warehousesApi.reviewPhysicalCount(
+              target.count.sessionId,
+              target.approve,
+              target.count.rowVersion,
+              target.note.trim() || undefined,
+            );
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Review failed");
+      } else {
+        toast.success(
+          `${target.kind === "adjustment" ? "Adjustment" : "Physical count"} ${target.approve ? "approved" : "rejected"}`,
+        );
+        if (target.kind === "adjustment") await adjustmentsQuery.refetch();
+        else await countsQuery.refetch();
+        setReviewTarget(null);
       }
     } finally {
       setBusy(null);
@@ -129,27 +167,6 @@ function InventoryGovernancePage() {
       if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not submit count");
       else {
         toast.success("Physical count submitted for approval");
-        await countsQuery.refetch();
-      }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const reviewCount = async (count: PhysicalCountResponse, approve: boolean) => {
-    const reviewNote = window.prompt(`Optional ${approve ? "approval" : "rejection"} note`);
-    if (reviewNote === null) return;
-    setBusy(`count-${count.sessionId}`);
-    try {
-      const response = await warehousesApi.reviewPhysicalCount(
-        count.sessionId,
-        approve,
-        count.rowVersion,
-        reviewNote || undefined,
-      );
-      if (!response.isSuccess) toast.error(response.errorMessage ?? "Count review failed");
-      else {
-        toast.success(`Physical count ${approve ? "approved" : "rejected"}`);
         await countsQuery.refetch();
       }
     } finally {
@@ -206,7 +223,13 @@ function InventoryGovernancePage() {
                               variant="ghost"
                               disabled={!!busy}
                               onClick={() =>
-                                reviewAdjustment(item.adjustmentId, item.rowVersion, true)
+                                setReviewTarget({
+                                  kind: "adjustment",
+                                  id: item.adjustmentId,
+                                  rowVersion: item.rowVersion,
+                                  approve: true,
+                                  note: "",
+                                })
                               }
                             >
                               Approve
@@ -217,7 +240,13 @@ function InventoryGovernancePage() {
                               className="text-destructive"
                               disabled={!!busy}
                               onClick={() =>
-                                reviewAdjustment(item.adjustmentId, item.rowVersion, false)
+                                setReviewTarget({
+                                  kind: "adjustment",
+                                  id: item.adjustmentId,
+                                  rowVersion: item.rowVersion,
+                                  approve: false,
+                                  note: "",
+                                })
                               }
                             >
                               Reject
@@ -322,13 +351,30 @@ function InventoryGovernancePage() {
                   )}
                   {isAdmin && count.status === "PENDING_APPROVAL" && (
                     <>
-                      <Button disabled={!!busy} onClick={() => reviewCount(count, true)}>
+                      <Button
+                        disabled={!!busy}
+                        onClick={() =>
+                          setReviewTarget({
+                            kind: "count",
+                            count,
+                            approve: true,
+                            note: "",
+                          })
+                        }
+                      >
                         Approve
                       </Button>
                       <Button
                         variant="destructive"
                         disabled={!!busy}
-                        onClick={() => reviewCount(count, false)}
+                        onClick={() =>
+                          setReviewTarget({
+                            kind: "count",
+                            count,
+                            approve: false,
+                            note: "",
+                          })
+                        }
                       >
                         Reject
                       </Button>
@@ -340,6 +386,46 @@ function InventoryGovernancePage() {
           ))}
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={reviewTarget !== null}
+        onOpenChange={(open) => !open && !busy && setReviewTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {reviewTarget?.approve ? "Approve" : "Reject"}{" "}
+              {reviewTarget?.kind === "count" ? "physical count" : "inventory adjustment"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="governance-review-note">Review note (optional)</Label>
+            <Textarea
+              id="governance-review-note"
+              value={reviewTarget?.note ?? ""}
+              onChange={(event) =>
+                setReviewTarget((current) =>
+                  current ? { ...current, note: event.target.value } : current,
+                )
+              }
+              placeholder="Record the reason or any follow-up needed"
+              maxLength={1000}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={!!busy} onClick={() => setReviewTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={reviewTarget?.approve ? "default" : "destructive"}
+              disabled={!!busy}
+              onClick={submitReview}
+            >
+              {busy ? "Saving..." : reviewTarget?.approve ? "Approve" : "Reject"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

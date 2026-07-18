@@ -57,7 +57,6 @@ export const tasksApi = {
   create: (body: CreateTaskRequest) => apiClient.post<string>("/api/Task", body),
   getByProject: (projectId: number) =>
     apiClient.get<TaskResponse[]>(`/api/Task/project/${projectId}`),
-  getAssigned: () => apiClient.get<TaskResponse[]>("/api/Task/assigned"),
   update: (taskId: number, body: UpdateTaskRequest) =>
     apiClient.put<TaskResponse>(`/api/Task/${taskId}`, body),
   changeStatus: (taskId: number, action: "cancel" | "reject" | "reopen", rowVersion: string) =>

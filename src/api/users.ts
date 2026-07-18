@@ -9,6 +9,7 @@ export type AccountResponse = {
   lastName: string;
   email: string;
   phoneNumber: string | null;
+  imgUrl?: string | null;
   role: BackendRole;
 };
 
@@ -100,8 +101,12 @@ export const usersApi = {
           : (response.result?.userId ?? response.result?.UserId ?? 0),
     };
   },
-  updateProfile: (body: { firstName?: string; lastName?: string; phoneNumber?: string }) =>
-    apiClient.put<string>("/api/useraccount/UpdateUserProfile", body),
+  updateProfile: (body: {
+    firstName?: string;
+    lastName?: string;
+    phoneNumber?: string;
+    imgUrl?: string;
+  }) => apiClient.put<string>("/api/useraccount/UpdateUserProfile", body),
   /** Admin only */
   updateRole: (id: number, body: { role: BackendRoleValue }) =>
     apiClient.put<string>(`/api/useraccount/UpdateUserRoleProfile/${id}`, body),

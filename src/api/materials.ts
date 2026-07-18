@@ -19,6 +19,11 @@ export type MaterialVariantResponse = {
   variantName: string;
   sku?: string | null;
   brand?: string | null;
+  grade?: string | null;
+  size?: string | null;
+  color?: string | null;
+  specification?: string | null;
+  packaging?: string | null;
   unit: string;
   isActive: boolean;
 };
@@ -58,6 +63,11 @@ function normalizeMaterial(material: RawMaterialResponse): MaterialResponse {
       variantName: variant.variantName ?? "Standard",
       sku: variant.sku ?? null,
       brand: variant.brand ?? null,
+      grade: variant.grade ?? null,
+      size: variant.size ?? null,
+      color: variant.color ?? null,
+      specification: variant.specification ?? null,
+      packaging: variant.packaging ?? null,
       unit: variant.unit ?? defaultUnit,
       isActive: variant.isActive ?? true,
     })),
@@ -78,21 +88,34 @@ export const materialsApi = {
   },
   getVariants: (materialId: number) =>
     apiClient.get<MaterialVariantResponse[]>(`/api/materials/${materialId}/variants`),
-  create: async (body: { materialName: string; unit: string; categoryId: number }) => {
+  create: async (body: {
+    materialName: string;
+    unit: string;
+    categoryId: number;
+    description?: string;
+    isActive?: boolean;
+  }) => {
     const response = await apiClient.post<RawMaterialResponse>("/api/materials", {
       materialName: body.materialName,
       defaultUnit: body.unit,
       categoryId: body.categoryId,
+      description: body.description,
+      isActive: body.isActive ?? true,
     });
     return {
       ...response,
       result: response.result ? normalizeMaterial(response.result) : response.result,
     };
   },
-  update: (id: number, body: { materialName: string; unit: string }) =>
+  update: (
+    id: number,
+    body: { materialName: string; unit: string; description?: string; isActive: boolean },
+  ) =>
     apiClient.put<string>(`/api/materials/${id}`, {
       materialName: body.materialName,
       defaultUnit: body.unit,
+      description: body.description,
+      isActive: body.isActive,
     }),
   delete: (id: number) => apiClient.delete<string>(`/api/materials/${id}`),
   createVariant: (body: MaterialVariantRequest) =>

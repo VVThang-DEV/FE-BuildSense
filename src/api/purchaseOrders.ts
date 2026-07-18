@@ -42,11 +42,9 @@ export type PurchaseOrderResponse = {
   supplierName: string;
   warehouseId: number;
   warehouseName: string;
-  userAccountId: number;
   totalAmount: number;
   orderDate: string;
   status: PurchaseOrderStatus;
-  deliveryDate: string | null;
   expectedDeliveryDate: string | null;
   approvedByUserId?: number | null;
   approvedAt?: string | null;
@@ -137,12 +135,10 @@ function normalizePurchaseOrder(po: RawPurchaseOrderResponse): PurchaseOrderResp
     supplierName: po.supplierName ?? po.supplier?.supplierName ?? "",
     warehouseId: po.warehouseId ?? 0,
     warehouseName: po.warehouseName ?? "",
-    userAccountId: po.userAccountId ?? 0,
     totalAmount: po.totalAmount ?? 0,
     orderDate: po.orderDate ?? "",
     status: normalizeStatus(po.status),
-    deliveryDate: po.deliveryDate ?? null,
-    expectedDeliveryDate: po.expectedDeliveryDate ?? po.deliveryDate ?? null,
+    expectedDeliveryDate: po.expectedDeliveryDate ?? null,
     approvedByUserId: po.approvedByUserId ?? null,
     approvedAt: po.approvedAt ?? null,
     note: po.note ?? null,
@@ -184,11 +180,11 @@ export const purchaseOrdersApi = {
       "/api/purchaseorders/from-shortages",
       body,
     ),
-  approve: (id: number) => apiClient.put<string>(`/api/purchaseorders/${id}/approve`),
-  reject: (id: number) => apiClient.put<string>(`/api/purchaseorders/${id}/reject`),
+  approve: (id: number) =>
+    apiClient.put<PurchaseOrderResponse>(`/api/purchaseorders/${id}/approve`),
+  reject: (id: number) => apiClient.put<PurchaseOrderResponse>(`/api/purchaseorders/${id}/reject`),
   receive: (poId: number, body: ReceivePurchaseOrderRequest) =>
     apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/receive`, body),
-  ship: (poId: number) => apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/ship`),
-  cancel: (poId: number) =>
-    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/cancel`),
+  ship: (poId: number) => apiClient.post<string>(`/api/purchaseorders/${poId}/ship`),
+  cancel: (poId: number) => apiClient.post<string>(`/api/purchaseorders/${poId}/cancel`),
 };

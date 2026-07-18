@@ -36,7 +36,7 @@ export const ROLE_HOME: Record<Role, string> = {
   ADMIN: "/app/dashboard",
   PM: "/app/dashboard",
   WAREHOUSE_MANAGER: "/app/dashboard",
-  SUPPLIER: "/app/admin/suppliers",
+  SUPPLIER: "/app/profile",
   CUSTOMER: "/app/portal",
 };
 

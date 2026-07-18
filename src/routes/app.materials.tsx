@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -46,9 +48,17 @@ type MaterialForm = {
   materialName: string;
   unit: string;
   categoryId: string;
+  description: string;
+  isActive: boolean;
 };
 
-const EMPTY_FORM: MaterialForm = { materialName: "", unit: "", categoryId: "" };
+const EMPTY_FORM: MaterialForm = {
+  materialName: "",
+  unit: "",
+  categoryId: "",
+  description: "",
+  isActive: true,
+};
 
 function MaterialsPage() {
   const session = useSession();
@@ -64,6 +74,11 @@ function MaterialsPage() {
     variantName: "",
     sku: "",
     brand: "",
+    grade: "",
+    size: "",
+    color: "",
+    specification: "",
+    packaging: "",
     unit: "",
   });
 
@@ -105,6 +120,8 @@ function MaterialsPage() {
       materialName: material.materialName,
       unit: material.unit,
       categoryId: String(material.categoryId),
+      description: material.description ?? "",
+      isActive: material.isActive,
     });
     setOpen(true);
   };
@@ -121,11 +138,15 @@ function MaterialsPage() {
         ? await materialsApi.update(editing.materialId, {
             materialName: form.materialName.trim(),
             unit: form.unit.trim(),
+            description: form.description.trim() || undefined,
+            isActive: form.isActive,
           })
         : await materialsApi.create({
             materialName: form.materialName.trim(),
             unit: form.unit.trim(),
             categoryId: Number(form.categoryId),
+            description: form.description.trim() || undefined,
+            isActive: form.isActive,
           });
 
       if (response.isSuccess) {
@@ -162,7 +183,17 @@ function MaterialsPage() {
 
   const openVariant = (material: MaterialResponse) => {
     setVariantMaterial(material);
-    setVariantForm({ variantName: "", sku: "", brand: "", unit: material.defaultUnit });
+    setVariantForm({
+      variantName: "",
+      sku: "",
+      brand: "",
+      grade: "",
+      size: "",
+      color: "",
+      specification: "",
+      packaging: "",
+      unit: material.defaultUnit,
+    });
   };
 
   const submitVariant = async () => {
@@ -177,6 +208,11 @@ function MaterialsPage() {
         variantName: variantForm.variantName.trim(),
         sku: variantForm.sku.trim() || undefined,
         brand: variantForm.brand.trim() || undefined,
+        grade: variantForm.grade.trim() || undefined,
+        size: variantForm.size.trim() || undefined,
+        color: variantForm.color.trim() || undefined,
+        specification: variantForm.specification.trim() || undefined,
+        packaging: variantForm.packaging.trim() || undefined,
         unit: variantForm.unit.trim(),
         isActive: true,
       });
@@ -254,6 +290,35 @@ function MaterialsPage() {
                 disabled={saving}
               />
             </div>
+            <div>
+              <Label htmlFor="material-description">Description</Label>
+              <Textarea
+                id="material-description"
+                value={form.description}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, description: event.target.value }))
+                }
+                maxLength={1000}
+                disabled={saving}
+              />
+            </div>
+            {editing && (
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <Label htmlFor="material-active">Active material</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Inactive materials remain visible but cannot receive new variants.
+                  </p>
+                </div>
+                <Switch
+                  id="material-active"
+                  checked={form.isActive}
+                  onCheckedChange={(checked) =>
+                    setForm((current) => ({ ...current, isActive: checked }))
+                  }
+                />
+              </div>
+            )}
             {!editing && (
               <div>
                 <Label id="material-category-label">Category</Label>
@@ -341,6 +406,35 @@ function MaterialsPage() {
                 maxLength={150}
               />
             </div>
+            {(["grade", "size", "color", "packaging"] as const).map((field) => (
+              <div key={field}>
+                <Label htmlFor={`variant-${field}`} className="capitalize">
+                  {field}
+                </Label>
+                <Input
+                  id={`variant-${field}`}
+                  value={variantForm[field]}
+                  onChange={(event) =>
+                    setVariantForm((current) => ({ ...current, [field]: event.target.value }))
+                  }
+                  maxLength={150}
+                />
+              </div>
+            ))}
+            <div className="sm:col-span-2">
+              <Label htmlFor="variant-specification">Specification</Label>
+              <Textarea
+                id="variant-specification"
+                value={variantForm.specification}
+                onChange={(event) =>
+                  setVariantForm((current) => ({
+                    ...current,
+                    specification: event.target.value,
+                  }))
+                }
+                maxLength={1000}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setVariantMaterial(null)} disabled={saving}>
@@ -396,11 +490,40 @@ function MaterialsPage() {
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {material.materialId}
                     </TableCell>
-                    <TableCell className="font-medium">{material.materialName}</TableCell>
+                    <TableCell>
+                      <p className="font-medium">{material.materialName}</p>
+                      {material.description && (
+                        <p className="max-w-xs truncate text-xs text-muted-foreground">
+                          {material.description}
+                        </p>
+                      )}
+                    </TableCell>
                     <TableCell>{material.unit}</TableCell>
                     <TableCell className="text-sm">
                       {material.variants.length > 0 ? (
-                        material.variants.map((variant) => variant.variantName).join(", ")
+                        <div className="space-y-1">
+                          {material.variants.map((variant) => {
+                            const attributes = [
+                              variant.brand,
+                              variant.grade,
+                              variant.size,
+                              variant.color,
+                              variant.packaging,
+                            ].filter(Boolean);
+                            return (
+                              <div key={variant.variantId}>
+                                <p>{variant.variantName}</p>
+                                {(attributes.length > 0 || variant.specification) && (
+                                  <p className="max-w-md truncate text-xs text-muted-foreground">
+                                    {[...attributes, variant.specification]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       ) : (
                         <span className="text-destructive">No active variant</span>
                       )}

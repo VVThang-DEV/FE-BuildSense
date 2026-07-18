@@ -1,18 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Plus, Eye, History, RotateCcw, SlidersHorizontal, Warehouse } from "lucide-react";
+import { Plus, Warehouse } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -22,15 +14,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
 import { warehousesApi, type InventoryAdjustmentReason } from "@/api/warehouses";
 import { usersApi } from "@/api/users";
 import { materialsApi } from "@/api/materials";
+import { materialRequestsApi } from "@/api/materialRequests";
 import { requireApiResult } from "@/api/client";
 import { Textarea } from "@/components/ui/textarea";
+import { WarehouseInventoryWorkspace } from "@/components/warehouse-inventory-workspace";
 import {
   Select,
   SelectContent,
@@ -107,13 +100,7 @@ function WarehousesPage() {
     staleTime: 30_000,
   });
 
-  const {
-    data: inventory,
-    isLoading: invLoading,
-    isError: inventoryError,
-    error: inventoryErrorValue,
-    refetch: refetchInventory,
-  } = useQuery({
+  const { data: inventory, refetch: refetchInventory } = useQuery({
     queryKey: ["warehouse-inventory", selectedId],
     queryFn: async () => {
       const r = await warehousesApi.getInventory(selectedId!);
@@ -127,7 +114,7 @@ function WarehousesPage() {
     queryKey: ["materials", "warehouse-adjustment"],
     queryFn: async () =>
       requireApiResult(await materialsApi.getAll(), "Could not load material variants") ?? [],
-    enabled: isLive && canAdjustInventory && (adjusting || returning),
+    enabled: isLive && canAdjustInventory && adjusting,
     staleTime: 30_000,
   });
   const variants = (materialsQuery.data ?? []).flatMap((material) =>
@@ -135,7 +122,7 @@ function WarehousesPage() {
       .filter((variant) => variant.isActive)
       .map((variant) => ({
         ...variant,
-        label: `${material.materialName} â€” ${variant.variantName}`,
+        label: `${material.materialName} - ${variant.variantName}`,
       })),
   );
 
@@ -149,6 +136,26 @@ function WarehousesPage() {
     enabled: selectedId !== null,
     staleTime: 10_000,
   });
+
+  const returnRequestsQuery = useQuery({
+    queryKey: ["material-requests", "return-eligible", selectedId],
+    queryFn: async () =>
+      requireApiResult(
+        await materialRequestsApi.getAll(),
+        "Could not load issued material requests",
+      ) ?? [],
+    enabled: isLive && canAdjustInventory && returning && selectedId !== null,
+    staleTime: 10_000,
+  });
+  const eligibleReturnRequests = (returnRequestsQuery.data ?? []).filter(
+    (request) => request.status === "ISSUED" && request.warehouseId === selectedId,
+  );
+  const selectedReturnRequest = eligibleReturnRequests.find(
+    (request) => request.requestId === Number(inventoryReturn.materialRequestId),
+  );
+  const returnableItems = (selectedReturnRequest?.items ?? []).filter(
+    (item) => item.issuedQuantity > 0,
+  );
 
   const submitCreate = async () => {
     if (!form.warehouseName.trim() || !form.location.trim() || !form.managerId) {
@@ -216,7 +223,7 @@ function WarehousesPage() {
       return;
     }
     if (!Number.isInteger(materialRequestId) || materialRequestId <= 0) {
-      toast.error("An issued material request ID is required");
+      toast.error("Select an issued material request");
       return;
     }
     const current = inventory?.find((item) => item.variantId === variantId);
@@ -257,9 +264,9 @@ function WarehousesPage() {
   return (
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
-        section="Admin"
-        title="Warehouses"
-        description="Manage material warehouses and view real-time inventory levels."
+        section="Inventory"
+        title="Warehouse Inventory"
+        description="Monitor current stock, availability, reservations, replenishment, and inventory movement by warehouse."
         actions={
           isLive && canCreateWarehouse ? (
             <Button size="sm" className="h-8 text-xs" onClick={() => setCreating(true)}>
@@ -430,20 +437,65 @@ function WarehousesPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Material variant</Label>
+              <Label>Issued material request</Label>
+              <Select
+                value={inventoryReturn.materialRequestId}
+                onValueChange={(materialRequestId) =>
+                  setInventoryReturn((current) => ({
+                    ...current,
+                    materialRequestId,
+                    variantId: "",
+                  }))
+                }
+                disabled={returnRequestsQuery.isLoading || returnRequestsQuery.isError}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      returnRequestsQuery.isLoading
+                        ? "Loading issued requests..."
+                        : "Select issued request"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {eligibleReturnRequests.map((request) => (
+                    <SelectItem key={request.requestId} value={String(request.requestId)}>
+                      Request #{request.requestId} · Project #{request.projectId} ·{" "}
+                      {new Date(request.requestDate).toLocaleDateString()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {returnRequestsQuery.isError ? (
+                <p className="mt-1 text-xs text-destructive">
+                  {returnRequestsQuery.error instanceof Error
+                    ? returnRequestsQuery.error.message
+                    : "Could not load issued material requests"}
+                </p>
+              ) : returnRequestsQuery.isSuccess && eligibleReturnRequests.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This warehouse has no issued material requests eligible for return.
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <Label>Issued material</Label>
               <Select
                 value={inventoryReturn.variantId}
                 onValueChange={(variantId) =>
                   setInventoryReturn((current) => ({ ...current, variantId }))
                 }
+                disabled={!selectedReturnRequest}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select returned variant" />
+                  <SelectValue placeholder="Select returned material" />
                 </SelectTrigger>
                 <SelectContent>
-                  {variants.map((variant) => (
-                    <SelectItem key={variant.variantId} value={String(variant.variantId)}>
-                      {variant.label} ({variant.unit})
+                  {returnableItems.map((item) => (
+                    <SelectItem key={item.itemId} value={String(item.variantId)}>
+                      {item.materialName} — {item.variantName} · issued {item.issuedQuantity}{" "}
+                      {item.unit ?? "units"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -458,22 +510,9 @@ function WarehousesPage() {
                 step="0.01"
                 value={inventoryReturn.quantity}
                 onChange={(event) =>
-                  setInventoryReturn((current) => ({ ...current, quantity: event.target.value }))
-                }
-              />
-            </div>
-            <div>
-              <Label htmlFor="return-request-id">Issued material request ID</Label>
-              <Input
-                id="return-request-id"
-                type="number"
-                min="1"
-                step="1"
-                value={inventoryReturn.materialRequestId}
-                onChange={(event) =>
                   setInventoryReturn((current) => ({
                     ...current,
-                    materialRequestId: event.target.value,
+                    quantity: event.target.value,
                   }))
                 }
               />
@@ -544,188 +583,50 @@ function WarehousesPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="grid lg:grid-cols-[1fr_420px] gap-4">
-        {/* Warehouse list */}
+      {!isLive ? (
         <Card className="shadow-sm">
-          <CardContent className="p-0">
-            {!isLive ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">
-                Sign in with a real account to view warehouses.
-              </div>
-            ) : isLoading ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">Loading…</div>
-            ) : isError ? (
-              <QueryError
-                message={error instanceof Error ? error.message : undefined}
-                onRetry={() => refetch()}
-              />
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Warehouse</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead className="text-right">Inventory</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(warehouses ?? []).length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                        No warehouses yet — create one above
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {(warehouses ?? []).map((w) => (
-                    <TableRow
-                      key={w.warehouseId}
-                      className={selectedId === w.warehouseId ? "bg-muted/50" : ""}
-                    >
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Warehouse className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="font-medium">{w.warehouseName}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {w.location || "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant={selectedId === w.warehouseId ? "secondary" : "outline"}
-                          className="h-7 text-xs"
-                          onClick={() =>
-                            setSelectedId(selectedId === w.warehouseId ? null : w.warehouseId)
-                          }
-                        >
-                          <Eye className="h-3 w-3 mr-1" />
-                          {selectedId === w.warehouseId ? "Hide" : "View"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">
+            Sign in with a backend account to view warehouse inventory.
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
+        <Card className="shadow-sm">
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">
+            Loading warehouses...
+          </CardContent>
+        </Card>
+      ) : isError ? (
+        <Card className="shadow-sm">
+          <QueryError
+            message={error instanceof Error ? error.message : undefined}
+            onRetry={() => refetch()}
+          />
+        </Card>
+      ) : (warehouses ?? []).length === 0 ? (
+        <Card className="shadow-sm">
+          <CardContent className="flex flex-col items-center p-10 text-center">
+            <Warehouse className="mb-3 h-9 w-9 text-muted-foreground" />
+            <p className="font-medium">No warehouses configured</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Create a warehouse and assign a Warehouse Manager to begin tracking stock.
+            </p>
+            {canCreateWarehouse && (
+              <Button className="mt-4" onClick={() => setCreating(true)}>
+                <Plus className="mr-1.5 h-4 w-4" /> New warehouse
+              </Button>
             )}
           </CardContent>
         </Card>
-
-        {/* Inventory panel */}
-        {selectedId && (
-          <Card className="shadow-sm">
-            <CardHeader className="pb-2 border-b">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Warehouse className="h-4 w-4 text-primary" />
-                  {warehouses?.find((w) => w.warehouseId === selectedId)?.warehouseName ??
-                    "Inventory"}
-                </CardTitle>
-                {canAdjustInventory && (
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="outline" onClick={() => setReturning(true)}>
-                      <RotateCcw className="mr-1 h-3.5 w-3.5" /> Return
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setAdjusting(true)}>
-                      <SlidersHorizontal className="mr-1 h-3.5 w-3.5" /> Adjust
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {invLoading ? (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  Loading inventory…
-                </div>
-              ) : inventoryError ? (
-                <QueryError
-                  message={
-                    inventoryErrorValue instanceof Error ? inventoryErrorValue.message : undefined
-                  }
-                  onRetry={() => refetchInventory()}
-                />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Material</TableHead>
-                      <TableHead>Unit</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(inventory ?? []).length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={3} className="text-center py-6 text-muted-foreground">
-                          Warehouse is empty
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    {(inventory ?? []).map((item) => (
-                      <TableRow key={item.inventoryId}>
-                        <TableCell className="font-medium">
-                          {item.material?.materialName ?? `Material #${item.materialId}`}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {item.material?.unit ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant="outline" className="tabular-nums">
-                            {item.quantity}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-              <div className="border-t p-3">
-                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
-                  <History className="h-3.5 w-3.5" /> Recent transactions
-                </p>
-                {transactionsQuery.isLoading ? (
-                  <p className="text-xs text-muted-foreground">Loading transactions...</p>
-                ) : transactionsQuery.isError ? (
-                  <p className="text-xs text-destructive">Could not load the transaction log.</p>
-                ) : (transactionsQuery.data ?? []).length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No inventory transactions yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {(transactionsQuery.data ?? []).slice(0, 8).map((transaction) => (
-                      <div
-                        key={transaction.transactionId}
-                        className="flex items-start justify-between gap-2 rounded border p-2 text-xs"
-                      >
-                        <div>
-                          <p className="font-medium">{transaction.transactionType}</p>
-                          <p className="text-muted-foreground">
-                            Variant #{transaction.variantId}
-                            {transaction.note ? ` â€” ${transaction.note}` : ""}
-                          </p>
-                        </div>
-                        <div className="text-right tabular-nums">
-                          <p
-                            className={
-                              transaction.quantity > 0 ? "text-success" : "text-destructive"
-                            }
-                          >
-                            {transaction.quantity > 0 ? "+" : ""}
-                            {transaction.quantity}
-                          </p>
-                          <p className="text-muted-foreground">
-                            {new Date(transaction.transactionDate).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      ) : (
+        <WarehouseInventoryWorkspace
+          warehouses={warehouses ?? []}
+          selectedId={selectedId}
+          onSelectWarehouse={setSelectedId}
+          canAdjustInventory={canAdjustInventory}
+          onAdjust={() => setAdjusting(true)}
+          onReturn={() => setReturning(true)}
+        />
+      )}
     </div>
   );
 }

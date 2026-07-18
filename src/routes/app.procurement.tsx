@@ -54,6 +54,7 @@ import { suppliersApi } from "@/api/suppliers";
 import { warehousesApi } from "@/api/warehouses";
 import { requireApiResult } from "@/api/client";
 import { materialRequestsApi } from "@/api/materialRequests";
+import { materialsApi } from "@/api/materials";
 
 export const Route = createFileRoute("/app/procurement")({
   head: () => ({ meta: [{ title: "Procurement - BuildSense AI" }] }),
@@ -81,14 +82,8 @@ function formatMoney(value: number, currency = "VND"): string {
   return `${value.toLocaleString()} ${currency}`;
 }
 
-function ProcurementPage() {
-  const session = useSession();
-  const isLive = !!session?.token;
-  const canCreate = session?.role === "WAREHOUSE_MANAGER";
-  const canApproveOrReject = session?.role === "ADMIN" || session?.role === "PM";
-  const canImport = session?.role === "WAREHOUSE_MANAGER";
-  const [creating, setCreating] = useState(false);
-  const [newPO, setNewPO] = useState({
+function emptyPOForm() {
+  return {
     projectId: "",
     supplierId: "",
     warehouseId: "",
@@ -97,7 +92,20 @@ function ProcurementPage() {
     materialId: "",
     quantity: "1",
     unitPrice: "0",
-  });
+    expectedDeliveryDate: "",
+    note: "",
+  };
+}
+
+function ProcurementPage() {
+  const session = useSession();
+  const isLive = !!session?.token;
+  const canCreate = session?.role === "WAREHOUSE_MANAGER";
+  const canApproveOrReject = session?.role === "ADMIN" || session?.role === "PM";
+  const canImport = session?.role === "WAREHOUSE_MANAGER";
+  const [creating, setCreating] = useState(false);
+  const [createMode, setCreateMode] = useState<"shortage" | "replenishment">("shortage");
+  const [newPO, setNewPO] = useState(emptyPOForm);
   const [importOpen, setImportOpen] = useState(false);
   const [importPOId, setImportPOId] = useState<number | null>(null);
   const [receiptQuantities, setReceiptQuantities] = useState<Record<number, string>>({});
@@ -106,6 +114,7 @@ function ProcurementPage() {
   const [receiptFinalDelivery, setReceiptFinalDelivery] = useState(false);
   const [receiptNote, setReceiptNote] = useState("");
   const [rejectPOId, setRejectPOId] = useState<number | null>(null);
+  const [cancelPOId, setCancelPOId] = useState<number | null>(null);
   const [selectedPOId, setSelectedPOId] = useState<number | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
@@ -141,9 +150,21 @@ function ProcurementPage() {
     queryKey: ["warehouses"],
     queryFn: async () =>
       requireApiResult(await warehousesApi.getAll(), "Could not load warehouses") ?? [],
-    enabled: isLive,
+    enabled: isLive && canCreate,
   });
-  const { data: liveMaterialRequests } = useQuery({
+  const { data: liveMaterials } = useQuery({
+    queryKey: ["materials", "procurement-variants"],
+    queryFn: async () =>
+      requireApiResult(await materialsApi.getAll(), "Could not load material variants") ?? [],
+    enabled: isLive && canCreate,
+  });
+  const {
+    data: liveMaterialRequests,
+    isLoading: shortagesLoading,
+    isError: shortagesError,
+    error: shortagesErrorValue,
+    refetch: refetchShortages,
+  } = useQuery({
     queryKey: ["material-requests", "procurement-shortages"],
     queryFn: async () =>
       requireApiResult(await materialRequestsApi.getAll(), "Could not load material shortages") ??
@@ -202,14 +223,16 @@ function ProcurementPage() {
     }
   };
 
-  const cancel = async (poId: number) => {
-    if (!window.confirm(`Cancel PO #${poId}?`)) return;
+  const cancel = async () => {
+    if (!cancelPOId) return;
+    const poId = cancelPOId;
     setBusyAction(`cancel-${poId}`);
     try {
       const response = await purchaseOrdersApi.cancel(poId);
       if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not cancel PO");
       else {
         toast.success(`PO #${poId} cancelled`);
+        setCancelPOId(null);
         await refetchPOs();
       }
     } finally {
@@ -283,8 +306,18 @@ function ProcurementPage() {
   };
 
   const submitCreate = async () => {
-    if (!newPO.projectId || !newPO.supplierId || !newPO.warehouseId || !newPO.requestItemId) {
-      toast.error("Select an approved material-request shortage and supplier");
+    if (
+      !newPO.projectId ||
+      !newPO.supplierId ||
+      !newPO.warehouseId ||
+      !newPO.variantId ||
+      !newPO.materialId
+    ) {
+      toast.error("Select a project, warehouse, material variant, and supplier");
+      return;
+    }
+    if (createMode === "shortage" && !newPO.requestItemId) {
+      toast.error("Select an approved material-request shortage");
       return;
     }
     const quantity = Number(newPO.quantity);
@@ -300,39 +333,41 @@ function ProcurementPage() {
       toast.error("Unit price cannot be negative");
       return;
     }
-    if (!selectedShortage || quantity > selectedShortage.shortage) {
+    if (createMode === "shortage" && (!selectedShortage || quantity > selectedShortage.shortage)) {
       toast.error("Quantity cannot exceed the selected request shortage");
       return;
     }
     setBusyAction("create");
     try {
-      const response = await purchaseOrdersApi.createFromShortages({
+      const request = {
         projectId: Number(newPO.projectId),
         supplierId: Number(newPO.supplierId),
         warehouseId: Number(newPO.warehouseId),
+        expectedDeliveryDate: newPO.expectedDeliveryDate || undefined,
+        note: newPO.note.trim() || undefined,
         items: [
           {
             variantId: Number(newPO.variantId),
             materialId: Number(newPO.materialId),
-            requestItemId: Number(newPO.requestItemId),
+            ...(createMode === "shortage" ? { requestItemId: Number(newPO.requestItemId) } : {}),
             quantity,
             unitPrice,
           },
         ],
-      });
+      };
+      const response =
+        createMode === "shortage"
+          ? await purchaseOrdersApi.createFromShortages(request)
+          : await purchaseOrdersApi.create(request);
       if (response.isSuccess) {
-        toast.success("Purchase order created");
+        toast.success(
+          createMode === "shortage"
+            ? "Shortage purchase order created"
+            : "Stock replenishment purchase order created",
+        );
         setCreating(false);
-        setNewPO({
-          projectId: "",
-          supplierId: "",
-          warehouseId: "",
-          requestItemId: "",
-          variantId: "",
-          materialId: "",
-          quantity: "1",
-          unitPrice: "0",
-        });
+        setNewPO(emptyPOForm());
+        setCreateMode("shortage");
         refetchPOs();
       } else {
         toast.error(
@@ -369,19 +404,49 @@ function ProcurementPage() {
     liveSuppliers?.find((supplier) => supplier.supplierId === id)?.companyName ?? `#${id}`;
   const selectedPO = scopedPOs.find((po) => po.poId === selectedPOId) ?? null;
   const selectedImportPO = scopedPOs.find((po) => po.poId === importPOId) ?? null;
+  const orderedByRequestItem = new Map<number, number>();
+  scopedPOs
+    .filter((po) => po.status !== "REJECTED" && po.status !== "CANCELLED")
+    .flatMap((po) => po.items)
+    .forEach((item) => {
+      if (!item.requestItemId) return;
+      orderedByRequestItem.set(
+        item.requestItemId,
+        (orderedByRequestItem.get(item.requestItemId) ?? 0) + item.quantity,
+      );
+    });
+  const shortageStatuses = new Set([
+    "APPROVED",
+    "PARTIALLY_APPROVED",
+    "ISSUED",
+    "PARTIALLY_ISSUED",
+  ]);
   const shortageOptions = (liveMaterialRequests ?? []).flatMap((request) =>
-    request.status === "APPROVED" || request.status === "ISSUED"
+    shortageStatuses.has(request.status)
       ? request.items
-          .filter((item) => item.quantity - item.approvedQuantity > 0 && !!request.warehouseId)
           .map((item) => ({
             request,
             item,
-            shortage: item.quantity - item.approvedQuantity,
+            shortage:
+              item.quantity - item.approvedQuantity - (orderedByRequestItem.get(item.itemId) ?? 0),
           }))
+          .filter((option) => option.shortage > 0 && !!request.warehouseId)
       : [],
   );
   const selectedShortage = shortageOptions.find(
     (option) => option.item.itemId === Number(newPO.requestItemId),
+  );
+  const replenishmentVariants = (liveMaterials ?? []).flatMap((material) =>
+    material.variants
+      .filter((variant) => variant.isActive)
+      .map((variant) => ({
+        ...variant,
+        materialId: material.materialId,
+        label: `${material.materialName} - ${variant.variantName}`,
+      })),
+  );
+  const selectedReplenishmentVariant = replenishmentVariants.find(
+    (variant) => variant.variantId === Number(newPO.variantId),
   );
 
   return (
@@ -421,59 +486,155 @@ function ProcurementPage() {
         </div>
       )}
 
-      <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent>
+      <Dialog
+        open={creating}
+        onOpenChange={(open) => {
+          setCreating(open);
+          if (!open && busyAction !== "create") {
+            setNewPO(emptyPOForm());
+            setCreateMode("shortage");
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>New Purchase Order</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <SelectField
-              label="Approved material-request shortage"
-              value={newPO.requestItemId}
+            <Tabs
+              value={createMode}
               onValueChange={(value) => {
-                const selected = shortageOptions.find(
-                  (option) => option.item.itemId === Number(value),
-                );
-                if (!selected) return;
-                setNewPO((po) => ({
-                  ...po,
-                  requestItemId: value,
-                  projectId: String(selected.request.projectId),
-                  warehouseId: String(selected.request.warehouseId),
-                  variantId: String(selected.item.variantId),
-                  materialId: String(selected.item.materialId),
-                  quantity: String(selected.shortage),
-                  supplierId: "",
-                  unitPrice: "0",
-                }));
+                setCreateMode(value as "shortage" | "replenishment");
+                setNewPO(emptyPOForm());
               }}
-              placeholder="Select shortage"
             >
-              {shortageOptions.map(({ request, item, shortage }) => (
-                <SelectItem key={item.itemId} value={String(item.itemId)}>
-                  MR #{request.requestId} · {item.materialName} / {item.variantName || "Standard"} ·{" "}
-                  {shortage} {item.unit ?? ""}
-                </SelectItem>
-              ))}
-            </SelectField>
-            <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
-              <div>
-                <p className="text-xs text-muted-foreground">Project</p>
-                <p className="font-medium">
-                  {newPO.projectId ? projectName(Number(newPO.projectId)) : "Select a shortage"}
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="shortage">Request shortage</TabsTrigger>
+                <TabsTrigger value="replenishment">Stock replenishment</TabsTrigger>
+              </TabsList>
+              <TabsContent value="shortage" className="mt-3 space-y-3">
+                <SelectField
+                  label="Unprocured material-request shortage"
+                  value={newPO.requestItemId}
+                  onValueChange={(value) => {
+                    const selected = shortageOptions.find(
+                      (option) => option.item.itemId === Number(value),
+                    );
+                    if (!selected) return;
+                    setNewPO((po) => ({
+                      ...po,
+                      requestItemId: value,
+                      projectId: String(selected.request.projectId),
+                      warehouseId: String(selected.request.warehouseId),
+                      variantId: String(selected.item.variantId),
+                      materialId: String(selected.item.materialId),
+                      quantity: String(selected.shortage),
+                      supplierId: "",
+                      unitPrice: "0",
+                    }));
+                  }}
+                  placeholder={shortagesLoading ? "Loading shortages..." : "Select shortage"}
+                  disabled={shortagesLoading || shortagesError || shortageOptions.length === 0}
+                >
+                  {shortageOptions.map(({ request, item, shortage }) => (
+                    <SelectItem key={item.itemId} value={String(item.itemId)}>
+                      MR #{request.requestId} · {item.materialName} /{" "}
+                      {item.variantName || "Standard"} · {shortage} {item.unit ?? ""}
+                    </SelectItem>
+                  ))}
+                </SelectField>
+                {shortagesError ? (
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                    <span>
+                      {shortagesErrorValue instanceof Error
+                        ? shortagesErrorValue.message
+                        : "Could not load material-request shortages"}
+                    </span>
+                    <Button size="sm" variant="outline" onClick={() => refetchShortages()}>
+                      Retry
+                    </Button>
+                  </div>
+                ) : !shortagesLoading && shortageOptions.length === 0 ? (
+                  <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                    No purchasing shortage exists. Fully allocated requests are already covered by
+                    warehouse stock.
+                  </p>
+                ) : null}
+                <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Project</p>
+                    <p className="font-medium">
+                      {newPO.projectId ? projectName(Number(newPO.projectId)) : "Select a shortage"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Warehouse</p>
+                    <p className="font-medium">
+                      {newPO.warehouseId
+                        ? (liveWarehouses?.find(
+                            (warehouse) => warehouse.warehouseId === Number(newPO.warehouseId),
+                          )?.warehouseName ?? `#${newPO.warehouseId}`)
+                        : "Select a shortage"}
+                    </p>
+                  </div>
+                </div>
+              </TabsContent>
+              <TabsContent value="replenishment" className="mt-3 space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Buy stock for a managed warehouse without linking it to a material request.
                 </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Warehouse</p>
-                <p className="font-medium">
-                  {newPO.warehouseId
-                    ? (liveWarehouses?.find(
-                        (warehouse) => warehouse.warehouseId === Number(newPO.warehouseId),
-                      )?.warehouseName ?? `#${newPO.warehouseId}`)
-                    : "Select a shortage"}
-                </p>
-              </div>
-            </div>
+                <SelectField
+                  label="Project budget"
+                  value={newPO.projectId}
+                  onValueChange={(value) => setNewPO((po) => ({ ...po, projectId: value }))}
+                  placeholder="Select project"
+                >
+                  {(liveProjects ?? [])
+                    .filter(
+                      (project) => project.status !== "COMPLETED" && project.status !== "CANCELLED",
+                    )
+                    .map((project) => (
+                      <SelectItem key={project.projectId} value={String(project.projectId)}>
+                        {project.projectName}
+                      </SelectItem>
+                    ))}
+                </SelectField>
+                <SelectField
+                  label="Destination warehouse"
+                  value={newPO.warehouseId}
+                  onValueChange={(value) => setNewPO((po) => ({ ...po, warehouseId: value }))}
+                  placeholder="Select managed warehouse"
+                >
+                  {(liveWarehouses ?? []).map((warehouse) => (
+                    <SelectItem key={warehouse.warehouseId} value={String(warehouse.warehouseId)}>
+                      {warehouse.warehouseName} ({warehouse.location})
+                    </SelectItem>
+                  ))}
+                </SelectField>
+                <SelectField
+                  label="Material variant"
+                  value={newPO.variantId}
+                  onValueChange={(value) => {
+                    const variant = replenishmentVariants.find(
+                      (option) => option.variantId === Number(value),
+                    );
+                    setNewPO((po) => ({
+                      ...po,
+                      variantId: value,
+                      materialId: variant ? String(variant.materialId) : "",
+                      supplierId: "",
+                    }));
+                  }}
+                  placeholder="Select material variant"
+                >
+                  {replenishmentVariants.map((variant) => (
+                    <SelectItem key={variant.variantId} value={String(variant.variantId)}>
+                      {variant.label} ({variant.unit})
+                    </SelectItem>
+                  ))}
+                </SelectField>
+              </TabsContent>
+            </Tabs>
             <SelectField
               label="Supplier"
               value={newPO.supplierId}
@@ -491,26 +652,55 @@ function ProcurementPage() {
             <div className="space-y-2">
               <div>
                 <Label htmlFor="po-quantity">
-                  Quantity{selectedShortage?.item.unit ? ` (${selectedShortage.item.unit})` : ""}
+                  Quantity
+                  {createMode === "shortage" && selectedShortage?.item.unit
+                    ? ` (${selectedShortage.item.unit})`
+                    : createMode === "replenishment" && selectedReplenishmentVariant?.unit
+                      ? ` (${selectedReplenishmentVariant.unit})`
+                      : ""}
                 </Label>
                 <Input
                   id="po-quantity"
                   type="number"
                   min="0.01"
-                  max={selectedShortage?.shortage}
+                  max={createMode === "shortage" ? selectedShortage?.shortage : undefined}
                   step="0.01"
                   value={newPO.quantity}
                   onChange={(event) => setNewPO((po) => ({ ...po, quantity: event.target.value }))}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Cannot exceed the selected request shortage.
+                  {createMode === "shortage"
+                    ? "Cannot exceed the selected request shortage."
+                    : "The supplier catalog minimum is validated on submission."}
                 </p>
               </div>
               <p className="rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
-                The backend applies the authoritative supplier-catalog price and minimum order
-                quantity. Because this backend version has no catalog-read endpoint, an unavailable
-                supplier is reported when the order is submitted.
+                Price and minimum order quantity are validated against the backend supplier catalog
+                when submitted.
               </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="po-expected-date">Expected delivery</Label>
+                <Input
+                  id="po-expected-date"
+                  type="date"
+                  value={newPO.expectedDeliveryDate}
+                  onChange={(event) =>
+                    setNewPO((po) => ({ ...po, expectedDeliveryDate: event.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="po-note">Order note</Label>
+                <Input
+                  id="po-note"
+                  value={newPO.note}
+                  onChange={(event) => setNewPO((po) => ({ ...po, note: event.target.value }))}
+                  maxLength={1000}
+                  placeholder="Optional"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -539,6 +729,17 @@ function ProcurementPage() {
         onConfirm={reject}
         destructive
         busy={busyAction?.startsWith("reject-") ?? false}
+      />
+
+      <ConfirmDialog
+        open={cancelPOId !== null}
+        onOpenChange={(open) => !open && setCancelPOId(null)}
+        title={`Cancel PO #${cancelPOId ?? ""}?`}
+        description="The purchase order will be closed. Any outstanding on-order quantity will be released when allowed by the backend workflow."
+        confirmLabel="Cancel PO"
+        onConfirm={cancel}
+        destructive
+        busy={busyAction?.startsWith("cancel-") ?? false}
       />
 
       <Dialog open={selectedPOId !== null} onOpenChange={(open) => !open && setSelectedPOId(null)}>
@@ -582,7 +783,21 @@ function ProcurementPage() {
                   label="Order value"
                   value={formatMoney(selectedPO.totalAmount, selectedPO.currency)}
                 />
+                <POInfo
+                  label="Approved"
+                  value={
+                    selectedPO.approvedAt
+                      ? `${new Date(selectedPO.approvedAt).toLocaleString()} · User #${selectedPO.approvedByUserId}`
+                      : "-"
+                  }
+                />
               </div>
+              {selectedPO.note && (
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="text-xs text-muted-foreground">Order note</p>
+                  <p>{selectedPO.note}</p>
+                </div>
+              )}
               <div className="overflow-hidden rounded-lg border">
                 <Table>
                   <TableHeader>
@@ -615,7 +830,13 @@ function ProcurementPage() {
                           {item.quantity.toLocaleString()}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {item.receivedQuantity.toLocaleString()}
+                          <p>{item.receivedQuantity.toLocaleString()}</p>
+                          {(item.damagedQuantity > 0 || item.missingQuantity > 0) && (
+                            <p className="text-xs text-destructive">
+                              {item.damagedQuantity.toLocaleString()} damaged ·{" "}
+                              {item.missingQuantity.toLocaleString()} missing
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell>{item.unit || "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">
@@ -810,7 +1031,7 @@ function ProcurementPage() {
               onApprove={canApproveOrReject ? approve : undefined}
               onReject={canApproveOrReject ? setRejectPOId : undefined}
               onView={setSelectedPOId}
-              onCancel={cancel}
+              onCancel={setCancelPOId}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -847,7 +1068,7 @@ function ProcurementPage() {
               }
               onView={setSelectedPOId}
               onShip={canImport ? ship : undefined}
-              onCancel={cancel}
+              onCancel={setCancelPOId}
               busyAction={busyAction}
             />
           </TabsContent>
@@ -954,18 +1175,20 @@ function SelectField({
   value,
   onValueChange,
   placeholder,
+  disabled,
   children,
 }: {
   label: string;
   value: string;
   onValueChange: (value: string) => void;
   placeholder: string;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div>
       <Label>{label}</Label>
-      <Select value={value} onValueChange={onValueChange}>
+      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
         <SelectTrigger aria-label={label}>
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>

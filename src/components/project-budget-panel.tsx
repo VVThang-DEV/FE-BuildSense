@@ -34,12 +34,14 @@ export function ProjectBudgetPanel({
   budget,
   currency,
   canAdjust,
+  canViewHistory,
   onUpdated,
 }: {
   projectId: number;
   budget: number;
   currency: string;
   canAdjust: boolean;
+  canViewHistory: boolean;
   onUpdated: () => Promise<unknown> | unknown;
 }) {
   const queryClient = useQueryClient();
@@ -55,7 +57,7 @@ export function ProjectBudgetPanel({
         await projectsApi.getBudgetHistories(projectId),
         "Could not load budget history",
       ) ?? [],
-    enabled: projectId > 0,
+    enabled: projectId > 0 && canViewHistory,
     staleTime: 10_000,
   });
 
@@ -206,7 +208,11 @@ export function ProjectBudgetPanel({
               This audit records changes to the approved budget limit, not purchase-order spending.
             </p>
           </div>
-          {historiesQuery.isLoading ? (
+          {!canViewHistory ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              Budget adjustment history is available to administrators and the project manager.
+            </div>
+          ) : historiesQuery.isLoading ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               Loading budget history...
             </div>

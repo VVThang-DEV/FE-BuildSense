@@ -8,6 +8,10 @@ export type WarehouseResponse = {
   managerName?: string | null;
   inventoryRecords?: InventoryRecord[];
   createdDate?: string;
+  modifiedDate?: string | null;
+  createdBy?: number | null;
+  modifiedBy?: number | null;
+  isDeleted?: boolean;
 };
 
 export type InventoryItem = {
@@ -28,6 +32,7 @@ export type InventoryItem = {
   material?: { materialName: string; unit: string };
   variantName?: string;
   rowVersion?: string;
+  updatedAt?: string;
 };
 
 type RawInventoryItem = Partial<InventoryItem> & {
@@ -134,6 +139,13 @@ export type PhysicalCountResponse = {
   }[];
 };
 
+export type PhysicalCountMutationResponse = {
+  sessionId: number;
+  status: PhysicalCountResponse["status"];
+  lineCount?: number;
+  rowVersion: string;
+};
+
 function normalizeInventoryItem(item: RawInventoryItem, index: number): InventoryItem {
   return {
     inventoryId: item.inventoryId ?? index,
@@ -162,6 +174,7 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
     warehouseName: item.warehouseName,
     variantName: item.variantName,
     rowVersion: item.rowVersion,
+    updatedAt: item.updatedAt,
     material: item.material ?? {
       materialName: item.materialName ?? "Unknown material",
       unit: item.unit ?? "",
@@ -216,7 +229,7 @@ export const warehousesApi = {
       { rowVersion, reviewNote },
     ),
   startPhysicalCount: (warehouseId: number, variantIds: number[], note?: string) =>
-    apiClient.post<PhysicalCountResponse>("/api/warehouses/physical-counts", {
+    apiClient.post<PhysicalCountMutationResponse>("/api/warehouses/physical-counts", {
       warehouseId,
       variantIds,
       note,
@@ -226,10 +239,13 @@ export const warehousesApi = {
     rowVersion: string,
     lines: { lineId: number; actualQuantity: number }[],
   ) =>
-    apiClient.post(`/api/warehouses/physical-counts/${sessionId}/submit`, {
-      rowVersion,
-      lines,
-    }),
+    apiClient.post<PhysicalCountMutationResponse>(
+      `/api/warehouses/physical-counts/${sessionId}/submit`,
+      {
+        rowVersion,
+        lines,
+      },
+    ),
   reviewPhysicalCount: (
     sessionId: number,
     approve: boolean,

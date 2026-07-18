@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Check, PackageOpen, Plus, Send, X } from "lucide-react";
+import { ArrowRight, Check, Eye, PackageOpen, Plus, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { warehouseTransfersApi, type WarehouseTransferResponse } from "@/api/warehouseTransfers";
 import { warehousesApi } from "@/api/warehouses";
@@ -54,6 +54,11 @@ function WarehouseTransfersPage() {
   const [variantId, setVariantId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [note, setNote] = useState("");
+  const [selectedTransfer, setSelectedTransfer] = useState<WarehouseTransferResponse | null>(null);
+  const [receiptTransfer, setReceiptTransfer] = useState<WarehouseTransferResponse | null>(null);
+  const [receiptValues, setReceiptValues] = useState<
+    Record<number, { accepted: string; damaged: string; lost: string }>
+  >({});
 
   const transfersQuery = useQuery({
     queryKey: ["warehouse-transfers"],
@@ -80,6 +85,9 @@ function WarehouseTransfersPage() {
 
   const managedWarehouseIds = new Set(
     (warehousesQuery.data ?? []).map((warehouse) => warehouse.warehouseId),
+  );
+  const destinationWarehouses = (warehousesQuery.data ?? []).filter(
+    (warehouse) => String(warehouse.warehouseId) !== sourceWarehouseId,
   );
   const variants = (materialsQuery.data ?? []).flatMap((material) =>
     material.variants
@@ -139,46 +147,8 @@ function WarehouseTransfersPage() {
 
   const mutate = async (
     transfer: WarehouseTransferResponse,
-    action: "approve" | "reject" | "ship" | "receive" | "cancel",
+    action: "approve" | "reject" | "ship" | "cancel",
   ) => {
-    let receiptItems:
-      | {
-          transferItemId: number;
-          quantity: number;
-          damagedQuantity: number;
-          lostQuantity: number;
-        }[]
-      | undefined;
-    if (action === "receive") {
-      receiptItems = [];
-      for (const item of transfer.items) {
-        const remaining =
-          item.shippedQuantity - item.receivedQuantity - item.damagedQuantity - item.lostQuantity;
-        if (remaining <= 0) continue;
-        const accepted = window.prompt(
-          `Accepted quantity for ${item.materialName}`,
-          String(remaining),
-        );
-        const damaged = window.prompt(`Damaged quantity for ${item.materialName}`, "0");
-        const lost = window.prompt(`Lost quantity for ${item.materialName}`, "0");
-        if (accepted === null || damaged === null || lost === null) return;
-        const values = [Number(accepted), Number(damaged), Number(lost)];
-        if (
-          values.some((value) => !Number.isFinite(value) || value < 0) ||
-          values.reduce((a, b) => a + b, 0) > remaining
-        ) {
-          toast.error(`Receipt quantities for ${item.materialName} exceed the shipped remainder`);
-          return;
-        }
-        receiptItems.push({
-          transferItemId: item.transferItemId,
-          quantity: values[0],
-          damagedQuantity: values[1],
-          lostQuantity: values[2],
-        });
-      }
-      if (receiptItems.length === 0) return;
-    }
     setBusy(`${action}-${transfer.transferId}`);
     try {
       const response =
@@ -188,14 +158,86 @@ function WarehouseTransfersPage() {
             ? await warehouseTransfersApi.reject(transfer.transferId)
             : action === "ship"
               ? await warehouseTransfersApi.ship(transfer.transferId)
-              : action === "receive"
-                ? await warehouseTransfersApi.receive(transfer.transferId, receiptItems)
-                : await warehouseTransfersApi.cancel(transfer.transferId);
+              : await warehouseTransfersApi.cancel(transfer.transferId);
       if (!response.isSuccess) {
         toast.error(response.errorMessage ?? `Could not ${action} transfer`);
         return;
       }
       toast.success(`Transfer #${transfer.transferId} ${action}d`);
+      await transfersQuery.refetch();
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openReceipt = (transfer: WarehouseTransferResponse) => {
+    const initialValues = Object.fromEntries(
+      transfer.items
+        .map((item) => ({
+          item,
+          remaining:
+            item.shippedQuantity - item.receivedQuantity - item.damagedQuantity - item.lostQuantity,
+        }))
+        .filter(({ remaining }) => remaining > 0)
+        .map(({ item, remaining }) => [
+          item.transferItemId,
+          { accepted: String(remaining), damaged: "0", lost: "0" },
+        ]),
+    );
+    if (Object.keys(initialValues).length === 0) {
+      toast.error("This transfer has no remaining shipped quantity to receive");
+      return;
+    }
+    setReceiptValues(initialValues);
+    setReceiptTransfer(transfer);
+  };
+
+  const receiveTransfer = async () => {
+    if (!receiptTransfer) return;
+    const receiptItems = [];
+    for (const item of receiptTransfer.items) {
+      const values = receiptValues[item.transferItemId];
+      if (!values) continue;
+      const accepted = Number(values.accepted);
+      const damaged = Number(values.damaged);
+      const lost = Number(values.lost);
+      const remaining =
+        item.shippedQuantity - item.receivedQuantity - item.damagedQuantity - item.lostQuantity;
+      if (
+        [accepted, damaged, lost].some((value) => !Number.isFinite(value) || value < 0) ||
+        accepted + damaged + lost > remaining
+      ) {
+        toast.error(`Receipt quantities for ${item.materialName} exceed the shipped remainder`);
+        return;
+      }
+      if (accepted + damaged + lost > 0) {
+        receiptItems.push({
+          transferItemId: item.transferItemId,
+          quantity: accepted,
+          damagedQuantity: damaged,
+          lostQuantity: lost,
+        });
+      }
+    }
+    if (receiptItems.length === 0) {
+      toast.error("Enter at least one received, damaged, or lost quantity");
+      return;
+    }
+    setBusy(`receive-${receiptTransfer.transferId}`);
+    try {
+      const response = await warehouseTransfersApi.receive(
+        receiptTransfer.transferId,
+        receiptItems,
+      );
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Could not receive transfer");
+        return;
+      }
+      toast.success(`Transfer #${receiptTransfer.transferId} receipt recorded`);
+      setReceiptTransfer(null);
+      setReceiptValues({});
       await transfersQuery.refetch();
     } catch {
       toast.error("Could not reach the backend");
@@ -286,6 +328,13 @@ function WarehouseTransfersPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setSelectedTransfer(transfer)}
+                          >
+                            <Eye className="mr-1 h-3 w-3" /> Details
+                          </Button>
                           {ownsDestination && transfer.status === "REQUESTED" && (
                             <>
                               <Button
@@ -337,7 +386,7 @@ function WarehouseTransfersPage() {
                               size="sm"
                               variant="outline"
                               disabled={!!busy}
-                              onClick={() => mutate(transfer, "receive")}
+                              onClick={() => openReceipt(transfer)}
                             >
                               <PackageOpen className="mr-1 h-3 w-3" />
                               Receive remaining
@@ -368,7 +417,13 @@ function WarehouseTransfersPage() {
           <div className="space-y-3">
             <div>
               <Label>Source warehouse</Label>
-              <Select value={sourceWarehouseId} onValueChange={setSourceWarehouseId}>
+              <Select
+                value={sourceWarehouseId}
+                onValueChange={(value) => {
+                  setSourceWarehouseId(value);
+                  if (value === destinationWarehouseId) setDestinationWarehouseId("");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select managed warehouse" />
                 </SelectTrigger>
@@ -382,17 +437,31 @@ function WarehouseTransfersPage() {
               </Select>
             </div>
             <div>
-              <Label htmlFor="destination-warehouse">Destination warehouse ID</Label>
-              <Input
-                id="destination-warehouse"
-                type="number"
-                min="1"
+              <Label>Destination warehouse</Label>
+              <Select
                 value={destinationWarehouseId}
-                onChange={(event) => setDestinationWarehouseId(event.target.value)}
-              />
+                onValueChange={setDestinationWarehouseId}
+                disabled={!sourceWarehouseId || warehousesQuery.isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      sourceWarehouseId
+                        ? "Select destination warehouse"
+                        : "Select a source warehouse first"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {destinationWarehouses.map((warehouse) => (
+                    <SelectItem key={warehouse.warehouseId} value={String(warehouse.warehouseId)}>
+                      {warehouse.warehouseName} ({warehouse.location})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="mt-1 text-xs text-muted-foreground">
-                The backend exposes only warehouses you manage. Enter the destination ID supplied by
-                operations.
+                Choose another warehouse from the locations available to your account.
               </p>
             </div>
             <div>
@@ -445,6 +514,187 @@ function WarehouseTransfersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={receiptTransfer !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) {
+            setReceiptTransfer(null);
+            setReceiptValues({});
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Receive transfer #{receiptTransfer?.transferId}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Reconcile each shipped item as accepted, damaged, or lost. The combined quantity
+              cannot exceed the remaining shipment.
+            </p>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Material</TableHead>
+                  <TableHead>Remaining</TableHead>
+                  <TableHead>Accepted</TableHead>
+                  <TableHead>Damaged</TableHead>
+                  <TableHead>Lost</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {receiptTransfer?.items.map((item) => {
+                  const values = receiptValues[item.transferItemId];
+                  if (!values) return null;
+                  const remaining =
+                    item.shippedQuantity -
+                    item.receivedQuantity -
+                    item.damagedQuantity -
+                    item.lostQuantity;
+                  const updateValue = (field: "accepted" | "damaged" | "lost", value: string) =>
+                    setReceiptValues((current) => ({
+                      ...current,
+                      [item.transferItemId]: { ...current[item.transferItemId], [field]: value },
+                    }));
+                  return (
+                    <TableRow key={item.transferItemId}>
+                      <TableCell>
+                        <p className="font-medium">{item.materialName}</p>
+                        <p className="text-xs text-muted-foreground">{item.variantName}</p>
+                      </TableCell>
+                      <TableCell>
+                        {remaining} {item.unit}
+                      </TableCell>
+                      {(["accepted", "damaged", "lost"] as const).map((field) => (
+                        <TableCell key={field}>
+                          <Input
+                            aria-label={`${field} quantity for ${item.materialName}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={values[field]}
+                            onChange={(event) => updateValue(field, event.target.value)}
+                          />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={!!busy}
+              onClick={() => {
+                setReceiptTransfer(null);
+                setReceiptValues({});
+              }}
+            >
+              Cancel
+            </Button>
+            <Button disabled={!!busy} onClick={receiveTransfer}>
+              {busy?.startsWith("receive-") ? "Saving receipt..." : "Record receipt"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={selectedTransfer !== null}
+        onOpenChange={(open) => !open && setSelectedTransfer(null)}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Transfer #{selectedTransfer?.transferId} audit trail</DialogTitle>
+          </DialogHeader>
+          {selectedTransfer && (
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <AuditField
+                  label="Requested"
+                  value={`${new Date(selectedTransfer.requestedAt).toLocaleString()} · User #${selectedTransfer.requestedByUserId}`}
+                />
+                <AuditField
+                  label="Approved"
+                  value={
+                    selectedTransfer.approvedAt
+                      ? `${new Date(selectedTransfer.approvedAt).toLocaleString()} · User #${selectedTransfer.approvedByUserId}`
+                      : "Not approved"
+                  }
+                />
+                <AuditField
+                  label="Shipped"
+                  value={
+                    selectedTransfer.shippedAt
+                      ? `${new Date(selectedTransfer.shippedAt).toLocaleString()} · User #${selectedTransfer.shippedByUserId}`
+                      : "Not shipped"
+                  }
+                />
+                <AuditField
+                  label="Received"
+                  value={
+                    selectedTransfer.receivedAt
+                      ? `${new Date(selectedTransfer.receivedAt).toLocaleString()} · User #${selectedTransfer.receivedByUserId}`
+                      : "Not received"
+                  }
+                />
+              </div>
+              {selectedTransfer.note && (
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Note</p>
+                  <p>{selectedTransfer.note}</p>
+                </div>
+              )}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Material</TableHead>
+                    <TableHead>Requested / shipped</TableHead>
+                    <TableHead>Received / variance</TableHead>
+                    <TableHead className="text-right">Transfer value</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {selectedTransfer.items.map((item) => (
+                    <TableRow key={item.transferItemId}>
+                      <TableCell>
+                        {item.materialName} / {item.variantName}
+                      </TableCell>
+                      <TableCell>
+                        {item.requestedQuantity} / {item.shippedQuantity} {item.unit}
+                      </TableCell>
+                      <TableCell>
+                        {item.receivedQuantity} received · {item.damagedQuantity} damaged ·{" "}
+                        {item.lostQuantity} lost
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {(item.unitCost * item.shippedQuantity).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedTransfer(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function AuditField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 font-medium">{value}</p>
     </div>
   );
 }
