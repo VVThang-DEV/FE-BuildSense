@@ -31,6 +31,12 @@ export type InventoryItem = {
   warehouseName?: string;
   material?: { materialName: string; unit: string };
   variantName?: string;
+  sku?: string | null;
+  brand?: string | null;
+  grade?: string | null;
+  size?: string | null;
+  specification?: string | null;
+  packaging?: string | null;
   rowVersion?: string;
   updatedAt?: string;
 };
@@ -173,6 +179,12 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
         (item.reorderLevel ?? 0),
     warehouseName: item.warehouseName,
     variantName: item.variantName,
+    sku: item.sku ?? null,
+    brand: item.brand ?? null,
+    grade: item.grade ?? null,
+    size: item.size ?? null,
+    specification: item.specification ?? null,
+    packaging: item.packaging ?? null,
     rowVersion: item.rowVersion,
     updatedAt: item.updatedAt,
     material: item.material ?? {
@@ -184,8 +196,20 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
 
 export const warehousesApi = {
   getAll: () => apiClient.get<WarehouseResponse[]>("/api/warehouses"),
+  getById: (id: number) => apiClient.get<WarehouseResponse>(`/api/warehouses/${id}`),
   create: (body: { managerId: number; warehouseName: string; location: string }) =>
     apiClient.post<string>("/api/warehouses", body),
+  update: (id: number, body: { managerId: number; warehouseName: string; location: string }) =>
+    apiClient.put<WarehouseResponse>(`/api/warehouses/${id}`, body),
+  getInventoryItem: async (warehouseId: number, variantId: number) => {
+    const response = await apiClient.get<RawInventoryItem>(
+      `/api/warehouses/${warehouseId}/inventory/${variantId}`,
+    );
+    return {
+      ...response,
+      result: response.result ? normalizeInventoryItem(response.result, 0) : response.result,
+    };
+  },
   getInventory: async (id: number) => {
     const response = await apiClient.get<RawInventoryItem[]>(`/api/warehouses/${id}/inventory`);
     return {

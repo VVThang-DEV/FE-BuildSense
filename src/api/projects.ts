@@ -21,7 +21,13 @@ export type ProjectResponse = {
   baselineStart: string;
   baselineEnd: string;
   totalProjectBudget: number;
+  budgetConfigured: boolean;
   actualCost: number;
+  plannedTaskBudget: number;
+  reportedTaskActualCost: number;
+  purchaseOrderCommittedCost: number;
+  purchaseOrderReceivedCost: number;
+  remainingProcurementBudget: number;
   currency: string;
   pmUserID: number;
   pmName: string;
@@ -150,7 +156,13 @@ function normalizeProject(project: RawProjectResponse): ProjectResponse {
     baselineStart: normalizeDate(project.baselineStart),
     baselineEnd: normalizeDate(project.baselineEnd),
     totalProjectBudget: project.totalProjectBudget ?? 0,
+    budgetConfigured: project.budgetConfigured ?? false,
     actualCost: project.actualCost ?? 0,
+    plannedTaskBudget: project.plannedTaskBudget ?? 0,
+    reportedTaskActualCost: project.reportedTaskActualCost ?? 0,
+    purchaseOrderCommittedCost: project.purchaseOrderCommittedCost ?? 0,
+    purchaseOrderReceivedCost: project.purchaseOrderReceivedCost ?? 0,
+    remainingProcurementBudget: project.remainingProcurementBudget ?? 0,
     currency: project.currency ?? "VND",
     pmUserID: project.pmUserID ?? 0,
     pmName: project.pmName ?? "",
@@ -201,9 +213,13 @@ export const projectsApi = {
   },
   getMaterialRequirements: (projectId: number) =>
     apiClient.get<ProjectMaterialRequirement[]>(`/api/Projects/${projectId}/material-requirements`),
-  calculateMrp: (projectId: number, warehouseId?: number) =>
+  runMrp: (projectId: number, warehouseId?: number) =>
+    apiClient.post<MRPCalculationResponse[]>(
+      `/api/Projects/${projectId}/mrp-runs${warehouseId ? `?warehouseId=${warehouseId}` : ""}`,
+    ),
+  getLatestMrp: (projectId: number, warehouseId: number) =>
     apiClient.get<MRPCalculationResponse[]>(
-      `/api/Projects/${projectId}/calculate-mrp${warehouseId ? `?warehouseId=${warehouseId}` : ""}`,
+      `/api/Projects/${projectId}/mrp-runs/latest?warehouseId=${warehouseId}`,
     ),
   adjustBudget: (body: AdjustProjectBudgetRequest) =>
     apiClient.post<ProjectBudgetHistoryResponse>("/api/Projects/adjust-budget", body),
@@ -216,10 +232,11 @@ export const projectsApi = {
     action: "start" | "pause" | "cancel" | "reopen" | "complete",
     rowVersion: string,
   ) =>
-    apiClient.post<{ projectId: number; status: ProjectStatus; rowVersion: string }>(
-      `/api/Projects/${projectId}/${action}`,
-      { rowVersion },
-    ),
+    apiClient.post<{
+      projectId: number;
+      status: ProjectStatus;
+      rowVersion: string;
+    }>(`/api/Projects/${projectId}/${action}`, { rowVersion }),
   reassignProjectManager: (projectId: number, projectManagerUserId: number, rowVersion: string) =>
     apiClient.put<ProjectResponse>(`/api/Projects/${projectId}/project-manager`, {
       projectManagerUserId,

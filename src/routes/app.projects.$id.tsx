@@ -354,6 +354,11 @@ function ProjectDetail() {
                 projectId={project.projectId}
                 budget={project.totalProjectBudget}
                 currency={project.currency}
+                plannedTaskBudget={project.plannedTaskBudget}
+                reportedTaskActualCost={project.reportedTaskActualCost}
+                purchaseOrderCommittedCost={project.purchaseOrderCommittedCost}
+                purchaseOrderReceivedCost={project.purchaseOrderReceivedCost}
+                remainingProcurementBudget={project.remainingProcurementBudget}
                 canAdjust={session?.role === "ADMIN"}
                 canViewHistory={session?.role === "ADMIN" || session?.role === "PM"}
                 onUpdated={() => refetch()}

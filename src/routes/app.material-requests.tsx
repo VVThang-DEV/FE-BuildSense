@@ -126,7 +126,12 @@ function requestUrgency(request: MaterialRequestResponse): RequestUrgency {
   const days = Math.round((earliest.getTime() - today.getTime()) / 86_400_000);
 
   if (request.status !== "PENDING") {
-    return { rank: 3, label: "Processed", className: "", neededBy: earliest.toISOString() };
+    return {
+      rank: 3,
+      label: "Processed",
+      className: "",
+      neededBy: earliest.toISOString(),
+    };
   }
   if (days < 0) {
     return {
@@ -452,7 +457,10 @@ function MaterialRequestsPage() {
         items: lines.map((line) => ({
           ...(() => {
             const option = variantOptions.find((variant) => variant.key === line.variantKey)!;
-            return { variantId: option.variantId, materialId: option.materialId };
+            return {
+              variantId: option.variantId,
+              materialId: option.materialId,
+            };
           })(),
           quantity: Number(line.quantity),
           neededByDate: `${line.neededByDate}T00:00:00.000Z`,
@@ -636,11 +644,12 @@ function MaterialRequestsPage() {
   };
 
   const createRemainderRequest = async () => {
-    if (!remainderRequest?.taskId) return;
+    const taskId = remainderRequest?.taskId;
+    if (!taskId) return;
     const request = remainderRequest;
     setRemainderBusy(true);
     try {
-      const response = await materialRequestsApi.createFromTask(request.taskId);
+      const response = await materialRequestsApi.createFromTask(taskId);
       if (!response.isSuccess) {
         toast.error(
           response.errorMessage ??
@@ -834,7 +843,9 @@ function MaterialRequestsPage() {
                           step="0.01"
                           value={line.quantity}
                           onChange={(event) =>
-                            updateLine(line.key, { quantity: event.target.value })
+                            updateLine(line.key, {
+                              quantity: event.target.value,
+                            })
                           }
                           disabled={submitting}
                         />
@@ -849,7 +860,9 @@ function MaterialRequestsPage() {
                           min={new Date().toISOString().slice(0, 10)}
                           value={line.neededByDate}
                           onChange={(event) =>
-                            updateLine(line.key, { neededByDate: event.target.value })
+                            updateLine(line.key, {
+                              neededByDate: event.target.value,
+                            })
                           }
                           disabled={submitting}
                         />
@@ -950,7 +963,10 @@ function MaterialRequestsPage() {
                                     ...current,
                                     items: current.items.map((line) =>
                                       line.itemId === item.itemId
-                                        ? { ...line, quantity: event.target.value }
+                                        ? {
+                                            ...line,
+                                            quantity: event.target.value,
+                                          }
                                         : line,
                                     ),
                                   }
@@ -972,7 +988,10 @@ function MaterialRequestsPage() {
                                     ...current,
                                     items: current.items.map((line) =>
                                       line.itemId === item.itemId
-                                        ? { ...line, neededByDate: event.target.value }
+                                        ? {
+                                            ...line,
+                                            neededByDate: event.target.value,
+                                          }
                                         : line,
                                     ),
                                   }
@@ -1391,7 +1410,8 @@ function MaterialRequestsPage() {
                       <TableHead>Material</TableHead>
                       <TableHead className="text-right">Quantity</TableHead>
                       <TableHead className="text-right">Approved</TableHead>
-                      <TableHead className="text-right">Issued</TableHead>
+                      <TableHead className="text-right">Net issued</TableHead>
+                      <TableHead className="text-right">Still required</TableHead>
                       <TableHead>Needed by</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1403,6 +1423,11 @@ function MaterialRequestsPage() {
                           {item.variantName && (
                             <p className="text-xs text-muted-foreground">{item.variantName}</p>
                           )}
+                          {item.sku && (
+                            <p className="font-mono text-xs text-muted-foreground">
+                              SKU {item.sku}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {item.quantity} {item.unit ?? ""}
@@ -1411,7 +1436,15 @@ function MaterialRequestsPage() {
                           {item.approvedQuantity} {item.unit ?? ""}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {item.issuedQuantity} {item.unit ?? ""}
+                          {item.netIssuedQuantity} {item.unit ?? ""}
+                          {item.returnedQuantity > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              {item.issuedQuantity} issued, {item.returnedQuantity} returned
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {item.remainingRequestQuantity} {item.unit ?? ""}
                         </TableCell>
                         <TableCell>{formatDate(item.neededByDate)}</TableCell>
                       </TableRow>

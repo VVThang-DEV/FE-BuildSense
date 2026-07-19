@@ -73,7 +73,11 @@ function SuppliersPage() {
 
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ companyName: "", contactEmail: "", contactPhone: "" });
+  const [form, setForm] = useState({
+    companyName: "",
+    contactEmail: "",
+    contactPhone: "",
+  });
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogForm, setCatalogForm] = useState({
     supplierId: "",
@@ -132,9 +136,17 @@ function SuppliersPage() {
     }
     setSaving(true);
     try {
+      const selectedVariant = variants.find(
+        (variant) => variant.variantId === Number(catalogForm.variantId),
+      );
+      if (!selectedVariant) {
+        toast.error("The selected material variant is no longer available");
+        return;
+      }
       const response = await catalogsApi.create({
         supplierId: Number(catalogForm.supplierId),
         variantId: Number(catalogForm.variantId),
+        materialId: selectedVariant.materialId,
         supplierSku: catalogForm.supplierSku.trim() || undefined,
         unitPrice: Number(catalogForm.unitPrice),
         minimumOrderQuantity: Number(catalogForm.minimumOrderQuantity) || 0,
@@ -307,7 +319,10 @@ function SuppliersPage() {
                   step="0.01"
                   value={catalogForm.minimumOrderQuantity}
                   onChange={(e) =>
-                    setCatalogForm((f) => ({ ...f, minimumOrderQuantity: e.target.value }))
+                    setCatalogForm((f) => ({
+                      ...f,
+                      minimumOrderQuantity: e.target.value,
+                    }))
                   }
                 />
               </div>
@@ -318,7 +333,12 @@ function SuppliersPage() {
                   type="number"
                   min="0"
                   value={catalogForm.leadTimeDays}
-                  onChange={(e) => setCatalogForm((f) => ({ ...f, leadTimeDays: e.target.value }))}
+                  onChange={(e) =>
+                    setCatalogForm((f) => ({
+                      ...f,
+                      leadTimeDays: e.target.value,
+                    }))
+                  }
                 />
               </div>
             </div>

@@ -288,7 +288,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     setUploadingPhoto(true);
     try {
       const uploaded = await uploadSitePhoto(file);
-      setReportForm((current) => ({ ...current, sitePhotoUrl: uploaded.secureUrl }));
+      setReportForm((current) => ({
+        ...current,
+        sitePhotoUrl: uploaded.secureUrl,
+      }));
       setPhotoPreviewUrl(uploaded.secureUrl);
       toast.success("Site photo uploaded");
     } catch (error) {
@@ -329,6 +332,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     }
     const materialRows = taskMaterials.map((item) => ({
       variantId: Number(item.variantId),
+      materialId:
+        variants.find((variant) => variant.variantId === Number(item.variantId))?.materialId ?? 0,
       grossQuantityRequired: Number(item.quantity),
     }));
     if (
@@ -336,6 +341,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         (item) =>
           !Number.isInteger(item.variantId) ||
           item.variantId <= 0 ||
+          item.materialId <= 0 ||
           !Number.isFinite(item.grossQuantityRequired) ||
           item.grossQuantityRequired <= 0,
       )
@@ -371,7 +377,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
           queryClient.invalidateQueries({
             queryKey: ["project-material-requirements", projectId],
           }),
-          queryClient.invalidateQueries({ queryKey: ["project-mrp", projectId] }),
+          queryClient.invalidateQueries({
+            queryKey: ["project-mrp", projectId],
+          }),
         ]);
       } else {
         toast.error(
@@ -392,8 +400,16 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     }
     setMaterialAction(`assign-${selectedTask.taskId}`);
     try {
+      const selectedVariant = variants.find(
+        (variant) => variant.variantId === Number(assignVariantId),
+      );
+      if (!selectedVariant) {
+        toast.error("The selected material variant is no longer available");
+        return;
+      }
       const response = await tasksApi.assignMaterial(selectedTask.taskId, {
         variantId: Number(assignVariantId),
+        materialId: selectedVariant.materialId,
         grossQuantityRequired: Number(assignMaterialQuantity),
       });
       if (!response.isSuccess) {
@@ -498,7 +514,12 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     report: ProgressReportResponse,
     action: "approve" | "reject" | "reverse",
   ) => {
-    setReviewDialog({ report, action, reviewNote: "", allowCostOverrun: false });
+    setReviewDialog({
+      report,
+      action,
+      reviewNote: "",
+      allowCostOverrun: false,
+    });
   };
 
   const reviewReport = async () => {
@@ -677,7 +698,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       placeholder="Foundation"
                       value={taskForm.phaseName}
                       onChange={(event) =>
-                        setTaskForm((current) => ({ ...current, phaseName: event.target.value }))
+                        setTaskForm((current) => ({
+                          ...current,
+                          phaseName: event.target.value,
+                        }))
                       }
                       maxLength={100}
                       disabled={creatingTask}
@@ -690,7 +714,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       placeholder="Pour footing concrete"
                       value={taskForm.taskName}
                       onChange={(event) =>
-                        setTaskForm((current) => ({ ...current, taskName: event.target.value }))
+                        setTaskForm((current) => ({
+                          ...current,
+                          taskName: event.target.value,
+                        }))
                       }
                       maxLength={200}
                       disabled={creatingTask}
@@ -738,7 +765,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       min={taskForm.baselineStart}
                       value={taskForm.baselineEnd}
                       onChange={(event) =>
-                        setTaskForm((current) => ({ ...current, baselineEnd: event.target.value }))
+                        setTaskForm((current) => ({
+                          ...current,
+                          baselineEnd: event.target.value,
+                        }))
                       }
                       disabled={creatingTask}
                     />
@@ -809,7 +839,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                                   setTaskMaterials((rows) =>
                                     rows.map((item, itemIndex) =>
                                       itemIndex === index
-                                        ? { ...item, quantity: event.target.value }
+                                        ? {
+                                            ...item,
+                                            quantity: event.target.value,
+                                          }
                                         : item,
                                     ),
                                   )
@@ -1187,7 +1220,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       placeholder="Work completed, blockers, site notes..."
                       value={reportForm.notes}
                       onChange={(event) =>
-                        setReportForm((current) => ({ ...current, notes: event.target.value }))
+                        setReportForm((current) => ({
+                          ...current,
+                          notes: event.target.value,
+                        }))
                       }
                       maxLength={1000}
                       disabled={submittingReport}
@@ -1480,7 +1516,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       onChange={(event) =>
                         setReviewDialog((current) =>
                           current
-                            ? { ...current, allowCostOverrun: event.target.checked }
+                            ? {
+                                ...current,
+                                allowCostOverrun: event.target.checked,
+                              }
                             : current,
                         )
                       }
@@ -1556,7 +1595,12 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   value={correctionDialog.actualCostIncrement}
                   onChange={(event) =>
                     setCorrectionDialog((current) =>
-                      current ? { ...current, actualCostIncrement: event.target.value } : current,
+                      current
+                        ? {
+                            ...current,
+                            actualCostIncrement: event.target.value,
+                          }
+                        : current,
                     )
                   }
                 />
@@ -1775,7 +1819,10 @@ function ScheduleTimeline({
                           )}
                           <div
                             className="absolute top-1.5 h-5 rounded border bg-muted/60"
-                            style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
+                            style={{
+                              left: `${left}%`,
+                              width: `${Math.min(width, 100 - left)}%`,
+                            }}
                             title={`${task.taskName}: ${formatDate(task.baselineStart)} - ${formatDate(task.baselineEnd)}, ${Number(task.actualProgressPct || 0)}% complete`}
                           >
                             <span
@@ -1889,7 +1936,8 @@ function ProjectProgressSummary({
                   <div className="mb-1 flex items-center justify-between gap-3 text-xs">
                     <span className="truncate font-medium">{phase.phase}</span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {phase.value}% · {phase.taskCount} task{phase.taskCount === 1 ? "" : "s"}
+                      {phase.value}% · {phase.taskCount} task
+                      {phase.taskCount === 1 ? "" : "s"}
                     </span>
                   </div>
                   <Progress value={phase.value} className="h-1.5" />
