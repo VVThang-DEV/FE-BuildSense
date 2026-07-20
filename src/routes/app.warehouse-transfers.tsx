@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Check, Eye, PackageOpen, Plus, Send, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, Eye, PackageOpen, Plus, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { warehouseTransfersApi, type WarehouseTransferResponse } from "@/api/warehouseTransfers";
 import { warehousesApi } from "@/api/warehouses";
@@ -37,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 
 export const Route = createFileRoute("/app/warehouse-transfers")({
   head: () => ({ meta: [{ title: "Warehouse Transfers - BuildSense AI" }] }),
@@ -45,6 +46,7 @@ export const Route = createFileRoute("/app/warehouse-transfers")({
 
 function WarehouseTransfersPage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const canCreate = session?.role === "WAREHOUSE_MANAGER";
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -54,6 +56,8 @@ function WarehouseTransfersPage() {
   const [quantity, setQuantity] = useState("1");
   const [note, setNote] = useState("");
   const [selectedTransfer, setSelectedTransfer] = useState<WarehouseTransferResponse | null>(null);
+  const [approvalTransfer, setApprovalTransfer] = useState<WarehouseTransferResponse | null>(null);
+  const [shippingTransfer, setShippingTransfer] = useState<WarehouseTransferResponse | null>(null);
   const [receiptTransfer, setReceiptTransfer] = useState<WarehouseTransferResponse | null>(null);
   const [receiptValues, setReceiptValues] = useState<
     Record<number, { accepted: string; damaged: string; lost: string }>
@@ -84,6 +88,26 @@ function WarehouseTransfersPage() {
       ) ?? [],
     enabled: !!session?.token && canCreate && creating && !!sourceWarehouseId,
   });
+  const approvalInventoryQuery = useQuery({
+    queryKey: ["warehouses", "transfer-approval-inventory", approvalTransfer?.sourceWarehouseId],
+    queryFn: async () =>
+      requireApiResult(
+        await warehousesApi.getInventory(approvalTransfer!.sourceWarehouseId),
+        "Could not load current source inventory",
+      ) ?? [],
+    enabled: !!session?.token && approvalTransfer !== null,
+    staleTime: 5_000,
+  });
+  const shippingInventoryQuery = useQuery({
+    queryKey: ["warehouses", "transfer-shipping-inventory", shippingTransfer?.sourceWarehouseId],
+    queryFn: async () =>
+      requireApiResult(
+        await warehousesApi.getInventory(shippingTransfer!.sourceWarehouseId),
+        "Could not load reserved source inventory",
+      ) ?? [],
+    enabled: !!session?.token && shippingTransfer !== null,
+    staleTime: 5_000,
+  });
 
   const managedWarehouseIds = new Set(
     (warehousesQuery.data ?? []).map((warehouse) => warehouse.warehouseId),
@@ -101,6 +125,24 @@ function WarehouseTransfersPage() {
   const selectedInventory = transferableInventory.find(
     (item) => item.variantId === Number(variantId),
   );
+  const approvalHasShortage =
+    approvalTransfer?.items.some((item) => {
+      const inventoryItem = approvalInventoryQuery.data?.find(
+        (record) => record.variantId === item.variantId,
+      );
+      return item.requestedQuantity > (inventoryItem?.availableQuantity ?? 0);
+    }) ?? false;
+  const shipmentHasUnavailableStock =
+    shippingTransfer?.items.some((item) => {
+      const inventoryItem = shippingInventoryQuery.data?.find(
+        (record) => record.variantId === item.variantId,
+      );
+      return (
+        !inventoryItem ||
+        inventoryItem.reservedQuantity < item.requestedQuantity ||
+        inventoryItem.quantity - inventoryItem.quarantineQuantity < item.requestedQuantity
+      );
+    }) ?? false;
 
   const resetCreate = () => {
     setSourceWarehouseId("");
@@ -148,7 +190,12 @@ function WarehouseTransfersPage() {
         toast.error(response.errorMessage ?? "Could not create transfer");
         return;
       }
-      toast.success(`Transfer #${response.result.transferId} created`);
+      suggestNext({
+        message: `Transfer #${response.result.transferId} created`,
+        nextStep: "A different manager or Admin must approve it before the source can ship stock.",
+        to: "/app/dashboard",
+        actionLabel: "View next actions",
+      });
       setCreating(false);
       resetCreate();
       await transfersQuery.refetch();
@@ -174,10 +221,30 @@ function WarehouseTransfersPage() {
               ? await warehouseTransfersApi.ship(transfer.transferId)
               : await warehouseTransfersApi.cancel(transfer.transferId);
       if (!response.isSuccess) {
-        toast.error(response.errorMessage ?? `Could not ${action} transfer`);
+        const message = response.errorMessage ?? `Could not ${action} transfer`;
+        if (/inventory|stock|reservation/i.test(message)) {
+          toast.error(message, {
+            description:
+              "Next: reload the source balance. Cancel and recreate a smaller transfer, or replenish the source warehouse.",
+            action: { label: "Reload stock", onClick: () => approvalInventoryQuery.refetch() },
+          });
+        } else toast.error(message);
         return;
       }
-      toast.success(`Transfer #${transfer.transferId} ${action}d`);
+      const nextStep =
+        action === "approve"
+          ? "The source Warehouse Manager can now ship the reserved stock."
+          : action === "ship"
+            ? "The destination Warehouse Manager should record received, damaged, and lost quantities."
+            : "Review the remaining warehouse transfer queue.";
+      suggestNext({
+        message: `Transfer #${transfer.transferId} ${action}d`,
+        nextStep,
+        to: "/app/warehouse-transfers",
+        actionLabel: "View transfers",
+      });
+      if (action === "approve") setApprovalTransfer(null);
+      if (action === "ship") setShippingTransfer(null);
       await transfersQuery.refetch();
     } catch {
       toast.error("Could not reach the backend");
@@ -249,7 +316,12 @@ function WarehouseTransfersPage() {
         toast.error(response.errorMessage ?? "Could not receive transfer");
         return;
       }
-      toast.success(`Transfer #${receiptTransfer.transferId} receipt recorded`);
+      suggestNext({
+        message: `Transfer #${receiptTransfer.transferId} receipt recorded`,
+        nextStep: "Verify the destination warehouse balance and any recorded variance.",
+        to: "/app/admin/warehouses",
+        actionLabel: "View inventory",
+      });
       setReceiptTransfer(null);
       setReceiptValues({});
       await transfersQuery.refetch();
@@ -361,7 +433,7 @@ function WarehouseTransfersPage() {
                                 size="sm"
                                 variant="ghost"
                                 disabled={!!busy}
-                                onClick={() => mutate(transfer, "approve")}
+                                onClick={() => setApprovalTransfer(transfer)}
                               >
                                 <Check className="mr-1 h-3 w-3" />
                                 Approve
@@ -388,7 +460,7 @@ function WarehouseTransfersPage() {
                               size="sm"
                               variant="ghost"
                               disabled={!!busy}
-                              onClick={() => mutate(transfer, "ship")}
+                              onClick={() => setShippingTransfer(transfer)}
                             >
                               <Send className="mr-1 h-3 w-3" />
                               Ship
@@ -428,6 +500,231 @@ function WarehouseTransfersPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog
+        open={approvalTransfer !== null}
+        onOpenChange={(open) => !open && !busy && setApprovalTransfer(null)}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Approve transfer #{approvalTransfer?.transferId}</DialogTitle>
+          </DialogHeader>
+          {approvalTransfer && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Approval reserves stock in {approvalTransfer.sourceWarehouseName}. Confirm that
+                every line still has enough unreserved, non-quarantined quantity.
+              </p>
+              <div className="space-y-2">
+                {approvalTransfer.items.map((item) => {
+                  const inventoryItem = approvalInventoryQuery.data?.find(
+                    (record) => record.variantId === item.variantId,
+                  );
+                  const available = inventoryItem?.availableQuantity ?? 0;
+                  const afterReservation = available - item.requestedQuantity;
+                  const insufficient = item.requestedQuantity > available;
+                  return (
+                    <div
+                      key={item.transferItemId}
+                      className={`rounded-lg border p-3 ${insufficient ? "border-destructive/50 bg-destructive/5" : ""}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {item.materialName} / {item.variantName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Requested {item.requestedQuantity} {item.unit}
+                          </p>
+                        </div>
+                        <Badge variant={insufficient ? "destructive" : "secondary"}>
+                          {insufficient ? "Insufficient" : "Available"}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-muted/50 p-2 text-xs sm:grid-cols-4">
+                        <div>
+                          <p className="text-muted-foreground">On hand</p>
+                          <p className="font-medium tabular-nums">{inventoryItem?.quantity ?? 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Reserved / quarantine</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem?.reservedQuantity ?? 0} /{" "}
+                            {inventoryItem?.quarantineQuantity ?? 0}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Available now</p>
+                          <p className="font-medium tabular-nums">{available}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">After reservation</p>
+                          <p
+                            className={`font-medium tabular-nums ${afterReservation < 0 ? "text-destructive" : ""}`}
+                          >
+                            {afterReservation}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {approvalInventoryQuery.isError && (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                  <span>Current source inventory could not be loaded.</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => approvalInventoryQuery.refetch()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+              {approvalHasShortage && (
+                <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    This transfer cannot be approved. The source manager should cancel it and submit
+                    a smaller transfer, or replenish the source warehouse first.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" disabled={!!busy} onClick={() => setApprovalTransfer(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                !!busy ||
+                approvalInventoryQuery.isLoading ||
+                approvalInventoryQuery.isError ||
+                approvalHasShortage
+              }
+              onClick={() => approvalTransfer && mutate(approvalTransfer, "approve")}
+            >
+              {approvalInventoryQuery.isLoading ? "Checking stock..." : "Approve and reserve"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={shippingTransfer !== null}
+        onOpenChange={(open) => !open && !busy && setShippingTransfer(null)}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Ship transfer #{shippingTransfer?.transferId}</DialogTitle>
+          </DialogHeader>
+          {shippingTransfer && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Shipping consumes the transfer reservation and removes the quantity from source
+                on-hand stock.
+              </p>
+              {shippingTransfer.items.map((item) => {
+                const inventoryItem = shippingInventoryQuery.data?.find(
+                  (record) => record.variantId === item.variantId,
+                );
+                const unavailable =
+                  !inventoryItem ||
+                  inventoryItem.reservedQuantity < item.requestedQuantity ||
+                  inventoryItem.quantity - inventoryItem.quarantineQuantity <
+                    item.requestedQuantity;
+                return (
+                  <div
+                    key={item.transferItemId}
+                    className={`rounded-lg border p-3 ${unavailable ? "border-destructive/50 bg-destructive/5" : ""}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {item.materialName} / {item.variantName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Ship {item.requestedQuantity} {item.unit}
+                        </p>
+                      </div>
+                      <Badge variant={unavailable ? "destructive" : "secondary"}>
+                        {unavailable ? "Unavailable" : "Reserved"}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-muted/50 p-2 text-xs sm:grid-cols-4">
+                      <div>
+                        <p className="text-muted-foreground">On hand</p>
+                        <p className="font-medium tabular-nums">{inventoryItem?.quantity ?? 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Reserved</p>
+                        <p className="font-medium tabular-nums">
+                          {inventoryItem?.reservedQuantity ?? 0}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Quarantine</p>
+                        <p className="font-medium tabular-nums">
+                          {inventoryItem?.quarantineQuantity ?? 0}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">On hand after ship</p>
+                        <p
+                          className={`font-medium tabular-nums ${unavailable ? "text-destructive" : ""}`}
+                        >
+                          {(inventoryItem?.quantity ?? 0) - item.requestedQuantity}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {shipmentHasUnavailableStock && (
+                <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    Reserved stock is no longer consistent. Reload inventory; if the reservation
+                    cannot be restored, cancel the transfer before creating a replacement.
+                  </p>
+                </div>
+              )}
+              {shippingInventoryQuery.isError && (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                  <span>Current reserved inventory could not be loaded.</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => shippingInventoryQuery.refetch()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" disabled={!!busy} onClick={() => setShippingTransfer(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                !!busy ||
+                shippingInventoryQuery.isLoading ||
+                shippingInventoryQuery.isError ||
+                shipmentHasUnavailableStock
+              }
+              onClick={() => shippingTransfer && mutate(shippingTransfer, "ship")}
+            >
+              {shippingInventoryQuery.isLoading ? "Checking reservation..." : "Confirm shipment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={creating}

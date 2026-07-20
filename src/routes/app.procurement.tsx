@@ -59,6 +59,7 @@ import { warehousesApi } from "@/api/warehouses";
 import { requireApiResult } from "@/api/client";
 import { materialsApi } from "@/api/materials";
 import { catalogsApi } from "@/api/catalogs";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 
 export const Route = createFileRoute("/app/procurement")({
   head: () => ({ meta: [{ title: "Procurement - BuildSense AI" }] }),
@@ -118,6 +119,7 @@ type DraftPOLine = {
 
 function ProcurementPage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const isLive = !!session?.token;
   const canCreate = session?.role === "WAREHOUSE_MANAGER";
   const canApproveOrReject = session?.role === "ADMIN" || session?.role === "PM";
@@ -144,6 +146,7 @@ function ProcurementPage() {
   const [selectedPOId, setSelectedPOId] = useState<number | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [reviewDenials, setReviewDenials] = useState<Record<number, string>>({});
+  const [workflowTab, setWorkflowTab] = useState("pending");
 
   const {
     data: livePOs,
@@ -238,7 +241,13 @@ function ProcurementPage() {
         rowVersion: po?.rowVersion,
       });
       if (response.isSuccess) {
-        toast.success(`PO #${poId} approved`);
+        suggestNext({
+          message: `PO #${poId} approved`,
+          nextStep: "The Warehouse Manager can now move the order into supplier processing.",
+          to: "/app/procurement",
+          actionLabel: "View approved POs",
+          onAction: () => setWorkflowTab("approved"),
+        });
         await refetchPOs();
       } else {
         await showActionFailure(response, "Approve failed", poId);
@@ -260,7 +269,13 @@ function ProcurementPage() {
         rowVersion: po?.rowVersion,
       });
       if (response.isSuccess) {
-        toast.success(`PO #${poId} rejected`);
+        suggestNext({
+          message: `PO #${poId} rejected`,
+          nextStep: "Review remaining shortages before creating a corrected purchase order.",
+          to: "/app/procurement",
+          actionLabel: "Review shortages",
+          onAction: () => setCreating(true),
+        });
         setRejectPOId(null);
         await refetchPOs();
       } else {
@@ -283,7 +298,14 @@ function ProcurementPage() {
       if (!response.isSuccess) {
         await showActionFailure(response, "Could not mark PO shipped");
       } else {
-        toast.success(`PO #${poId} marked as shipped`);
+        suggestNext({
+          message: `PO #${poId} marked as shipped`,
+          nextStep:
+            "Record the actual receipt whenever the delivery arrives, even if it arrives early.",
+          to: "/app/procurement",
+          actionLabel: "Receive delivery",
+          onAction: () => setWorkflowTab("approved"),
+        });
         await refetchPOs();
       }
     } catch {
@@ -303,7 +325,13 @@ function ProcurementPage() {
       if (!response.isSuccess) {
         await showActionFailure(response, "Could not mark PO as processing");
       } else {
-        toast.success(`PO #${poId} marked as supplier processing`);
+        suggestNext({
+          message: `PO #${poId} marked as supplier processing`,
+          nextStep: "Mark it shipped when the supplier dispatches the order.",
+          to: "/app/procurement",
+          actionLabel: "View processing POs",
+          onAction: () => setWorkflowTab("approved"),
+        });
         await refetchPOs();
       }
     } catch {
@@ -325,7 +353,13 @@ function ProcurementPage() {
       if (!response.isSuccess) {
         await showActionFailure(response, "Could not cancel PO");
       } else {
-        toast.success(`PO #${poId} cancelled`);
+        suggestNext({
+          message: `PO #${poId} cancelled`,
+          nextStep: "Review whether the uncovered shortage still needs a replacement order.",
+          to: "/app/procurement",
+          actionLabel: "Review shortages",
+          onAction: () => setCreating(true),
+        });
         setCancelPOId(null);
         await Promise.all([refetchPOs(), refetchShortages()]);
       }
@@ -411,7 +445,13 @@ function ProcurementPage() {
         ),
       });
       if (response.isSuccess) {
-        toast.success(`PO #${importPOId} imported to warehouse`);
+        suggestNext({
+          message: `PO #${importPOId} imported to warehouse`,
+          nextStep:
+            "Verify the updated balance and check Material Requests because received stock may have been reserved automatically for linked shortages.",
+          to: "/app/admin/warehouses",
+          actionLabel: "View inventory",
+        });
         setImportOpen(false);
         setImportPOId(null);
         setReceiptQuantities({});
@@ -566,11 +606,16 @@ function ProcurementPage() {
           ? await purchaseOrdersApi.createFromShortages(request)
           : await purchaseOrdersApi.create(request);
       if (response.isSuccess) {
-        toast.success(
-          createMode === "shortage"
-            ? "Shortage purchase order created"
-            : "Stock replenishment purchase order created",
-        );
+        suggestNext({
+          message:
+            createMode === "shortage"
+              ? "Shortage purchase order created"
+              : "Stock replenishment purchase order created",
+          nextStep: "A Project Manager or Admin other than the creator must review the order.",
+          to: "/app/procurement",
+          actionLabel: "Track approval",
+          onAction: () => setWorkflowTab("pending"),
+        });
         setCreating(false);
         resetPOBuilder();
         setCreateMode("shortage");
@@ -1496,7 +1541,7 @@ function ProcurementPage() {
           onRetry={() => refetchPOs()}
         />
       ) : (
-        <Tabs defaultValue="pending">
+        <Tabs value={workflowTab} onValueChange={setWorkflowTab}>
           <TabsList>
             <TabsTrigger value="pending">
               Pending
@@ -1829,16 +1874,19 @@ function PurchaseOrderTable({
                           )}
                         </>
                       ))}
-                    {["SHIPPED", "PARTIALLY_RECEIVED"].includes(po.status) && onImport && (
-                      <Button
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => onImport(po.poId)}
-                        disabled={busyAction !== null}
-                      >
-                        <Download className="h-3 w-3 mr-1" /> Receive
-                      </Button>
-                    )}
+                    {["APPROVED", "PROCESSING", "SHIPPED", "PARTIALLY_RECEIVED"].includes(
+                      po.status,
+                    ) &&
+                      onImport && (
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => onImport(po.poId)}
+                          disabled={busyAction !== null}
+                        >
+                          <Download className="h-3 w-3 mr-1" /> Receive
+                        </Button>
+                      )}
                     {po.status === "APPROVED" && onProcessing && (
                       <Button
                         size="sm"

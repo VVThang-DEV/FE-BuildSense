@@ -22,6 +22,7 @@ import { usersApi } from "@/api/users";
 import { materialsApi } from "@/api/materials";
 import { materialRequestsApi } from "@/api/materialRequests";
 import { requireApiResult } from "@/api/client";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 import { Textarea } from "@/components/ui/textarea";
 import { WarehouseInventoryWorkspace } from "@/components/warehouse-inventory-workspace";
 import {
@@ -39,6 +40,7 @@ export const Route = createFileRoute("/app/admin/warehouses")({
 
 function WarehousesPage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const isLive = !!session?.token;
   const canCreateWarehouse = session?.role === "ADMIN";
   const canAdjustInventory = session?.role === "WAREHOUSE_MANAGER";
@@ -148,14 +150,51 @@ function WarehousesPage() {
     staleTime: 10_000,
   });
   const eligibleReturnRequests = (returnRequestsQuery.data ?? []).filter(
-    (request) => request.status === "ISSUED" && request.warehouseId === selectedId,
+    (request) =>
+      (request.status === "ISSUED" || request.status === "PARTIALLY_ISSUED") &&
+      request.warehouseId === selectedId,
   );
   const selectedReturnRequest = eligibleReturnRequests.find(
     (request) => request.requestId === Number(inventoryReturn.materialRequestId),
   );
   const returnableItems = (selectedReturnRequest?.items ?? []).filter(
-    (item) => item.issuedQuantity > 0,
+    (item) => item.issuedQuantity - item.returnedQuantity > 0,
   );
+  const selectedReturnItem = returnableItems.find(
+    (item) => item.variantId === Number(inventoryReturn.variantId),
+  );
+  const selectedReturnInventory = inventory?.find(
+    (item) => item.variantId === Number(inventoryReturn.variantId),
+  );
+  const remainingReturnable = selectedReturnItem
+    ? Math.max(0, selectedReturnItem.issuedQuantity - selectedReturnItem.returnedQuantity)
+    : 0;
+  const returnQuantity = Number(inventoryReturn.quantity);
+  const returnExceedsIssued =
+    !!selectedReturnItem && Number.isFinite(returnQuantity) && returnQuantity > remainingReturnable;
+  const projectedReturnStock =
+    (selectedReturnInventory?.quantity ?? 0) +
+    (Number.isFinite(returnQuantity) ? returnQuantity : 0);
+  const projectedReturnAvailable =
+    (selectedReturnInventory?.availableQuantity ?? 0) +
+    (inventoryReturn.condition === "USABLE" && Number.isFinite(returnQuantity)
+      ? returnQuantity
+      : 0);
+  const selectedAdjustmentInventory = inventory?.find(
+    (item) => item.variantId === Number(adjustment.variantId),
+  );
+  const adjustmentDelta = Number(adjustment.quantityDelta);
+  const adjustmentBefore = selectedAdjustmentInventory?.quantity ?? 0;
+  const adjustmentMinimum =
+    (selectedAdjustmentInventory?.reservedQuantity ?? 0) +
+    (selectedAdjustmentInventory?.quarantineQuantity ?? 0);
+  const adjustmentAfter =
+    adjustmentBefore + (Number.isFinite(adjustmentDelta) ? adjustmentDelta : 0);
+  const adjustmentBreaksStockRule =
+    !!adjustment.variantId &&
+    Number.isFinite(adjustmentDelta) &&
+    adjustmentDelta !== 0 &&
+    adjustmentAfter < adjustmentMinimum;
 
   const submitCreate = async () => {
     if (!form.warehouseName.trim() || !form.location.trim() || !form.managerId) {
@@ -170,7 +209,13 @@ function WarehousesPage() {
         location: form.location.trim(),
       });
       if (r.isSuccess) {
-        toast.success("Warehouse created");
+        suggestNext({
+          message: "Warehouse created",
+          nextStep:
+            "The assigned Warehouse Manager can add opening stock using an approved inventory adjustment.",
+          to: "/app/admin/warehouses",
+          actionLabel: "Open warehouses",
+        });
         setCreating(false);
         setForm({ managerId: "", warehouseName: "", location: "" });
         refetch();
@@ -190,6 +235,12 @@ function WarehousesPage() {
       return;
     }
     const current = inventory?.find((item) => item.variantId === variantId);
+    const minimum = (current?.reservedQuantity ?? 0) + (current?.quarantineQuantity ?? 0);
+    const after = (current?.quantity ?? 0) + quantityDelta;
+    if (after < minimum) {
+      toast.error(`Stock cannot be reduced below ${minimum} reserved and quarantined units`);
+      return;
+    }
     setSaving(true);
     try {
       const response = await warehousesApi.adjustInventory({
@@ -201,10 +252,19 @@ function WarehousesPage() {
         rowVersion: current?.rowVersion,
       });
       if (!response.isSuccess) {
-        toast.error(response.errorMessage ?? "Inventory adjustment failed");
+        toast.error(response.errorMessage ?? "Inventory adjustment failed", {
+          description:
+            "Next: reload the warehouse balance and keep the result above reserved plus quarantined stock.",
+          action: { label: "Reload", onClick: () => refetchInventory() },
+        });
         return;
       }
-      toast.success("Inventory adjustment submitted for administrator review");
+      suggestNext({
+        message: "Inventory adjustment submitted",
+        nextStep: "An Admin must approve it before the warehouse balance changes.",
+        to: "/app/inventory-governance",
+        actionLabel: "Track approval",
+      });
       setAdjusting(false);
       setAdjustment({ variantId: "", quantityDelta: "", reasonCode: "CYCLE_COUNT", note: "" });
     } catch {
@@ -226,6 +286,14 @@ function WarehousesPage() {
       toast.error("Select an issued material request");
       return;
     }
+    const requestItem = selectedReturnRequest?.items.find((item) => item.variantId === variantId);
+    const maximumReturn = requestItem
+      ? Math.max(0, requestItem.issuedQuantity - requestItem.returnedQuantity)
+      : 0;
+    if (!requestItem || quantity > maximumReturn) {
+      toast.error(`Only ${maximumReturn} units remain returnable for this issued material`);
+      return;
+    }
     const current = inventory?.find((item) => item.variantId === variantId);
     setSaving(true);
     try {
@@ -240,10 +308,22 @@ function WarehousesPage() {
         rowVersion: current?.rowVersion,
       });
       if (!response.isSuccess) {
-        toast.error(response.errorMessage ?? "Inventory return failed");
+        toast.error(response.errorMessage ?? "Inventory return failed", {
+          description:
+            "Next: reload issued quantities and return only the remaining unreturned amount.",
+          action: {
+            label: "Reload",
+            onClick: () => Promise.all([refetchInventory(), returnRequestsQuery.refetch()]),
+          },
+        });
         return;
       }
-      toast.success("Inventory return recorded");
+      suggestNext({
+        message: "Inventory return recorded",
+        nextStep: "Review the warehouse balance and transaction history for the returned stock.",
+        to: "/app/admin/warehouses",
+        actionLabel: "View inventory",
+      });
       setReturning(false);
       setInventoryReturn({
         variantId: "",
@@ -383,7 +463,47 @@ function WarehousesPage() {
                 }
                 placeholder="Use a negative value to remove stock"
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Positive values add stock; negative values remove stock. This does not create a
+                warehouse transfer.
+              </p>
             </div>
+            {!!adjustment.variantId && (
+              <div
+                className={`grid grid-cols-2 gap-3 rounded-lg border p-3 text-sm sm:grid-cols-4 ${adjustmentBreaksStockRule ? "border-destructive/50 bg-destructive/5" : "bg-muted/30"}`}
+              >
+                <div>
+                  <p className="text-xs text-muted-foreground">Current stock</p>
+                  <p className="font-medium tabular-nums">{adjustmentBefore}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Reserved</p>
+                  <p className="font-medium tabular-nums">
+                    {selectedAdjustmentInventory?.reservedQuantity ?? 0}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Quarantine</p>
+                  <p className="font-medium tabular-nums">
+                    {selectedAdjustmentInventory?.quarantineQuantity ?? 0}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">After approval</p>
+                  <p
+                    className={`font-medium tabular-nums ${adjustmentBreaksStockRule ? "text-destructive" : ""}`}
+                  >
+                    {adjustmentAfter}
+                  </p>
+                </div>
+                {adjustmentBreaksStockRule && (
+                  <p className="col-span-full text-xs text-destructive">
+                    The result cannot be lower than {adjustmentMinimum}, because reserved and
+                    quarantined stock cannot be removed.
+                  </p>
+                )}
+              </div>
+            )}
             <div>
               <Label>Reason code</Label>
               <Select
@@ -423,8 +543,8 @@ function WarehousesPage() {
             <Button variant="outline" onClick={() => setAdjusting(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={submitAdjustment} disabled={saving}>
-              {saving ? "Applying..." : "Apply adjustment"}
+            <Button onClick={submitAdjustment} disabled={saving || adjustmentBreaksStockRule}>
+              {saving ? "Submitting..." : "Submit for approval"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -494,7 +614,8 @@ function WarehousesPage() {
                 <SelectContent>
                   {returnableItems.map((item) => (
                     <SelectItem key={item.itemId} value={String(item.variantId)}>
-                      {item.materialName} — {item.variantName} · issued {item.issuedQuantity}{" "}
+                      {item.materialName} — {item.variantName} · returnable{" "}
+                      {Math.max(0, item.issuedQuantity - item.returnedQuantity)}{" "}
                       {item.unit ?? "units"}
                     </SelectItem>
                   ))}
@@ -507,6 +628,7 @@ function WarehousesPage() {
                 id="return-quantity"
                 type="number"
                 min="0.01"
+                max={remainingReturnable || undefined}
                 step="0.01"
                 value={inventoryReturn.quantity}
                 onChange={(event) =>
@@ -517,6 +639,40 @@ function WarehousesPage() {
                 }
               />
             </div>
+            {selectedReturnItem && (
+              <div
+                className={`grid grid-cols-2 gap-3 rounded-lg border p-3 text-sm sm:grid-cols-4 ${returnExceedsIssued ? "border-destructive/50 bg-destructive/5" : "bg-muted/30"}`}
+              >
+                <div>
+                  <p className="text-xs text-muted-foreground">Remaining returnable</p>
+                  <p className="font-medium tabular-nums">{remainingReturnable}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Current stock</p>
+                  <p className="font-medium tabular-nums">
+                    {selectedReturnInventory?.quantity ?? 0}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Stock after return</p>
+                  <p className="font-medium tabular-nums">{projectedReturnStock}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Available after return</p>
+                  <p className="font-medium tabular-nums">{projectedReturnAvailable}</p>
+                </div>
+                {inventoryReturn.condition === "QUARANTINED" && (
+                  <p className="col-span-full text-xs text-muted-foreground">
+                    Quarantined returns increase on-hand stock but do not increase available stock.
+                  </p>
+                )}
+                {returnExceedsIssued && (
+                  <p className="col-span-full text-xs text-destructive">
+                    Reduce the returned quantity to {remainingReturnable} or less.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Return reason</Label>
@@ -576,7 +732,7 @@ function WarehousesPage() {
             <Button variant="outline" onClick={() => setReturning(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={submitReturn} disabled={saving}>
+            <Button onClick={submitReturn} disabled={saving || returnExceedsIssued}>
               {saving ? "Recording..." : "Record return"}
             </Button>
           </DialogFooter>

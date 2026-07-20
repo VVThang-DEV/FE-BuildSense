@@ -44,6 +44,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/page-header";
+import { NextActionGuide, type NextAction } from "@/components/next-action-guide";
 import { QueryError } from "@/components/query-error";
 import { cn, healthConfig, statusConfig } from "@/lib/utils";
 import { ROLE_LABELS, useSession, type Role } from "@/lib/session";
@@ -52,6 +53,8 @@ import { materialsApi } from "@/api/materials";
 import { suppliersApi } from "@/api/suppliers";
 import { warehousesApi, type InventoryItem, type WarehouseResponse } from "@/api/warehouses";
 import { purchaseOrdersApi, type PurchaseOrderResponse } from "@/api/purchaseOrders";
+import { materialRequestsApi } from "@/api/materialRequests";
+import { warehouseTransfersApi } from "@/api/warehouseTransfers";
 import { usersApi } from "@/api/users";
 import { requireApiResult } from "@/api/client";
 
@@ -181,6 +184,50 @@ function DashboardPage() {
   });
   const { data: purchaseOrders = [], isLoading: purchaseOrdersLoading } = purchaseOrdersQuery;
 
+  const materialRequestsQuery = useQuery({
+    queryKey: ["dashboard-material-requests"],
+    queryFn: async () =>
+      requireApiResult(
+        await materialRequestsApi.getAll(),
+        "Could not load material request actions",
+      ) ?? [],
+    enabled: isLive && (role === "ADMIN" || role === "PM" || role === "WAREHOUSE_MANAGER"),
+    staleTime: 20_000,
+  });
+
+  const transfersQuery = useQuery({
+    queryKey: ["dashboard-warehouse-transfers"],
+    queryFn: async () =>
+      requireApiResult(
+        await warehouseTransfersApi.getAll(),
+        "Could not load warehouse transfer actions",
+      ) ?? [],
+    enabled: isLive && (role === "ADMIN" || role === "WAREHOUSE_MANAGER"),
+    staleTime: 20_000,
+  });
+
+  const adjustmentsQuery = useQuery({
+    queryKey: ["dashboard-inventory-adjustments"],
+    queryFn: async () =>
+      requireApiResult(
+        await warehousesApi.getAdjustments(),
+        "Could not load inventory adjustment actions",
+      ) ?? [],
+    enabled: isLive && (role === "ADMIN" || role === "WAREHOUSE_MANAGER"),
+    staleTime: 20_000,
+  });
+
+  const physicalCountsQuery = useQuery({
+    queryKey: ["dashboard-physical-counts"],
+    queryFn: async () =>
+      requireApiResult(
+        await warehousesApi.getPhysicalCounts(),
+        "Could not load physical count actions",
+      ) ?? [],
+    enabled: isLive && (role === "ADMIN" || role === "WAREHOUSE_MANAGER"),
+    staleTime: 20_000,
+  });
+
   const userCountQuery = useQuery({
     queryKey: ["dashboard-user-count"],
     queryFn: async () =>
@@ -219,6 +266,297 @@ function DashboardPage() {
   const approvedPOs = scopedPurchaseOrders.filter((po) => po.status === "APPROVED");
   const deliveredPOs = scopedPurchaseOrders.filter((po) => po.status === "DELIVERED");
   const lowStockRows = inventory.filter((item) => item.isLowStock);
+
+  const nextActions = useMemo<NextAction[]>(() => {
+    const actions: NextAction[] = [];
+    const requests = materialRequestsQuery.data ?? [];
+    const transfers = transfersQuery.data ?? [];
+    const adjustments = adjustmentsQuery.data ?? [];
+    const physicalCounts = physicalCountsQuery.data ?? [];
+
+    if (role === "ADMIN") {
+      const pendingAdjustments = adjustments.filter(
+        (item) => item.status === "PENDING" && item.requestedByUserId !== session?.userId,
+      ).length;
+      const pendingCounts = physicalCounts.filter(
+        (item) => item.status === "PENDING_APPROVAL",
+      ).length;
+      if (pendingAdjustments + pendingCounts > 0) {
+        actions.push({
+          id: "admin-inventory-governance",
+          title: "Review inventory changes",
+          description: `${pendingAdjustments} stock adjustment${pendingAdjustments === 1 ? "" : "s"} and ${pendingCounts} physical count${pendingCounts === 1 ? "" : "s"} are waiting for an independent review.`,
+          to: "/app/inventory-governance",
+          buttonLabel: "Open review queue",
+          count: pendingAdjustments + pendingCounts,
+          state: "attention",
+        });
+      }
+
+      const transferReviews = transfers.filter((item) => item.status === "REQUESTED").length;
+      if (transferReviews > 0) {
+        actions.push({
+          id: "admin-transfer-review",
+          title: "Review requested warehouse transfers",
+          description:
+            "Confirm the destination and requested quantities before stock is reserved for shipment.",
+          to: "/app/warehouse-transfers",
+          buttonLabel: "Review transfers",
+          count: transferReviews,
+          state: "attention",
+        });
+      }
+
+      if (pendingPOs.length > 0) {
+        actions.push({
+          id: "admin-po-review",
+          title: "Review pending purchase orders",
+          description:
+            "Check supplier, delivery date, quantities, and project budget before approval.",
+          to: "/app/procurement",
+          buttonLabel: "Review purchase orders",
+          count: pendingPOs.length,
+          state: "ready",
+        });
+      }
+
+      if (lowStockRows.length > 0) {
+        actions.push({
+          id: "admin-low-stock",
+          title: "Check low-stock warehouse records",
+          description:
+            "Review available stock and decide whether procurement or a warehouse transfer is needed.",
+          to: "/app/admin/warehouses",
+          buttonLabel: "Open inventory",
+          count: lowStockRows.length,
+          state: "attention",
+        });
+      }
+    }
+
+    if (role === "PM") {
+      if (pendingPOs.length > 0) {
+        actions.push({
+          id: "pm-po-review",
+          title: "Review purchase orders for your projects",
+          description:
+            "Validate the supplier, quantities, delivery timing, and remaining project budget.",
+          to: "/app/procurement",
+          buttonLabel: "Review purchase orders",
+          count: pendingPOs.length,
+          state: "attention",
+        });
+      }
+
+      const remainderRequests = requests.filter(
+        (item) => item.requestedBy === session?.userId && item.status === "PARTIALLY_ISSUED",
+      ).length;
+      if (remainderRequests > 0) {
+        actions.push({
+          id: "pm-request-remainder",
+          title: "Request materials that were not issued",
+          description:
+            "The original issue was partial. Create the permitted follow-up request for the remaining task demand.",
+          to: "/app/material-requests",
+          buttonLabel: "Request remainder",
+          count: remainderRequests,
+          state: "ready",
+        });
+      }
+
+      const pendingRequests = requests.filter(
+        (item) => item.requestedBy === session?.userId && item.status === "PENDING",
+      ).length;
+      if (pendingRequests > 0) {
+        actions.push({
+          id: "pm-track-requests",
+          title: "Track submitted material requests",
+          description:
+            "These requests are waiting for a Warehouse Manager. You can still review or cancel them while pending.",
+          to: "/app/material-requests",
+          buttonLabel: "View my requests",
+          count: pendingRequests,
+          state: "waiting",
+        });
+      }
+
+      const delayedProjects = scopedProjects.filter((item) => item.status === "DELAYED").length;
+      if (delayedProjects > 0) {
+        actions.push({
+          id: "pm-delayed-projects",
+          title: "Review delayed projects",
+          description:
+            "Check task progress and material plans to decide the next corrective action.",
+          to: "/app/projects",
+          buttonLabel: "Open projects",
+          count: delayedProjects,
+          state: "attention",
+        });
+      }
+    }
+
+    if (role === "WAREHOUSE_MANAGER") {
+      const managedWarehouseIds = new Set(warehouses.map((item) => item.warehouseId));
+      const requestsToApprove = requests.filter(
+        (item) =>
+          item.status === "PENDING" &&
+          (!item.warehouseId || managedWarehouseIds.has(item.warehouseId)),
+      ).length;
+      if (requestsToApprove > 0) {
+        actions.push({
+          id: "wm-request-review",
+          title: "Review pending material requests",
+          description:
+            "Select a managed warehouse, compare requested quantities with available stock, and approve fully or partially.",
+          to: "/app/material-requests",
+          buttonLabel: "Review requests",
+          count: requestsToApprove,
+          state: "attention",
+        });
+      }
+
+      const requestsToIssue = requests.filter(
+        (item) =>
+          (item.status === "APPROVED" || item.status === "PARTIALLY_APPROVED") &&
+          !!item.warehouseId &&
+          managedWarehouseIds.has(item.warehouseId),
+      ).length;
+      if (requestsToIssue > 0) {
+        actions.push({
+          id: "wm-issue-materials",
+          title: "Issue reserved materials",
+          description:
+            "The stock is already reserved. Record the issue when materials physically leave the warehouse.",
+          to: "/app/material-requests",
+          buttonLabel: "Issue materials",
+          count: requestsToIssue,
+          state: "ready",
+        });
+      }
+
+      const transfersToReview = transfers.filter(
+        (item) =>
+          item.status === "REQUESTED" &&
+          managedWarehouseIds.has(item.destinationWarehouseId) &&
+          item.requestedByUserId !== session?.userId,
+      ).length;
+      const transfersToShip = transfers.filter(
+        (item) => item.status === "APPROVED" && managedWarehouseIds.has(item.sourceWarehouseId),
+      ).length;
+      const transfersToReceive = transfers.filter(
+        (item) =>
+          item.status === "IN_TRANSIT" && managedWarehouseIds.has(item.destinationWarehouseId),
+      ).length;
+      const actionableTransfers = transfersToReview + transfersToShip + transfersToReceive;
+      if (actionableTransfers > 0) {
+        actions.push({
+          id: "wm-transfers",
+          title: "Continue warehouse transfers",
+          description: `${transfersToReview} to review, ${transfersToShip} to ship, and ${transfersToReceive} to receive. Only the manager responsible for the current step can act.`,
+          to: "/app/warehouse-transfers",
+          buttonLabel: "Open transfers",
+          count: actionableTransfers,
+          state: "ready",
+        });
+      }
+
+      const poProcessing = scopedPurchaseOrders.filter(
+        (item) =>
+          managedWarehouseIds.has(item.warehouseId) &&
+          ["APPROVED", "PROCESSING", "SHIPPED", "PARTIALLY_RECEIVED"].includes(item.status),
+      ).length;
+      if (poProcessing > 0) {
+        actions.push({
+          id: "wm-procurement",
+          title: "Continue approved purchase orders",
+          description:
+            "Move approved orders through processing and shipping, then record actual receipt when materials arrive.",
+          to: "/app/procurement",
+          buttonLabel: "Open procurement",
+          count: poProcessing,
+          state: "ready",
+        });
+      }
+
+      const draftCounts = physicalCounts.filter((item) => item.status === "DRAFT").length;
+      if (draftCounts > 0) {
+        actions.push({
+          id: "wm-physical-count",
+          title: "Complete draft physical counts",
+          description:
+            "Enter the actual quantity for every line and submit the count for independent approval.",
+          to: "/app/inventory-governance",
+          buttonLabel: "Continue counting",
+          count: draftCounts,
+          state: "ready",
+        });
+      }
+
+      if (lowStockRows.length > 0) {
+        actions.push({
+          id: "wm-low-stock",
+          title: "Replenish low-stock materials",
+          description:
+            "Review shortages first, then create a purchase order or request a transfer from another warehouse.",
+          to: "/app/procurement",
+          buttonLabel: "Review shortages",
+          count: lowStockRows.length,
+          state: "attention",
+        });
+      }
+
+      const waitingAdjustments = adjustments.filter(
+        (item) => item.status === "PENDING" && item.requestedByUserId === session?.userId,
+      ).length;
+      if (waitingAdjustments > 0) {
+        actions.push({
+          id: "wm-track-adjustments",
+          title: "Track pending stock adjustments",
+          description: "An Admin must review these changes before warehouse stock is updated.",
+          to: "/app/inventory-governance",
+          buttonLabel: "View adjustments",
+          count: waitingAdjustments,
+          state: "waiting",
+        });
+      }
+
+      const waitingTransferApprovals = transfers.filter(
+        (item) => item.status === "REQUESTED" && item.requestedByUserId === session?.userId,
+      ).length;
+      if (waitingTransferApprovals > 0) {
+        actions.push({
+          id: "wm-track-transfer-approvals",
+          title: "Track transfers awaiting another approver",
+          description:
+            "You created these transfers, so a different destination manager or Admin must review them.",
+          to: "/app/warehouse-transfers",
+          buttonLabel: "View transfers",
+          count: waitingTransferApprovals,
+          state: "waiting",
+        });
+      }
+    }
+
+    return actions.slice(0, 5);
+  }, [
+    adjustmentsQuery.data,
+    lowStockRows,
+    materialRequestsQuery.data,
+    pendingPOs,
+    physicalCountsQuery.data,
+    role,
+    scopedProjects,
+    scopedPurchaseOrders,
+    session?.userId,
+    transfersQuery.data,
+    warehouses,
+  ]);
+
+  const nextActionsLoading =
+    materialRequestsQuery.isLoading ||
+    transfersQuery.isLoading ||
+    adjustmentsQuery.isLoading ||
+    physicalCountsQuery.isLoading;
 
   if (!isLive) {
     return (
@@ -260,6 +598,10 @@ function DashboardPage() {
             }}
           />
         </Card>
+      )}
+
+      {!failedQuery && (role === "ADMIN" || role === "PM" || role === "WAREHOUSE_MANAGER") && (
+        <NextActionGuide actions={nextActions} loading={nextActionsLoading} />
       )}
 
       {!failedQuery && role === "ADMIN" && (

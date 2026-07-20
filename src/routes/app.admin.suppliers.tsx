@@ -4,6 +4,7 @@ import { Link2, Mail, Phone, Plus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -35,7 +36,9 @@ import { useSession } from "@/lib/session";
 import { suppliersApi } from "@/api/suppliers";
 import { materialsApi } from "@/api/materials";
 import { catalogsApi } from "@/api/catalogs";
+import { categoriesApi } from "@/api/categories";
 import { requireApiResult } from "@/api/client";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 
 export const Route = createFileRoute("/app/admin/suppliers")({
   head: () => ({ meta: [{ title: "Suppliers — BuildSense AI" }] }),
@@ -44,6 +47,7 @@ export const Route = createFileRoute("/app/admin/suppliers")({
 
 function SuppliersPage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const isLive = !!session?.token;
   const canManageSuppliers = session?.role === "ADMIN";
 
@@ -69,6 +73,22 @@ function SuppliersPage() {
     },
     enabled: isLive,
     staleTime: 60_000,
+  });
+
+  const { data: categories } = useQuery({
+    queryKey: ["categories", "supplier-coverage"],
+    queryFn: async () =>
+      requireApiResult(await categoriesApi.getAll(), "Could not load categories") ?? [],
+    enabled: isLive,
+    staleTime: 60_000,
+  });
+
+  const { data: catalogOffers, refetch: refetchCatalogOffers } = useQuery({
+    queryKey: ["supplier-catalogs"],
+    queryFn: async () =>
+      requireApiResult(await catalogsApi.getAll(), "Could not load supplier catalogs") ?? [],
+    enabled: isLive,
+    staleTime: 30_000,
   });
 
   const [creating, setCreating] = useState(false);
@@ -109,7 +129,12 @@ function SuppliersPage() {
         contactPhone: form.contactPhone || undefined,
       });
       if (r.isSuccess) {
-        toast.success("Supplier added");
+        suggestNext({
+          message: "Supplier added",
+          nextStep: "Link the supplier to the material variants and categories it can provide.",
+          actionLabel: "Add catalog item",
+          onAction: () => setCatalogOpen(true),
+        });
         setCreating(false);
         setForm({ companyName: "", contactEmail: "", contactPhone: "" });
         refetch();
@@ -154,7 +179,13 @@ function SuppliersPage() {
         isAvailable: true,
       });
       if (response.isSuccess) {
-        toast.success("Supplier catalog entry added");
+        suggestNext({
+          message: "Supplier catalog entry added",
+          nextStep:
+            "Verify the linked material specification; Warehouse Managers can now use this offer in procurement.",
+          to: "/app/materials",
+          actionLabel: "Review materials",
+        });
         setCatalogOpen(false);
         setCatalogForm({
           supplierId: "",
@@ -164,6 +195,7 @@ function SuppliersPage() {
           minimumOrderQuantity: "0",
           leadTimeDays: "",
         });
+        await refetchCatalogOffers();
       } else {
         toast.error(response.errorMessage ?? "Create failed");
       }
@@ -372,6 +404,8 @@ function SuppliersPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Company</TableHead>
+                  <TableHead>Categories supplied</TableHead>
+                  <TableHead>Available catalog</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
                 </TableRow>
@@ -379,36 +413,89 @@ function SuppliersPage() {
               <TableBody>
                 {(suppliers ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                       No suppliers yet — add one above
                     </TableCell>
                   </TableRow>
                 )}
-                {(suppliers ?? []).map((s) => (
-                  <TableRow key={s.supplierId}>
-                    <TableCell className="font-medium">{s.companyName}</TableCell>
-                    <TableCell className="text-sm">
-                      {s.contactEmail ? (
-                        <span className="flex items-center gap-1.5">
-                          <Mail className="h-3 w-3 text-muted-foreground" />
-                          {s.contactEmail}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {s.contactPhone ? (
-                        <span className="flex items-center gap-1.5">
-                          <Phone className="h-3 w-3 text-muted-foreground" />
-                          {s.contactPhone}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {(suppliers ?? []).map((s) => {
+                  const offers = (catalogOffers ?? []).filter(
+                    (offer) => offer.supplierId === s.supplierId && offer.isAvailable,
+                  );
+                  const suppliedCategories = Array.from(
+                    new Set(
+                      offers
+                        .map((offer) => {
+                          const material = materials?.find(
+                            (item) => item.materialId === offer.materialId,
+                          );
+                          return categories?.find(
+                            (category) => category.id === material?.categoryId,
+                          )?.categoryName;
+                        })
+                        .filter((name): name is string => !!name),
+                    ),
+                  );
+                  return (
+                    <TableRow key={s.supplierId}>
+                      <TableCell className="font-medium">{s.companyName}</TableCell>
+                      <TableCell>
+                        <div className="flex max-w-xs flex-wrap gap-1">
+                          {suppliedCategories.length > 0 ? (
+                            suppliedCategories.map((category) => (
+                              <Badge key={category} variant="secondary">
+                                {category}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              No category linked
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {offers.length > 0 ? (
+                          <div className="max-w-sm space-y-1">
+                            {offers.slice(0, 3).map((offer) => (
+                              <p key={offer.catalogId} className="truncate text-xs">
+                                {offer.materialName} / {offer.variantName}
+                              </p>
+                            ))}
+                            {offers.length > 3 && (
+                              <p className="text-xs text-muted-foreground">
+                                +{offers.length - 3} more catalog item
+                                {offers.length - 3 === 1 ? "" : "s"}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No available offers</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {s.contactEmail ? (
+                          <span className="flex items-center gap-1.5">
+                            <Mail className="h-3 w-3 text-muted-foreground" />
+                            {s.contactEmail}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {s.contactPhone ? (
+                          <span className="flex items-center gap-1.5">
+                            <Phone className="h-3 w-3 text-muted-foreground" />
+                            {s.contactPhone}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

@@ -4,6 +4,7 @@ import { Edit, Layers3, PackagePlus, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -35,9 +36,10 @@ import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { QueryError } from "@/components/query-error";
 import { useSession } from "@/lib/session";
-import { materialsApi, type MaterialResponse } from "@/api/materials";
+import { materialsApi, type MaterialResponse, type MaterialVariantResponse } from "@/api/materials";
 import { categoriesApi } from "@/api/categories";
 import { requireApiResult } from "@/api/client";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 
 export const Route = createFileRoute("/app/materials")({
   head: () => ({ meta: [{ title: "Material Catalog - BuildSense AI" }] }),
@@ -62,6 +64,7 @@ const EMPTY_FORM: MaterialForm = {
 
 function MaterialsPage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const isLive = !!session?.token;
   const canManageCatalog = session?.role === "ADMIN";
   const [open, setOpen] = useState(false);
@@ -70,6 +73,8 @@ function MaterialsPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<MaterialResponse | null>(null);
   const [variantMaterial, setVariantMaterial] = useState<MaterialResponse | null>(null);
+  const [editingVariant, setEditingVariant] = useState<MaterialVariantResponse | null>(null);
+  const [deletingVariant, setDeletingVariant] = useState<MaterialVariantResponse | null>(null);
   const [variantForm, setVariantForm] = useState({
     variantName: "",
     sku: "",
@@ -80,6 +85,7 @@ function MaterialsPage() {
     specification: "",
     packaging: "",
     unit: "",
+    isActive: true,
   });
 
   const {
@@ -162,10 +168,20 @@ function MaterialsPage() {
               `Material created, but its standard variant failed: ${variantResponse.errorMessage ?? "add one manually"}`,
             );
           } else {
-            toast.success("Material and standard variant added");
+            suggestNext({
+              message: "Material and standard variant added",
+              nextStep: "Add exact sizes, grades, or shapes as variants before purchasing stock.",
+              actionLabel: "Manage variants",
+              onAction: () => openVariant(response.result),
+            });
           }
         } else {
-          toast.success("Material updated");
+          suggestNext({
+            message: "Material updated",
+            nextStep: "Review its variants and supplier catalog coverage.",
+            to: "/app/admin/suppliers",
+            actionLabel: "Check suppliers",
+          });
         }
         setOpen(false);
         setForm(EMPTY_FORM);
@@ -183,6 +199,7 @@ function MaterialsPage() {
 
   const openVariant = (material: MaterialResponse) => {
     setVariantMaterial(material);
+    setEditingVariant(null);
     setVariantForm({
       variantName: "",
       sku: "",
@@ -193,6 +210,24 @@ function MaterialsPage() {
       specification: "",
       packaging: "",
       unit: material.defaultUnit,
+      isActive: true,
+    });
+  };
+
+  const openEditVariant = (material: MaterialResponse, variant: MaterialVariantResponse) => {
+    setVariantMaterial(material);
+    setEditingVariant(variant);
+    setVariantForm({
+      variantName: variant.variantName,
+      sku: variant.sku ?? "",
+      brand: variant.brand ?? "",
+      grade: variant.grade ?? "",
+      size: variant.size ?? "",
+      color: variant.color ?? "",
+      specification: variant.specification ?? "",
+      packaging: variant.packaging ?? "",
+      unit: variant.unit,
+      isActive: variant.isActive,
     });
   };
 
@@ -203,7 +238,7 @@ function MaterialsPage() {
     }
     setSaving(true);
     try {
-      const response = await materialsApi.createVariant({
+      const payload = {
         materialId: variantMaterial.materialId,
         variantName: variantForm.variantName.trim(),
         sku: variantForm.sku.trim() || undefined,
@@ -214,14 +249,25 @@ function MaterialsPage() {
         specification: variantForm.specification.trim() || undefined,
         packaging: variantForm.packaging.trim() || undefined,
         unit: variantForm.unit.trim(),
-        isActive: true,
-      });
+        isActive: variantForm.isActive,
+      };
+      const response = editingVariant
+        ? await materialsApi.updateVariant(editingVariant.variantId, payload)
+        : await materialsApi.createVariant(payload);
       if (!response.isSuccess) {
-        toast.error(response.errorMessage ?? "Could not add variant");
+        toast.error(
+          response.errorMessage ?? `Could not ${editingVariant ? "update" : "add"} variant`,
+        );
         return;
       }
-      toast.success("Material variant added");
+      suggestNext({
+        message: editingVariant ? "Material variant updated" : "Material variant added",
+        nextStep: "Link this exact variant to a supplier catalog before creating a purchase order.",
+        to: "/app/admin/suppliers",
+        actionLabel: "Open suppliers",
+      });
       setVariantMaterial(null);
+      setEditingVariant(null);
       await refetch();
     } catch {
       toast.error("Could not reach the backend");
@@ -235,12 +281,41 @@ function MaterialsPage() {
     try {
       const response = await materialsApi.delete(material.materialId);
       if (response.isSuccess) {
-        toast.success("Material deleted");
+        suggestNext({
+          message: "Material deactivated; historical records were kept",
+          nextStep:
+            "Review supplier coverage because catalog offers for its variants are now unavailable.",
+          to: "/app/admin/suppliers",
+          actionLabel: "Review suppliers",
+        });
         setDeleting(null);
         refetch();
       } else {
         toast.error(response.errorMessage ?? "Delete failed");
       }
+    } catch {
+      toast.error("Could not reach the backend");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deactivateVariant = async (variant: MaterialVariantResponse) => {
+    setSaving(true);
+    try {
+      const response = await materialsApi.deleteVariant(variant.variantId);
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Could not deactivate variant");
+        return;
+      }
+      suggestNext({
+        message: "Material variant deactivated; historical records were kept",
+        nextStep: "Review supplier coverage because offers for this variant are now unavailable.",
+        to: "/app/admin/suppliers",
+        actionLabel: "Review suppliers",
+      });
+      setDeletingVariant(null);
+      await refetch();
     } catch {
       toast.error("Could not reach the backend");
     } finally {
@@ -356,10 +431,21 @@ function MaterialsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!variantMaterial} onOpenChange={(next) => !next && setVariantMaterial(null)}>
+      <Dialog
+        open={!!variantMaterial}
+        onOpenChange={(next) => {
+          if (!next) {
+            setVariantMaterial(null);
+            setEditingVariant(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add variant to {variantMaterial?.materialName}</DialogTitle>
+            <DialogTitle>
+              {editingVariant ? "Edit" : "Add"} variant {editingVariant ? "for" : "to"}{" "}
+              {variantMaterial?.materialName}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -435,13 +521,30 @@ function MaterialsPage() {
                 maxLength={1000}
               />
             </div>
+            {editingVariant && (
+              <div className="flex items-center justify-between rounded-md border p-3 sm:col-span-2">
+                <div>
+                  <Label htmlFor="variant-active">Active variant</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Inactive variants remain in history but cannot be selected for new work.
+                  </p>
+                </div>
+                <Switch
+                  id="variant-active"
+                  checked={variantForm.isActive}
+                  onCheckedChange={(isActive) =>
+                    setVariantForm((current) => ({ ...current, isActive }))
+                  }
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setVariantMaterial(null)} disabled={saving}>
               Cancel
             </Button>
             <Button onClick={submitVariant} disabled={saving}>
-              {saving ? "Adding..." : "Add variant"}
+              {saving ? "Saving..." : editingVariant ? "Save variant" : "Add variant"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -491,7 +594,10 @@ function MaterialsPage() {
                       {material.materialId}
                     </TableCell>
                     <TableCell>
-                      <p className="font-medium">{material.materialName}</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="font-medium">{material.materialName}</p>
+                        {!material.isActive && <Badge variant="outline">Inactive</Badge>}
+                      </div>
                       {material.description && (
                         <p className="max-w-xs truncate text-xs text-muted-foreground">
                           {material.description}
@@ -511,14 +617,43 @@ function MaterialsPage() {
                               variant.packaging,
                             ].filter(Boolean);
                             return (
-                              <div key={variant.variantId}>
-                                <p>{variant.variantName}</p>
-                                {(attributes.length > 0 || variant.specification) && (
-                                  <p className="max-w-md truncate text-xs text-muted-foreground">
-                                    {[...attributes, variant.specification]
-                                      .filter(Boolean)
-                                      .join(" · ")}
-                                  </p>
+                              <div key={variant.variantId} className="flex items-start gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <p>{variant.variantName}</p>
+                                    {!variant.isActive && <Badge variant="outline">Inactive</Badge>}
+                                  </div>
+                                  {(attributes.length > 0 || variant.specification) && (
+                                    <p className="max-w-md truncate text-xs text-muted-foreground">
+                                      {[...attributes, variant.specification]
+                                        .filter(Boolean)
+                                        .join(" · ")}
+                                    </p>
+                                  )}
+                                </div>
+                                {canManageCatalog && (
+                                  <div className="flex shrink-0 gap-1">
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7"
+                                      onClick={() => openEditVariant(material, variant)}
+                                      aria-label={`Edit ${variant.variantName}`}
+                                    >
+                                      <Edit className="h-3.5 w-3.5" />
+                                    </Button>
+                                    {variant.isActive && (
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-7 w-7 text-destructive"
+                                        onClick={() => setDeletingVariant(variant)}
+                                        aria-label={`Deactivate ${variant.variantName}`}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             );
@@ -541,6 +676,7 @@ function MaterialsPage() {
                             className="h-8 w-8"
                             onClick={() => openVariant(material)}
                             aria-label={`Add variant to ${material.materialName}`}
+                            disabled={!material.isActive}
                           >
                             <Layers3 className="h-3.5 w-3.5" />
                           </Button>
@@ -553,15 +689,17 @@ function MaterialsPage() {
                           >
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 text-destructive"
-                            onClick={() => setDeleting(material)}
-                            aria-label={`Delete ${material.materialName}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {material.isActive && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive"
+                              onClick={() => setDeleting(material)}
+                              aria-label={`Deactivate ${material.materialName}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     )}
@@ -575,12 +713,22 @@ function MaterialsPage() {
       <ConfirmDialog
         open={!!deleting}
         onOpenChange={(nextOpen) => !nextOpen && setDeleting(null)}
-        title="Delete material?"
-        description={`Delete ${deleting?.materialName ?? "this material"}? This action cannot be undone.`}
-        confirmLabel="Delete"
+        title="Deactivate material?"
+        description={`Deactivate ${deleting?.materialName ?? "this material"} and all of its variants? Historical records will remain. The backend will block this while stock or open workflow references exist.`}
+        confirmLabel="Deactivate"
         destructive
         busy={saving}
         onConfirm={() => deleting && deleteMaterial(deleting)}
+      />
+      <ConfirmDialog
+        open={!!deletingVariant}
+        onOpenChange={(nextOpen) => !nextOpen && setDeletingVariant(null)}
+        title="Deactivate material variant?"
+        description={`Deactivate ${deletingVariant?.variantName ?? "this variant"}? Historical records will remain. It cannot be deactivated while stock, reservations, open orders, requests, transfers, or active task plans reference it.`}
+        confirmLabel="Deactivate"
+        destructive
+        busy={saving}
+        onConfirm={() => deletingVariant && deactivateVariant(deletingVariant)}
       />
     </div>
   );

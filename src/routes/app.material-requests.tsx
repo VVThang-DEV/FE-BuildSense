@@ -52,6 +52,7 @@ import { warehousesApi } from "@/api/warehouses";
 import { tasksApi } from "@/api/tasks";
 import { requireApiResult } from "@/api/client";
 import { useSession } from "@/lib/session";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 
 export const Route = createFileRoute("/app/material-requests")({
   head: () => ({ meta: [{ title: "Material Requests - BuildSense AI" }] }),
@@ -167,6 +168,7 @@ function requestUrgency(request: MaterialRequestResponse): RequestUrgency {
 
 function MaterialRequestsPage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const canReview = session?.role === "ADMIN" || session?.role === "WAREHOUSE_MANAGER";
   const canDecide = session?.role === "WAREHOUSE_MANAGER";
   const canCreate = session?.role === "PM";
@@ -236,6 +238,21 @@ function MaterialRequestsPage() {
       requireApiResult(await warehousesApi.getAll(), "Could not load managed warehouses") ?? [],
     enabled: !!session?.token && canDecide,
     staleTime: 30_000,
+  });
+
+  const approvalInventoryQuery = useQuery({
+    queryKey: ["warehouse-inventory", "material-request-approval", approvalWarehouseId],
+    queryFn: async () =>
+      requireApiResult(
+        await warehousesApi.getInventory(Number(approvalWarehouseId)),
+        "Could not load warehouse stock",
+      ) ?? [],
+    enabled:
+      (confirming?.action === "approve" ||
+        confirming?.action === "issue" ||
+        confirming?.action === "release") &&
+      !!approvalWarehouseId,
+    staleTime: 5_000,
   });
 
   const {
@@ -468,7 +485,13 @@ function MaterialRequestsPage() {
       });
 
       if (response.isSuccess) {
-        toast.success(responseMessage(response.result, "Material request created"));
+        suggestNext({
+          message: responseMessage(response.result, "Material request created"),
+          nextStep: "Track the request while a Warehouse Manager reviews stock availability.",
+          to: "/app/material-requests",
+          actionLabel: "View request queue",
+          onAction: () => setStatusFilter("ALL"),
+        });
         setCreateRequestOpen(false);
         setProjectId("");
         setTaskId("");
@@ -530,6 +553,59 @@ function MaterialRequestsPage() {
         toast.error("Approved quantity cannot exceed requested quantity");
         return;
       }
+      if (approvalInventoryQuery.isLoading) {
+        toast.error("Warehouse stock is still loading. Try again in a moment.");
+        return;
+      }
+      if (approvalInventoryQuery.isError) {
+        toast.error("Reload warehouse stock before approving this request.");
+        return;
+      }
+      const insufficientItem = quantities.find((quantity) => {
+        const requestItem = confirming.request.items.find(
+          (item) => item.itemId === quantity.itemId,
+        );
+        const available =
+          approvalInventoryQuery.data?.find(
+            (inventoryItem) => inventoryItem.variantId === requestItem?.variantId,
+          )?.availableQuantity ?? 0;
+        return quantity.approvedQuantity > available;
+      });
+      if (insufficientItem) {
+        const requestItem = confirming.request.items.find(
+          (item) => item.itemId === insufficientItem.itemId,
+        );
+        toast.error(`${requestItem?.materialName ?? "Material"} exceeds available warehouse stock`);
+        return;
+      }
+    }
+    if (action === "issue") {
+      if (approvalInventoryQuery.isLoading) {
+        toast.error("Warehouse stock is still loading. Try again in a moment.");
+        return;
+      }
+      if (approvalInventoryQuery.isError) {
+        toast.error("Reload warehouse stock before issuing this request.");
+        return;
+      }
+      const unavailableItem = confirming.request.items.find((item) => {
+        const issueQuantity = Math.max(0, item.approvedQuantity - item.issuedQuantity);
+        if (issueQuantity === 0) return false;
+        const inventoryItem = approvalInventoryQuery.data?.find(
+          (record) => record.variantId === item.variantId,
+        );
+        return (
+          !inventoryItem ||
+          inventoryItem.reservedQuantity < issueQuantity ||
+          inventoryItem.quantity - inventoryItem.quarantineQuantity < issueQuantity
+        );
+      });
+      if (unavailableItem) {
+        toast.error(
+          `${unavailableItem.materialName} no longer has enough physical and reserved stock to issue`,
+        );
+        return;
+      }
     }
     setProcessing(action);
     try {
@@ -550,14 +626,48 @@ function MaterialRequestsPage() {
               : await materialRequestsApi.release(id);
 
       if (response.isSuccess) {
-        toast.success(responseMessage(response.result, `Request #${id} ${action}d`));
+        const suggestion =
+          action === "approve"
+            ? {
+                nextStep: "Issue the reserved materials when they physically leave the warehouse.",
+                actionLabel: "View approved requests",
+              }
+            : action === "issue"
+              ? {
+                  nextStep:
+                    "Review any unfulfilled task demand; the Project Manager can request the remainder.",
+                  actionLabel: "Review requests",
+                }
+              : action === "release"
+                ? {
+                    nextStep:
+                      "The released quantity is available for other requests, transfers, or stock decisions.",
+                    actionLabel: "View request queue",
+                  }
+                : {
+                    nextStep: "Review the remaining material request queue.",
+                    actionLabel: "View request queue",
+                  };
+        suggestNext({
+          message: responseMessage(response.result, `Request #${id} ${action}d`),
+          nextStep: suggestion.nextStep,
+          to: "/app/material-requests",
+          actionLabel: suggestion.actionLabel,
+          onAction: () => setStatusFilter(action === "approve" ? "APPROVED" : "ALL"),
+        });
         setConfirming(null);
         refetchRequests();
       } else {
-        toast.error(
+        const message =
           response.errorMessage ??
-            responseMessage(response.result, `Could not ${action} request #${id}`),
-        );
+          responseMessage(response.result, `Could not ${action} request #${id}`);
+        if (/inventory|stock|reservation/i.test(message)) {
+          toast.error(message, {
+            description:
+              "Next: reload current stock. If it cannot satisfy the request, release the reservation and replenish or transfer inventory.",
+            action: { label: "Reload", onClick: () => approvalInventoryQuery.refetch() },
+          });
+        } else toast.error(message);
       }
     } catch {
       toast.error("Could not reach the backend. Check the API server and try again.");
@@ -584,7 +694,12 @@ function MaterialRequestsPage() {
         if (response.statusCode === 409) await refetchRequests();
         return;
       }
-      toast.success(`Request #${cancelRequest.request.requestId} cancelled`);
+      suggestNext({
+        message: `Request #${cancelRequest.request.requestId} cancelled`,
+        nextStep: "Review the task material plan before creating a corrected request.",
+        to: `/app/projects/${cancelRequest.request.projectId}`,
+        actionLabel: "Open project",
+      });
       setCancelRequest(null);
       await refetchRequests();
     } finally {
@@ -634,7 +749,12 @@ function MaterialRequestsPage() {
       });
       if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update request");
       else {
-        toast.success(`Request #${editingRequest.requestId} updated`);
+        suggestNext({
+          message: `Request #${editingRequest.requestId} updated`,
+          nextStep: "Track the revised request while a Warehouse Manager reviews it.",
+          actionLabel: "View pending requests",
+          onAction: () => setStatusFilter("PENDING"),
+        });
         setEditingRequest(null);
         await refetchRequests();
       }
@@ -657,7 +777,12 @@ function MaterialRequestsPage() {
         );
         return;
       }
-      toast.success(`Follow-up request created for Task #${request.taskId}`);
+      suggestNext({
+        message: `Follow-up request created for Task #${request.taskId}`,
+        nextStep: "Track the new request while the Warehouse Manager checks available stock.",
+        actionLabel: "View pending requests",
+        onAction: () => setStatusFilter("PENDING"),
+      });
       setRemainderRequest(null);
       await refetchRequests();
     } catch {
@@ -1502,36 +1627,82 @@ function MaterialRequestsPage() {
                 )}
               </div>
               <div className="space-y-2">
-                {confirming.request.items.map((item) => (
-                  <div
-                    key={item.itemId}
-                    className="grid grid-cols-[1fr_140px] items-end gap-3 rounded-lg border p-3"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">{item.materialName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Requested {item.quantity} {item.unit ?? ""}
-                      </p>
+                {confirming.request.items.map((item) => {
+                  const inventoryItem = approvalInventoryQuery.data?.find(
+                    (record) => record.variantId === item.variantId,
+                  );
+                  const available = inventoryItem?.availableQuantity ?? 0;
+                  const approving = Number(approvedQuantities[item.itemId] ?? 0);
+                  const remaining = available - (Number.isFinite(approving) ? approving : 0);
+                  const exceedsAvailable = approving > available;
+                  return (
+                    <div
+                      key={item.itemId}
+                      className={`rounded-lg border p-3 ${exceedsAvailable ? "border-destructive/50 bg-destructive/5" : ""}`}
+                    >
+                      <div className="grid gap-3 sm:grid-cols-[1fr_140px] sm:items-end">
+                        <div>
+                          <p className="text-sm font-medium">{item.materialName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Requested {item.quantity} {item.unit ?? ""}
+                          </p>
+                        </div>
+                        <div>
+                          <Label htmlFor={`approved-${item.itemId}`}>Approve quantity</Label>
+                          <Input
+                            id={`approved-${item.itemId}`}
+                            type="number"
+                            min="0"
+                            max={Math.min(item.quantity, available)}
+                            step="0.01"
+                            value={approvedQuantities[item.itemId] ?? "0"}
+                            onChange={(event) =>
+                              setApprovedQuantities((current) => ({
+                                ...current,
+                                [item.itemId]: event.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      {approvalWarehouseId && (
+                        <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-muted/50 p-2 text-xs sm:grid-cols-4">
+                          <div>
+                            <p className="text-muted-foreground">On hand</p>
+                            <p className="font-medium tabular-nums">
+                              {inventoryItem?.quantity ?? 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Reserved / quarantine</p>
+                            <p className="font-medium tabular-nums">
+                              {inventoryItem?.reservedQuantity ?? 0} /{" "}
+                              {inventoryItem?.quarantineQuantity ?? 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Available now</p>
+                            <p className="font-medium tabular-nums">{available}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">After approval</p>
+                            <p
+                              className={`font-medium tabular-nums ${remaining < 0 ? "text-destructive" : ""}`}
+                            >
+                              {remaining}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {exceedsAvailable && (
+                        <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
+                          <AlertTriangle className="h-3.5 w-3.5" /> Reduce the approved quantity to{" "}
+                          {available} {item.unit ?? ""} or less.
+                        </p>
+                      )}
                     </div>
-                    <div>
-                      <Label htmlFor={`approved-${item.itemId}`}>Approve quantity</Label>
-                      <Input
-                        id={`approved-${item.itemId}`}
-                        type="number"
-                        min="0"
-                        max={item.quantity}
-                        step="0.01"
-                        value={approvedQuantities[item.itemId] ?? "0"}
-                        onChange={(event) =>
-                          setApprovedQuantities((current) => ({
-                            ...current,
-                            [item.itemId]: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1547,15 +1718,118 @@ function MaterialRequestsPage() {
             </div>
           )}
           {confirming?.action === "issue" && (
-            <p className="text-sm text-muted-foreground">
-              Reserved stock will leave the assigned warehouse and the request will be marked
-              issued.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Reserved stock will leave the assigned warehouse. Availability normally stays the
+                same because on-hand and reserved quantities decrease together.
+              </p>
+              {confirming.request.items
+                .filter((item) => item.approvedQuantity - item.issuedQuantity > 0)
+                .map((item) => {
+                  const issueQuantity = item.approvedQuantity - item.issuedQuantity;
+                  const inventoryItem = approvalInventoryQuery.data?.find(
+                    (record) => record.variantId === item.variantId,
+                  );
+                  const usablePhysical =
+                    (inventoryItem?.quantity ?? 0) - (inventoryItem?.quarantineQuantity ?? 0);
+                  const unavailable =
+                    !inventoryItem ||
+                    inventoryItem.reservedQuantity < issueQuantity ||
+                    usablePhysical < issueQuantity;
+                  return (
+                    <div
+                      key={item.itemId}
+                      className={`rounded-lg border p-3 ${unavailable ? "border-destructive/50 bg-destructive/5" : ""}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">{item.materialName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Issue {issueQuantity} {item.unit ?? ""}
+                          </p>
+                        </div>
+                        <Badge variant={unavailable ? "destructive" : "secondary"}>
+                          {unavailable ? "Unavailable" : "Reserved"}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-muted/50 p-2 text-xs sm:grid-cols-4">
+                        <div>
+                          <p className="text-muted-foreground">On hand</p>
+                          <p className="font-medium tabular-nums">{inventoryItem?.quantity ?? 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Reserved</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem?.reservedQuantity ?? 0}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Quarantine</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem?.quarantineQuantity ?? 0}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">On hand after issue</p>
+                          <p
+                            className={`font-medium tabular-nums ${unavailable ? "text-destructive" : ""}`}
+                          >
+                            {(inventoryItem?.quantity ?? 0) - issueQuantity}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              {approvalInventoryQuery.isError && (
+                <p className="text-xs text-destructive">
+                  Current warehouse stock could not be loaded. Reload before issuing.
+                </p>
+              )}
+            </div>
           )}
           {confirming?.action === "release" && (
-            <p className="text-sm text-muted-foreground">
-              All active reservations will be released without issuing stock.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Active reservations will be released without changing on-hand stock. The released
+                quantity becomes available to other workflows.
+              </p>
+              {confirming.request.items
+                .filter((item) => item.approvedQuantity - item.issuedQuantity > 0)
+                .map((item) => {
+                  const releaseQuantity = item.approvedQuantity - item.issuedQuantity;
+                  const inventoryItem = approvalInventoryQuery.data?.find(
+                    (record) => record.variantId === item.variantId,
+                  );
+                  return (
+                    <div key={item.itemId} className="rounded-lg border p-3">
+                      <p className="text-sm font-medium">{item.materialName}</p>
+                      <div className="mt-2 grid grid-cols-3 gap-2 rounded-md bg-muted/50 p-2 text-xs">
+                        <div>
+                          <p className="text-muted-foreground">Release</p>
+                          <p className="font-medium tabular-nums">
+                            {releaseQuantity} {item.unit ?? ""}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Available now</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem?.availableQuantity ?? "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">After release</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem
+                              ? inventoryItem.availableQuantity + releaseQuantity
+                              : "-"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           )}
           <div className="flex justify-end gap-2">
             <Button
@@ -1572,7 +1846,27 @@ function MaterialRequestsPage() {
                   : "default"
               }
               onClick={() => confirming && processRequest(confirming.action)}
-              disabled={processing !== null}
+              disabled={
+                processing !== null ||
+                (confirming?.action === "issue" &&
+                  (approvalInventoryQuery.isLoading ||
+                    approvalInventoryQuery.isError ||
+                    confirming.request.items.some((item) => {
+                      const issueQuantity = Math.max(
+                        0,
+                        item.approvedQuantity - item.issuedQuantity,
+                      );
+                      if (issueQuantity === 0) return false;
+                      const inventoryItem = approvalInventoryQuery.data?.find(
+                        (record) => record.variantId === item.variantId,
+                      );
+                      return (
+                        !inventoryItem ||
+                        inventoryItem.reservedQuantity < issueQuantity ||
+                        inventoryItem.quantity - inventoryItem.quarantineQuantity < issueQuantity
+                      );
+                    })))
+              }
             >
               {processing ? "Processing..." : `${confirming?.action ?? "Confirm"} request`}
             </Button>

@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 
 type ReviewTarget =
   | {
@@ -58,6 +59,7 @@ export const Route = createFileRoute("/app/inventory-governance")({
 
 function InventoryGovernancePage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const isAdmin = session?.role === "ADMIN";
   const isManager = session?.role === "WAREHOUSE_MANAGER";
   const [warehouseId, setWarehouseId] = useState("");
@@ -93,10 +95,66 @@ function InventoryGovernancePage() {
       [],
     enabled: !!session?.token,
   });
+  const openCountWarehouseIds = Array.from(
+    new Set(
+      (countsQuery.data ?? [])
+        .filter((count) => count.status === "DRAFT" || count.status === "PENDING_APPROVAL")
+        .map((count) => count.warehouseId),
+    ),
+  );
+  const countInventoriesQuery = useQuery({
+    queryKey: ["physical-count-inventories", openCountWarehouseIds.join(",")],
+    queryFn: async () => {
+      const rows = await Promise.all(
+        openCountWarehouseIds.map(async (currentWarehouseId) => {
+          const inventory =
+            requireApiResult(
+              await warehousesApi.getInventory(currentWarehouseId),
+              `Could not load inventory for warehouse #${currentWarehouseId}`,
+            ) ?? [];
+          return inventory.map((item) => ({ ...item, warehouseId: currentWarehouseId }));
+        }),
+      );
+      return rows.flat();
+    },
+    enabled: !!session?.token && openCountWarehouseIds.length > 0,
+    staleTime: 5_000,
+  });
+
+  const inventoryForCountLine = (warehouse: number, variant: number) =>
+    countInventoriesQuery.data?.find(
+      (item) => item.warehouseId === warehouse && item.variantId === variant,
+    );
+
+  const countHasStockViolation = (count: PhysicalCountResponse) =>
+    count.lines.some((line) => {
+      const inventoryItem = inventoryForCountLine(count.warehouseId, line.variantId);
+      const actual = Number(
+        countValues[line.lineId] ?? line.actualQuantity ?? line.expectedQuantity,
+      );
+      if (countInventoriesQuery.isLoading || countInventoriesQuery.isError) return false;
+      return (
+        !inventoryItem ||
+        !Number.isFinite(actual) ||
+        actual < inventoryItem.reservedQuantity + inventoryItem.quarantineQuantity
+      );
+    });
 
   const submitReview = async () => {
     if (!reviewTarget) return;
     const target = reviewTarget;
+    if (
+      target.kind === "count" &&
+      target.approve &&
+      (countInventoriesQuery.isLoading || countInventoriesQuery.isError)
+    ) {
+      toast.error("Reload current warehouse stock before approving this physical count");
+      return;
+    }
+    if (target.kind === "count" && target.approve && countHasStockViolation(target.count)) {
+      toast.error("A counted quantity is below reserved and quarantined stock");
+      return;
+    }
     const targetId = target.kind === "adjustment" ? target.id : target.count.sessionId;
     setBusy(`${target.kind}-${targetId}`);
     try {
@@ -117,9 +175,14 @@ function InventoryGovernancePage() {
       if (!response.isSuccess) {
         toast.error(response.errorMessage ?? "Review failed");
       } else {
-        toast.success(
-          `${target.kind === "adjustment" ? "Adjustment" : "Physical count"} ${target.approve ? "approved" : "rejected"}`,
-        );
+        suggestNext({
+          message: `${target.kind === "adjustment" ? "Adjustment" : "Physical count"} ${target.approve ? "approved" : "rejected"}`,
+          nextStep: target.approve
+            ? "Verify the resulting warehouse balance and inventory transaction."
+            : "Review the remaining governance queue.",
+          to: target.approve ? "/app/admin/warehouses" : "/app/inventory-governance",
+          actionLabel: target.approve ? "View inventory" : "Continue reviews",
+        });
         if (target.kind === "adjustment") await adjustmentsQuery.refetch();
         else await countsQuery.refetch();
         setReviewTarget(null);
@@ -140,7 +203,12 @@ function InventoryGovernancePage() {
       const response = await warehousesApi.startPhysicalCount(Number(warehouseId), variantIds);
       if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not start count");
       else {
-        toast.success("Physical count started");
+        suggestNext({
+          message: "Physical count started",
+          nextStep: "Enter the actual quantity for every count line, then submit it for approval.",
+          to: "/app/inventory-governance",
+          actionLabel: "Enter count",
+        });
         await countsQuery.refetch();
       }
     } finally {
@@ -157,6 +225,14 @@ function InventoryGovernancePage() {
       toast.error("Every counted quantity must be zero or greater");
       return;
     }
+    if (countInventoriesQuery.isLoading || countInventoriesQuery.isError) {
+      toast.error("Reload current warehouse stock before submitting this count");
+      return;
+    }
+    if (countHasStockViolation(count)) {
+      toast.error("Actual quantity cannot be below reserved and quarantined stock");
+      return;
+    }
     setBusy(`count-${count.sessionId}`);
     try {
       const response = await warehousesApi.submitPhysicalCount(
@@ -166,7 +242,12 @@ function InventoryGovernancePage() {
       );
       if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not submit count");
       else {
-        toast.success("Physical count submitted for approval");
+        suggestNext({
+          message: "Physical count submitted for approval",
+          nextStep: "An Admin must independently approve the variance before stock changes.",
+          to: "/app/inventory-governance",
+          actionLabel: "Track approval",
+        });
         await countsQuery.refetch();
       }
     } finally {
@@ -320,48 +401,96 @@ function InventoryGovernancePage() {
                     <TableRow>
                       <TableHead>Variant</TableHead>
                       <TableHead>Expected</TableHead>
+                      <TableHead>Reserved / quarantine</TableHead>
                       <TableHead>Actual</TableHead>
+                      <TableHead>Available after count</TableHead>
                       <TableHead>Variance</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {count.lines.map((line) => (
-                      <TableRow key={line.lineId}>
-                        <TableCell>#{line.variantId}</TableCell>
-                        <TableCell>{line.expectedQuantity}</TableCell>
-                        <TableCell>
-                          {count.status === "DRAFT" && isManager ? (
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={countValues[line.lineId] ?? String(line.expectedQuantity)}
-                              onChange={(event) =>
-                                setCountValues((current) => ({
-                                  ...current,
-                                  [line.lineId]: event.target.value,
-                                }))
-                              }
-                            />
-                          ) : (
-                            (line.actualQuantity ?? "-")
-                          )}
-                        </TableCell>
-                        <TableCell>{line.varianceQuantity}</TableCell>
-                      </TableRow>
-                    ))}
+                    {count.lines.map((line) => {
+                      const inventoryItem = inventoryForCountLine(
+                        count.warehouseId,
+                        line.variantId,
+                      );
+                      const minimum =
+                        (inventoryItem?.reservedQuantity ?? 0) +
+                        (inventoryItem?.quarantineQuantity ?? 0);
+                      const actual = Number(
+                        countValues[line.lineId] ?? line.actualQuantity ?? line.expectedQuantity,
+                      );
+                      const violatesMinimum =
+                        (!countInventoriesQuery.isLoading &&
+                          !countInventoriesQuery.isError &&
+                          !inventoryItem) ||
+                        (Number.isFinite(actual) && actual < minimum);
+                      return (
+                        <TableRow
+                          key={line.lineId}
+                          className={violatesMinimum ? "bg-destructive/5" : ""}
+                        >
+                          <TableCell>#{line.variantId}</TableCell>
+                          <TableCell>{line.expectedQuantity}</TableCell>
+                          <TableCell>
+                            {inventoryItem?.reservedQuantity ?? 0} /{" "}
+                            {inventoryItem?.quarantineQuantity ?? 0}
+                          </TableCell>
+                          <TableCell>
+                            {count.status === "DRAFT" && isManager ? (
+                              <Input
+                                type="number"
+                                min={minimum}
+                                step="0.01"
+                                value={countValues[line.lineId] ?? String(line.expectedQuantity)}
+                                onChange={(event) =>
+                                  setCountValues((current) => ({
+                                    ...current,
+                                    [line.lineId]: event.target.value,
+                                  }))
+                                }
+                              />
+                            ) : (
+                              (line.actualQuantity ?? "-")
+                            )}
+                          </TableCell>
+                          <TableCell
+                            className={violatesMinimum ? "text-destructive" : "tabular-nums"}
+                          >
+                            {inventoryItem && Number.isFinite(actual) ? actual - minimum : "-"}
+                          </TableCell>
+                          <TableCell className="tabular-nums">
+                            {count.status === "DRAFT" && Number.isFinite(actual)
+                              ? actual - line.expectedQuantity
+                              : line.varianceQuantity}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
                 <div className="flex justify-end gap-2">
                   {isManager && count.status === "DRAFT" && (
-                    <Button disabled={!!busy} onClick={() => submitCount(count)}>
+                    <Button
+                      disabled={
+                        !!busy ||
+                        countInventoriesQuery.isLoading ||
+                        countInventoriesQuery.isError ||
+                        countHasStockViolation(count)
+                      }
+                      onClick={() => submitCount(count)}
+                    >
                       Submit count
                     </Button>
                   )}
                   {isAdmin && count.status === "PENDING_APPROVAL" && (
                     <>
                       <Button
-                        disabled={!!busy}
+                        disabled={
+                          !!busy ||
+                          countInventoriesQuery.isLoading ||
+                          countInventoriesQuery.isError ||
+                          countHasStockViolation(count)
+                        }
                         onClick={() =>
                           setReviewTarget({
                             kind: "count",
@@ -390,6 +519,12 @@ function InventoryGovernancePage() {
                     </>
                   )}
                 </div>
+                {countHasStockViolation(count) && (
+                  <p className="text-xs text-destructive">
+                    At least one actual quantity is below its reserved plus quarantined minimum.
+                    Correct the count before submission or approval.
+                  </p>
+                )}
               </CardContent>
             </Card>
           ))}
