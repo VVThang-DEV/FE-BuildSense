@@ -5,7 +5,6 @@ import { ArrowRight, Check, Eye, PackageOpen, Plus, Send, X } from "lucide-react
 import { toast } from "sonner";
 import { warehouseTransfersApi, type WarehouseTransferResponse } from "@/api/warehouseTransfers";
 import { warehousesApi } from "@/api/warehouses";
-import { materialsApi } from "@/api/materials";
 import { requireApiResult } from "@/api/client";
 import { useSession } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
@@ -76,11 +75,14 @@ function WarehouseTransfersPage() {
       requireApiResult(await warehousesApi.getAll(), "Could not load managed warehouses") ?? [],
     enabled: !!session?.token,
   });
-  const materialsQuery = useQuery({
-    queryKey: ["materials", "transfer-variants"],
+  const sourceInventoryQuery = useQuery({
+    queryKey: ["warehouses", "transfer-source-inventory", sourceWarehouseId],
     queryFn: async () =>
-      requireApiResult(await materialsApi.getAll(), "Could not load material variants") ?? [],
-    enabled: !!session?.token && canCreate,
+      requireApiResult(
+        await warehousesApi.getInventory(Number(sourceWarehouseId)),
+        "Could not load source warehouse inventory",
+      ) ?? [],
+    enabled: !!session?.token && canCreate && creating && !!sourceWarehouseId,
   });
 
   const managedWarehouseIds = new Set(
@@ -89,13 +91,15 @@ function WarehouseTransfersPage() {
   const destinationWarehouses = (warehousesQuery.data ?? []).filter(
     (warehouse) => String(warehouse.warehouseId) !== sourceWarehouseId,
   );
-  const variants = (materialsQuery.data ?? []).flatMap((material) =>
-    material.variants
-      .filter((variant) => variant.isActive)
-      .map((variant) => ({
-        ...variant,
-        label: `${material.materialName} — ${variant.variantName}`,
-      })),
+  const transferableInventory = (sourceInventoryQuery.data ?? [])
+    .filter((item) => item.availableQuantity > 0)
+    .sort((left, right) => {
+      const leftLabel = `${left.material?.materialName ?? ""} ${left.variantName ?? ""}`;
+      const rightLabel = `${right.material?.materialName ?? ""} ${right.variantName ?? ""}`;
+      return leftLabel.localeCompare(rightLabel);
+    });
+  const selectedInventory = transferableInventory.find(
+    (item) => item.variantId === Number(variantId),
   );
 
   const resetCreate = () => {
@@ -120,6 +124,16 @@ function WarehouseTransfersPage() {
     }
     if (!managedWarehouseIds.has(source)) {
       toast.error("You can only transfer stock from a warehouse you manage");
+      return;
+    }
+    if (!selectedInventory) {
+      toast.error("Select an available material from the source warehouse");
+      return;
+    }
+    if (amount > selectedInventory.availableQuantity) {
+      toast.error(
+        `Only ${selectedInventory.availableQuantity.toLocaleString()} ${selectedInventory.material?.unit ?? "units"} are available to transfer`,
+      );
       return;
     }
     setBusy("create");
@@ -294,6 +308,12 @@ function WarehouseTransfersPage() {
                 {transfers.map((transfer) => {
                   const ownsSource = managedWarehouseIds.has(transfer.sourceWarehouseId);
                   const ownsDestination = managedWarehouseIds.has(transfer.destinationWarehouseId);
+                  const creatorCannotReview =
+                    canCreate && transfer.requestedByUserId === session?.userId;
+                  const canReview =
+                    ownsDestination &&
+                    transfer.status === "REQUESTED" &&
+                    (session?.role === "ADMIN" || (canCreate && !creatorCannotReview));
                   return (
                     <TableRow key={transfer.transferId}>
                       <TableCell className="font-mono text-xs">#{transfer.transferId}</TableCell>
@@ -335,7 +355,7 @@ function WarehouseTransfersPage() {
                           >
                             <Eye className="mr-1 h-3 w-3" /> Details
                           </Button>
-                          {ownsDestination && transfer.status === "REQUESTED" && (
+                          {canReview && (
                             <>
                               <Button
                                 size="sm"
@@ -358,7 +378,12 @@ function WarehouseTransfersPage() {
                               </Button>
                             </>
                           )}
-                          {ownsSource && transfer.status === "APPROVED" && (
+                          {creatorCannotReview && transfer.status === "REQUESTED" && (
+                            <span className="self-center text-xs text-muted-foreground">
+                              Awaiting another approver
+                            </span>
+                          )}
+                          {canCreate && ownsSource && transfer.status === "APPROVED" && (
                             <Button
                               size="sm"
                               variant="ghost"
@@ -369,7 +394,8 @@ function WarehouseTransfersPage() {
                               Ship
                             </Button>
                           )}
-                          {ownsSource &&
+                          {canCreate &&
+                            ownsSource &&
                             (transfer.status === "REQUESTED" || transfer.status === "APPROVED") && (
                               <Button
                                 size="sm"
@@ -381,7 +407,7 @@ function WarehouseTransfersPage() {
                                 Cancel
                               </Button>
                             )}
-                          {ownsDestination && transfer.status === "IN_TRANSIT" && (
+                          {canCreate && ownsDestination && transfer.status === "IN_TRANSIT" && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -421,6 +447,8 @@ function WarehouseTransfersPage() {
                 value={sourceWarehouseId}
                 onValueChange={(value) => {
                   setSourceWarehouseId(value);
+                  setVariantId("");
+                  setQuantity("1");
                   if (value === destinationWarehouseId) setDestinationWarehouseId("");
                 }}
               >
@@ -466,18 +494,54 @@ function WarehouseTransfersPage() {
             </div>
             <div>
               <Label>Material variant</Label>
-              <Select value={variantId} onValueChange={setVariantId}>
+              <Select
+                value={variantId}
+                onValueChange={setVariantId}
+                disabled={
+                  !sourceWarehouseId ||
+                  sourceInventoryQuery.isLoading ||
+                  sourceInventoryQuery.isError ||
+                  transferableInventory.length === 0
+                }
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select variant" />
+                  <SelectValue
+                    placeholder={
+                      !sourceWarehouseId
+                        ? "Select a source warehouse first"
+                        : sourceInventoryQuery.isLoading
+                          ? "Loading available inventory..."
+                          : transferableInventory.length === 0
+                            ? "No transferable inventory"
+                            : "Select available material"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {variants.map((variant) => (
-                    <SelectItem key={variant.variantId} value={String(variant.variantId)}>
-                      {variant.label} ({variant.unit})
+                  {transferableInventory.map((item) => (
+                    <SelectItem key={item.inventoryId} value={String(item.variantId)}>
+                      {item.material?.materialName ?? "Unknown material"} —{" "}
+                      {item.variantName ?? "Standard"}
+                      {item.sku ? ` [${item.sku}]` : ""} · Available{" "}
+                      {item.availableQuantity.toLocaleString()} {item.material?.unit ?? "units"}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {sourceInventoryQuery.isError && (
+                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-destructive">
+                  <span>Could not load inventory for the selected warehouse.</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => sourceInventoryQuery.refetch()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
             </div>
             <div>
               <Label htmlFor="transfer-quantity">Quantity</Label>
@@ -485,10 +549,18 @@ function WarehouseTransfersPage() {
                 id="transfer-quantity"
                 type="number"
                 min="0.01"
+                max={selectedInventory?.availableQuantity}
                 step="0.01"
                 value={quantity}
+                disabled={!selectedInventory}
                 onChange={(event) => setQuantity(event.target.value)}
               />
+              {selectedInventory && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Available to transfer: {selectedInventory.availableQuantity.toLocaleString()}{" "}
+                  {selectedInventory.material?.unit ?? "units"}
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="transfer-note">Note</Label>
@@ -508,7 +580,15 @@ function WarehouseTransfersPage() {
             >
               Cancel
             </Button>
-            <Button onClick={createTransfer} disabled={busy === "create"}>
+            <Button
+              onClick={createTransfer}
+              disabled={
+                busy === "create" ||
+                !sourceWarehouseId ||
+                !destinationWarehouseId ||
+                !selectedInventory
+              }
+            >
               {busy === "create" ? "Creating..." : "Create transfer"}
             </Button>
           </DialogFooter>

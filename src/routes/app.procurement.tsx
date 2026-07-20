@@ -143,6 +143,7 @@ function ProcurementPage() {
   const [cancelPOId, setCancelPOId] = useState<number | null>(null);
   const [selectedPOId, setSelectedPOId] = useState<number | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [reviewDenials, setReviewDenials] = useState<Record<number, string>>({});
 
   const {
     data: livePOs,
@@ -182,7 +183,12 @@ function ProcurementPage() {
   const showActionFailure = async (
     response: { statusCode: number; errorMessage?: string | null },
     fallback: string,
+    poId?: number,
   ) => {
+    const message = response.errorMessage ?? fallback;
+    if (poId && /creator cannot (approve|reject)/i.test(message)) {
+      setReviewDenials((current) => ({ ...current, [poId]: message }));
+    }
     if (response.statusCode === 409) {
       await refetchPOs();
       toast.error(
@@ -235,7 +241,7 @@ function ProcurementPage() {
         toast.success(`PO #${poId} approved`);
         await refetchPOs();
       } else {
-        await showActionFailure(response, "Approve failed");
+        await showActionFailure(response, "Approve failed", poId);
       }
     } catch {
       toast.error("Could not reach the backend");
@@ -258,7 +264,7 @@ function ProcurementPage() {
         setRejectPOId(null);
         await refetchPOs();
       } else {
-        await showActionFailure(response, "Reject failed");
+        await showActionFailure(response, "Reject failed", poId);
       }
     } catch {
       toast.error("Could not reach the backend");
@@ -602,6 +608,15 @@ function ProcurementPage() {
     liveProjects?.find((project) => project.projectId === id)?.projectName ?? `#${id}`;
   const supplierName = (id: number) =>
     liveSuppliers?.find((supplier) => supplier.supplierId === id)?.companyName ?? `#${id}`;
+  const reviewBlockReason = (po: PurchaseOrderResponse) => {
+    const rememberedDenial = reviewDenials[po.poId];
+    if (rememberedDenial) return rememberedDenial;
+    const project = liveProjects?.find((item) => item.projectId === po.projectId);
+    if (project && ["PAUSED", "COMPLETED", "CANCELLED"].includes(project.status)) {
+      return `Purchase orders cannot be reviewed while ${project.projectName} is ${project.status.toLowerCase().replaceAll("_", " ")}.`;
+    }
+    return undefined;
+  };
   const selectedPO = scopedPOs.find((po) => po.poId === selectedPOId) ?? null;
   const selectedImportPO = scopedPOs.find((po) => po.poId === importPOId) ?? null;
   const shortageOptions = liveShortages ?? [];
@@ -1519,6 +1534,7 @@ function ProcurementPage() {
               supplierName={supplierName}
               onApprove={canApproveOrReject ? approve : undefined}
               onReject={canApproveOrReject ? setRejectPOId : undefined}
+              reviewBlockReason={reviewBlockReason}
               onView={setSelectedPOId}
               onCancel={setCancelPOId}
               canCancel={canCancelOrder}
@@ -1696,6 +1712,7 @@ function PurchaseOrderTable({
   supplierName,
   onApprove,
   onReject,
+  reviewBlockReason,
   onView,
   onImport,
   onProcessing,
@@ -1709,6 +1726,7 @@ function PurchaseOrderTable({
   supplierName: (id: number) => string;
   onApprove?: (poId: number) => void;
   onReject?: (poId: number) => void;
+  reviewBlockReason?: (po: PurchaseOrderResponse) => string | undefined;
   onView?: (poId: number) => void;
   onImport?: (poId: number) => void;
   onProcessing?: (poId: number) => void;
@@ -1776,32 +1794,41 @@ function PurchaseOrderTable({
                         <Eye className="mr-1 h-3 w-3" /> Details
                       </Button>
                     )}
-                    {po.status === "PENDING" && (onApprove || onReject) && (
-                      <>
-                        {onReject && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs text-destructive hover:text-destructive"
-                            onClick={() => onReject(po.poId)}
-                            disabled={busyAction !== null}
-                          >
-                            <X className="h-3 w-3 mr-1" /> Reject
-                          </Button>
-                        )}
-                        {onApprove && (
-                          <Button
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => onApprove(po.poId)}
-                            disabled={busyAction !== null}
-                          >
-                            <Check className="h-3 w-3 mr-1" />{" "}
-                            {busyAction === `approve-${po.poId}` ? "Approving..." : "Approve"}
-                          </Button>
-                        )}
-                      </>
-                    )}
+                    {po.status === "PENDING" &&
+                      (onApprove || onReject) &&
+                      (reviewBlockReason?.(po) ? (
+                        <span
+                          className="max-w-56 text-xs text-muted-foreground"
+                          title={reviewBlockReason?.(po)}
+                        >
+                          {reviewBlockReason?.(po)}
+                        </span>
+                      ) : (
+                        <>
+                          {onReject && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-destructive hover:text-destructive"
+                              onClick={() => onReject(po.poId)}
+                              disabled={busyAction !== null}
+                            >
+                              <X className="h-3 w-3 mr-1" /> Reject
+                            </Button>
+                          )}
+                          {onApprove && (
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => onApprove(po.poId)}
+                              disabled={busyAction !== null}
+                            >
+                              <Check className="h-3 w-3 mr-1" />{" "}
+                              {busyAction === `approve-${po.poId}` ? "Approving..." : "Approve"}
+                            </Button>
+                          )}
+                        </>
+                      ))}
                     {["SHIPPED", "PARTIALLY_RECEIVED"].includes(po.status) && onImport && (
                       <Button
                         size="sm"

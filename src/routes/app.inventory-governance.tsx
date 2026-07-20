@@ -216,43 +216,52 @@ function InventoryGovernancePage() {
                         <Badge variant="outline">{item.status}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        {isAdmin && item.status === "PENDING" && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={!!busy}
-                              onClick={() =>
-                                setReviewTarget({
-                                  kind: "adjustment",
-                                  id: item.adjustmentId,
-                                  rowVersion: item.rowVersion,
-                                  approve: true,
-                                  note: "",
-                                })
-                              }
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-destructive"
-                              disabled={!!busy}
-                              onClick={() =>
-                                setReviewTarget({
-                                  kind: "adjustment",
-                                  id: item.adjustmentId,
-                                  rowVersion: item.rowVersion,
-                                  approve: false,
-                                  note: "",
-                                })
-                              }
-                            >
-                              Reject
-                            </Button>
-                          </>
-                        )}
+                        {isAdmin &&
+                          item.status === "PENDING" &&
+                          item.requestedByUserId !== session?.userId && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={!!busy}
+                                onClick={() =>
+                                  setReviewTarget({
+                                    kind: "adjustment",
+                                    id: item.adjustmentId,
+                                    rowVersion: item.rowVersion,
+                                    approve: true,
+                                    note: "",
+                                  })
+                                }
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive"
+                                disabled={!!busy}
+                                onClick={() =>
+                                  setReviewTarget({
+                                    kind: "adjustment",
+                                    id: item.adjustmentId,
+                                    rowVersion: item.rowVersion,
+                                    approve: false,
+                                    note: "",
+                                  })
+                                }
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                        {isAdmin &&
+                          item.status === "PENDING" &&
+                          item.requestedByUserId === session?.userId && (
+                            <span className="text-xs text-muted-foreground">
+                              Awaiting another administrator
+                            </span>
+                          )}
                       </TableCell>
                     </TableRow>
                   ))}
