@@ -6,14 +6,33 @@ import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, healthConfig } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProjectTaskBoard } from "@/components/project-task-board";
 import { ProjectMaterialPlanning } from "@/components/project-material-planning";
 import { ProjectBudgetPanel } from "@/components/project-budget-panel";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
+import { usersApi } from "@/api/users";
 
 const STATUS_HEALTH: Record<string, keyof typeof healthConfig> = {
   PLANNING: "on-track",
@@ -40,6 +59,18 @@ function ProjectDetail() {
   const session = useSession();
   const isLive = !!session?.token;
   const [changingStatus, setChangingStatus] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [confirmStatus, setConfirmStatus] = useState<"cancel" | "complete" | null>(null);
+  const [managerId, setManagerId] = useState("");
+  const [editForm, setEditForm] = useState({
+    projectName: "",
+    address: "",
+    startDate: "",
+    baselineStart: "",
+    baselineEnd: "",
+  });
 
   const {
     data: project,
@@ -57,13 +88,19 @@ function ProjectDetail() {
     staleTime: 30_000,
   });
 
+  const managersQuery = useQuery({
+    queryKey: ["users", "project-managers"],
+    queryFn: async () => {
+      const response = await usersApi.getAll();
+      if (!response.isSuccess) throw new Error(response.errorMessage ?? "Could not load managers");
+      return (response.result ?? []).filter((account) => account.role === "PM");
+    },
+    enabled: isLive && session?.role === "ADMIN" && reassignOpen,
+    staleTime: 30_000,
+  });
+
   const changeStatus = async (action: "start" | "pause" | "cancel" | "reopen" | "complete") => {
     if (!project) return;
-    if (
-      (action === "cancel" || action === "complete") &&
-      !window.confirm(`${action} this project?`)
-    )
-      return;
     setChangingStatus(action);
     try {
       const response = await projectsApi.changeStatus(
@@ -83,56 +120,83 @@ function ProjectDetail() {
     }
   };
 
-  const editProject = async () => {
+  const openProjectEditor = () => {
     if (!project) return;
-    const projectName = window.prompt("Project name", project.projectName);
-    if (projectName === null) return;
-    const address = window.prompt("Address", project.address ?? "");
-    if (address === null) return;
-    const startDate = window.prompt("Start date (YYYY-MM-DD)", project.startDate.slice(0, 10));
-    const baselineStart = window.prompt(
-      "Baseline start (YYYY-MM-DD)",
-      project.baselineStart.slice(0, 10),
-    );
-    const baselineEnd = window.prompt(
-      "Baseline end (YYYY-MM-DD)",
-      project.baselineEnd.slice(0, 10),
-    );
-    if (!startDate || !baselineStart || !baselineEnd) return;
-    const response = await projectsApi.update(project.projectId, {
-      projectName,
-      address: address || undefined,
-      startDate,
-      baselineStart,
-      baselineEnd,
-      rowVersion: project.rowVersion,
+    setEditForm({
+      projectName: project.projectName,
+      address: project.address ?? "",
+      startDate: project.startDate.slice(0, 10),
+      baselineStart: project.baselineStart.slice(0, 10),
+      baselineEnd: project.baselineEnd.slice(0, 10),
     });
-    if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update project");
-    else {
-      toast.success("Project updated");
-      await refetch();
+    setEditOpen(true);
+  };
+
+  const submitProjectEdit = async () => {
+    if (!project) return;
+    if (
+      !editForm.projectName.trim() ||
+      !editForm.startDate ||
+      !editForm.baselineStart ||
+      !editForm.baselineEnd
+    ) {
+      toast.error("Project name and schedule dates are required");
+      return;
     }
+    if (new Date(editForm.baselineEnd) < new Date(editForm.baselineStart)) {
+      toast.error("Baseline end cannot be before baseline start");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await projectsApi.update(project.projectId, {
+        projectName: editForm.projectName.trim(),
+        address: editForm.address.trim() || undefined,
+        startDate: editForm.startDate,
+        baselineStart: editForm.baselineStart,
+        baselineEnd: editForm.baselineEnd,
+        rowVersion: project.rowVersion,
+      });
+      if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update project");
+      else {
+        toast.success("Project updated");
+        setEditOpen(false);
+        await refetch();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openManagerDialog = () => {
+    if (!project) return;
+    setManagerId(String(project.pmUserID));
+    setReassignOpen(true);
   };
 
   const reassignProjectManager = async () => {
     if (!project) return;
-    const value = window.prompt("New Project Manager user ID", String(project.pmUserID));
-    if (value === null) return;
-    const userId = Number(value);
+    const userId = Number(managerId);
     if (!Number.isInteger(userId) || userId <= 0) {
-      toast.error("Enter a positive user ID");
+      toast.error("Select a Project Manager");
       return;
     }
-    const response = await projectsApi.reassignProjectManager(
-      project.projectId,
-      userId,
-      project.rowVersion,
-    );
-    if (!response.isSuccess)
-      toast.error(response.errorMessage ?? "Could not reassign Project Manager");
-    else {
-      toast.success("Project Manager reassigned");
-      await refetch();
+    setSaving(true);
+    try {
+      const response = await projectsApi.reassignProjectManager(
+        project.projectId,
+        userId,
+        project.rowVersion,
+      );
+      if (!response.isSuccess)
+        toast.error(response.errorMessage ?? "Could not reassign Project Manager");
+      else {
+        toast.success("Project Manager reassigned");
+        setReassignOpen(false);
+        await refetch();
+      }
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -176,12 +240,12 @@ function ProjectDetail() {
                 {(session?.role === "PM" || session?.role === "ADMIN") && (
                   <>
                     {session.role === "PM" && (
-                      <Button size="sm" variant="outline" onClick={editProject}>
+                      <Button size="sm" variant="outline" onClick={openProjectEditor}>
                         Edit
                       </Button>
                     )}
                     {session.role === "ADMIN" && (
-                      <Button size="sm" variant="outline" onClick={reassignProjectManager}>
+                      <Button size="sm" variant="outline" onClick={openManagerDialog}>
                         Reassign PM
                       </Button>
                     )}
@@ -219,7 +283,7 @@ function ProjectDetail() {
                           size="sm"
                           variant="outline"
                           disabled={!!changingStatus}
-                          onClick={() => changeStatus("complete")}
+                          onClick={() => setConfirmStatus("complete")}
                         >
                           Complete
                         </Button>
@@ -227,7 +291,7 @@ function ProjectDetail() {
                           size="sm"
                           variant="destructive"
                           disabled={!!changingStatus}
-                          onClick={() => changeStatus("cancel")}
+                          onClick={() => setConfirmStatus("cancel")}
                         >
                           Cancel
                         </Button>
@@ -239,17 +303,7 @@ function ProjectDetail() {
             }
           />
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard
-              icon={CalendarDays}
-              label="Start date"
-              value={formatDate(project.startDate)}
-            />
-            <SummaryCard
-              icon={CalendarDays}
-              label="Baseline end"
-              value={formatDate(project.baselineEnd)}
-            />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard
               icon={CircleDollarSign}
               label="Budget"
@@ -261,50 +315,202 @@ function ProjectDetail() {
               value={`${project.actualCost.toLocaleString()} ${project.currency}`}
             />
             <SummaryCard icon={ClipboardList} label="Tasks" value={String(project.totalTasks)} />
+            <SummaryCard
+              icon={UserRound}
+              label="Project Manager"
+              value={project.pmName || `User #${project.pmUserID}`}
+            />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2 mt-4">
-            <Card className="shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Schedule</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 text-sm">
-                <InfoRow label="Start date" value={formatDate(project.startDate)} />
-                <InfoRow label="Baseline start" value={formatDate(project.baselineStart)} />
-                <InfoRow label="Baseline end" value={formatDate(project.baselineEnd)} />
-                <InfoRow label="Created" value={formatDate(project.createdDate)} />
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Ownership</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 text-sm">
-                <InfoRow label="PM user ID" value={String(project.pmUserID || "-")} />
-                <InfoRow label="PM name" value={project.pmName || "-"} />
-                <InfoRow label="AI alerts" value={String(project.totalAIAlerts)} />
-                <div className="flex items-center gap-2 rounded-md border p-3 text-muted-foreground">
-                  <UserRound className="h-4 w-4" />
-                  <span>Tasks and daily progress are now connected below.</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="mt-4">
-            <ProjectTaskBoard projectId={project.projectId} projectName={project.projectName} />
-          </div>
-          <ProjectBudgetPanel
-            projectId={project.projectId}
-            budget={project.totalProjectBudget}
-            currency={project.currency}
-            canAdjust={session?.role === "ADMIN"}
-            onUpdated={() => refetch()}
-          />
-          <ProjectMaterialPlanning projectId={project.projectId} />
+          <Tabs defaultValue="overview" className="mt-4">
+            <TabsList className="grid w-full max-w-2xl grid-cols-4">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="tasks">Tasks</TabsTrigger>
+              <TabsTrigger value="materials">Materials</TabsTrigger>
+              <TabsTrigger value="budget">Budget</TabsTrigger>
+            </TabsList>
+            <TabsContent value="overview">
+              <Card className="shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Project baseline</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
+                  <OverviewItem label="Start" value={formatDate(project.startDate)} />
+                  <OverviewItem label="Baseline start" value={formatDate(project.baselineStart)} />
+                  <OverviewItem label="Baseline end" value={formatDate(project.baselineEnd)} />
+                  <OverviewItem label="Created" value={formatDate(project.createdDate)} />
+                  <OverviewItem label="AI alerts" value={String(project.totalAIAlerts)} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="tasks">
+              <ProjectTaskBoard projectId={project.projectId} projectName={project.projectName} />
+            </TabsContent>
+            <TabsContent value="materials">
+              <ProjectMaterialPlanning projectId={project.projectId} />
+            </TabsContent>
+            <TabsContent value="budget">
+              <ProjectBudgetPanel
+                projectId={project.projectId}
+                budget={project.totalProjectBudget}
+                currency={project.currency}
+                plannedTaskBudget={project.plannedTaskBudget}
+                reportedTaskActualCost={project.reportedTaskActualCost}
+                purchaseOrderCommittedCost={project.purchaseOrderCommittedCost}
+                purchaseOrderReceivedCost={project.purchaseOrderReceivedCost}
+                remainingProcurementBudget={project.remainingProcurementBudget}
+                canAdjust={session?.role === "ADMIN"}
+                canViewHistory={session?.role === "ADMIN" || session?.role === "PM"}
+                onUpdated={() => refetch()}
+              />
+            </TabsContent>
+          </Tabs>
         </>
       )}
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit project</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="edit-project-name">Project name</Label>
+              <Input
+                id="edit-project-name"
+                value={editForm.projectName}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, projectName: event.target.value }))
+                }
+                maxLength={200}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-project-address">Address</Label>
+              <Input
+                id="edit-project-address"
+                value={editForm.address}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, address: event.target.value }))
+                }
+                maxLength={500}
+                disabled={saving}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <Label htmlFor="edit-project-start">Start date</Label>
+                <Input
+                  id="edit-project-start"
+                  type="date"
+                  value={editForm.startDate}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, startDate: event.target.value }))
+                  }
+                  disabled={saving}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-project-baseline-start">Baseline start</Label>
+                <Input
+                  id="edit-project-baseline-start"
+                  type="date"
+                  value={editForm.baselineStart}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, baselineStart: event.target.value }))
+                  }
+                  disabled={saving}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-project-baseline-end">Baseline end</Label>
+                <Input
+                  id="edit-project-baseline-end"
+                  type="date"
+                  min={editForm.baselineStart || undefined}
+                  value={editForm.baselineEnd}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, baselineEnd: event.target.value }))
+                  }
+                  disabled={saving}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={submitProjectEdit} disabled={saving}>
+              {saving ? "Saving..." : "Save project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reassignOpen} onOpenChange={setReassignOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reassign Project Manager</DialogTitle>
+          </DialogHeader>
+          <div>
+            <Label>Project Manager</Label>
+            <Select
+              value={managerId}
+              onValueChange={setManagerId}
+              disabled={saving || managersQuery.isLoading}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={managersQuery.isLoading ? "Loading managers..." : "Select manager"}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {(managersQuery.data ?? []).map((manager) => (
+                  <SelectItem key={manager.id} value={String(manager.id)}>
+                    {manager.firstName} {manager.lastName} ({manager.email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {managersQuery.isError && (
+              <p className="mt-2 text-sm text-destructive">
+                {managersQuery.error instanceof Error
+                  ? managersQuery.error.message
+                  : "Could not load Project Managers"}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReassignOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={reassignProjectManager} disabled={saving || !managerId}>
+              {saving ? "Reassigning..." : "Reassign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={confirmStatus !== null}
+        onOpenChange={(open) => !open && setConfirmStatus(null)}
+        title={`${confirmStatus === "complete" ? "Complete" : "Cancel"} this project?`}
+        description={
+          confirmStatus === "complete"
+            ? "The project will be closed as completed. Confirm that all required work and reporting are finished."
+            : "The project will be cancelled and active operational workflows will be closed."
+        }
+        confirmLabel={confirmStatus === "complete" ? "Complete project" : "Cancel project"}
+        destructive={confirmStatus === "cancel"}
+        busy={changingStatus !== null}
+        onConfirm={async () => {
+          if (!confirmStatus) return;
+          await changeStatus(confirmStatus);
+          setConfirmStatus(null);
+        }}
+      />
     </div>
   );
 }
@@ -331,11 +537,11 @@ function SummaryCard({
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function OverviewItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-right">{value}</span>
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 font-medium">{value}</p>
     </div>
   );
 }

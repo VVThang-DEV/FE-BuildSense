@@ -25,11 +25,19 @@ export type PurchaseOrderItem = {
   requestItemId?: number | null;
   materialName: string;
   variantName: string;
+  sku?: string | null;
+  brand?: string | null;
+  grade?: string | null;
+  size?: string | null;
+  specification?: string | null;
+  packaging?: string | null;
   unit: string;
   quantity: number;
   receivedQuantity: number;
   damagedQuantity: number;
   missingQuantity: number;
+  accountedQuantity: number;
+  remainingQuantity: number;
   unitPrice: number;
   subTotal: number;
 };
@@ -42,11 +50,9 @@ export type PurchaseOrderResponse = {
   supplierName: string;
   warehouseId: number;
   warehouseName: string;
-  userAccountId: number;
   totalAmount: number;
   orderDate: string;
   status: PurchaseOrderStatus;
-  deliveryDate: string | null;
   expectedDeliveryDate: string | null;
   approvedByUserId?: number | null;
   approvedAt?: string | null;
@@ -63,7 +69,7 @@ export type CreatePurchaseOrderRequest = {
   expectedDeliveryDate?: string;
   note?: string;
   items: {
-    variantId?: number;
+    variantId: number;
     materialId: number;
     requestItemId?: number;
     quantity: number;
@@ -73,6 +79,7 @@ export type CreatePurchaseOrderRequest = {
 
 export type ReceivePurchaseOrderRequest = {
   note?: string;
+  rowVersion?: string;
   isFinalDelivery: boolean;
   items: {
     lineItemId: number;
@@ -84,6 +91,46 @@ export type ReceivePurchaseOrderRequest = {
     serialNumber?: string;
     expiryDate?: string;
   }[];
+};
+
+export type PurchaseOrderActionRequest = {
+  note?: string;
+  rowVersion?: string;
+};
+
+export type ProcurementOfferResponse = {
+  catalogId: number;
+  supplierId: number;
+  supplierName: string;
+  supplierSku?: string | null;
+  unitPrice: number;
+  minimumOrderQuantity: number;
+  leadTimeDays: number;
+  earliestDeliveryDate: string;
+  suggestedOrderQuantity: number;
+  expectedExcessStockQuantity: number;
+  suggestedOrderTotal: number;
+};
+
+export type ProcurementShortageResponse = {
+  projectId: number;
+  projectName: string;
+  taskId?: number | null;
+  warehouseId: number;
+  warehouseName: string;
+  requestItemId: number;
+  requestIds: number[];
+  variantId: number;
+  materialId: number;
+  materialName: string;
+  variantName: string;
+  sku?: string | null;
+  unit: string;
+  neededByDate: string;
+  grossShortageQuantity: number;
+  procurementCoverageQuantity: number;
+  remainingShortageQuantity: number;
+  supplierOffers: ProcurementOfferResponse[];
 };
 
 export type PurchaseOrderBudgetError = {
@@ -137,12 +184,10 @@ function normalizePurchaseOrder(po: RawPurchaseOrderResponse): PurchaseOrderResp
     supplierName: po.supplierName ?? po.supplier?.supplierName ?? "",
     warehouseId: po.warehouseId ?? 0,
     warehouseName: po.warehouseName ?? "",
-    userAccountId: po.userAccountId ?? 0,
     totalAmount: po.totalAmount ?? 0,
     orderDate: po.orderDate ?? "",
     status: normalizeStatus(po.status),
-    deliveryDate: po.deliveryDate ?? null,
-    expectedDeliveryDate: po.expectedDeliveryDate ?? po.deliveryDate ?? null,
+    expectedDeliveryDate: po.expectedDeliveryDate ?? null,
     approvedByUserId: po.approvedByUserId ?? null,
     approvedAt: po.approvedAt ?? null,
     note: po.note ?? null,
@@ -155,11 +200,33 @@ function normalizePurchaseOrder(po: RawPurchaseOrderResponse): PurchaseOrderResp
       requestItemId: item.requestItemId ?? null,
       materialName: item.materialName ?? "Unknown material",
       variantName: item.variantName ?? "",
+      sku: item.sku ?? null,
+      brand: item.brand ?? null,
+      grade: item.grade ?? null,
+      size: item.size ?? null,
+      specification: item.specification ?? null,
+      packaging: item.packaging ?? null,
       unit: item.unit ?? "",
       quantity: Number(item.quantity ?? 0),
       receivedQuantity: Number(item.receivedQuantity ?? 0),
       damagedQuantity: Number(item.damagedQuantity ?? 0),
       missingQuantity: Number(item.missingQuantity ?? 0),
+      accountedQuantity: Number(
+        item.accountedQuantity ??
+          Number(item.receivedQuantity ?? 0) +
+            Number(item.damagedQuantity ?? 0) +
+            Number(item.missingQuantity ?? 0),
+      ),
+      remainingQuantity: Number(
+        item.remainingQuantity ??
+          Math.max(
+            0,
+            Number(item.quantity ?? 0) -
+              Number(item.receivedQuantity ?? 0) -
+              Number(item.damagedQuantity ?? 0) -
+              Number(item.missingQuantity ?? 0),
+          ),
+      ),
       unitPrice: Number(item.unitPrice ?? 0),
       subTotal: Number(item.subTotal ?? Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
     })),
@@ -174,6 +241,14 @@ export const purchaseOrdersApi = {
       result: (response.result ?? []).map(normalizePurchaseOrder),
     };
   },
+  getById: async (id: number) => {
+    const response = await apiClient.get<RawPurchaseOrderResponse>(`/api/purchaseorders/${id}`);
+    return {
+      ...response,
+      result: response.result ? normalizePurchaseOrder(response.result) : response.result,
+    };
+  },
+  getShortages: () => apiClient.get<ProcurementShortageResponse[]>("/api/purchaseorders/shortages"),
   create: (body: CreatePurchaseOrderRequest) =>
     apiClient.post<PurchaseOrderResponse | PurchaseOrderBudgetError | string>(
       "/api/purchaseorders",
@@ -184,11 +259,16 @@ export const purchaseOrdersApi = {
       "/api/purchaseorders/from-shortages",
       body,
     ),
-  approve: (id: number) => apiClient.put<string>(`/api/purchaseorders/${id}/approve`),
-  reject: (id: number) => apiClient.put<string>(`/api/purchaseorders/${id}/reject`),
+  approve: (id: number, body?: PurchaseOrderActionRequest) =>
+    apiClient.put<PurchaseOrderResponse>(`/api/purchaseorders/${id}/approve`, body),
+  reject: (id: number, body?: PurchaseOrderActionRequest) =>
+    apiClient.put<PurchaseOrderResponse>(`/api/purchaseorders/${id}/reject`, body),
   receive: (poId: number, body: ReceivePurchaseOrderRequest) =>
     apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/receive`, body),
-  ship: (poId: number) => apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/ship`),
-  cancel: (poId: number) =>
-    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/cancel`),
+  markProcessing: (poId: number, body?: PurchaseOrderActionRequest) =>
+    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/processing`, body),
+  ship: (poId: number, body?: PurchaseOrderActionRequest) =>
+    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/ship`, body),
+  cancel: (poId: number, body?: PurchaseOrderActionRequest) =>
+    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/cancel`, body),
 };

@@ -12,6 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -27,6 +34,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
+
+type ReviewTarget =
+  | {
+      kind: "adjustment";
+      id: number;
+      rowVersion: string;
+      approve: boolean;
+      note: string;
+    }
+  | {
+      kind: "count";
+      count: PhysicalCountResponse;
+      approve: boolean;
+      note: string;
+    };
 
 export const Route = createFileRoute("/app/inventory-governance")({
   head: () => ({ meta: [{ title: "Inventory Governance - BuildSense AI" }] }),
@@ -35,11 +59,13 @@ export const Route = createFileRoute("/app/inventory-governance")({
 
 function InventoryGovernancePage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const isAdmin = session?.role === "ADMIN";
   const isManager = session?.role === "WAREHOUSE_MANAGER";
   const [warehouseId, setWarehouseId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [countValues, setCountValues] = useState<Record<number, string>>({});
+  const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
 
   const warehousesQuery = useQuery({
     queryKey: ["warehouses", "governance"],
@@ -69,22 +95,97 @@ function InventoryGovernancePage() {
       [],
     enabled: !!session?.token,
   });
-
-  const reviewAdjustment = async (adjustmentId: number, rowVersion: string, approve: boolean) => {
-    const reviewNote = window.prompt(`Optional ${approve ? "approval" : "rejection"} note`);
-    if (reviewNote === null) return;
-    setBusy(`adjustment-${adjustmentId}`);
-    try {
-      const response = await warehousesApi.reviewAdjustment(
-        adjustmentId,
-        approve,
-        rowVersion,
-        reviewNote || undefined,
+  const openCountWarehouseIds = Array.from(
+    new Set(
+      (countsQuery.data ?? [])
+        .filter((count) => count.status === "DRAFT" || count.status === "PENDING_APPROVAL")
+        .map((count) => count.warehouseId),
+    ),
+  );
+  const countInventoriesQuery = useQuery({
+    queryKey: ["physical-count-inventories", openCountWarehouseIds.join(",")],
+    queryFn: async () => {
+      const rows = await Promise.all(
+        openCountWarehouseIds.map(async (currentWarehouseId) => {
+          const inventory =
+            requireApiResult(
+              await warehousesApi.getInventory(currentWarehouseId),
+              `Could not load inventory for warehouse #${currentWarehouseId}`,
+            ) ?? [];
+          return inventory.map((item) => ({ ...item, warehouseId: currentWarehouseId }));
+        }),
       );
-      if (!response.isSuccess) toast.error(response.errorMessage ?? "Review failed");
-      else {
-        toast.success(`Adjustment ${approve ? "approved" : "rejected"}`);
-        await adjustmentsQuery.refetch();
+      return rows.flat();
+    },
+    enabled: !!session?.token && openCountWarehouseIds.length > 0,
+    staleTime: 5_000,
+  });
+
+  const inventoryForCountLine = (warehouse: number, variant: number) =>
+    countInventoriesQuery.data?.find(
+      (item) => item.warehouseId === warehouse && item.variantId === variant,
+    );
+
+  const countHasStockViolation = (count: PhysicalCountResponse) =>
+    count.lines.some((line) => {
+      const inventoryItem = inventoryForCountLine(count.warehouseId, line.variantId);
+      const actual = Number(
+        countValues[line.lineId] ?? line.actualQuantity ?? line.expectedQuantity,
+      );
+      if (countInventoriesQuery.isLoading || countInventoriesQuery.isError) return false;
+      return (
+        !inventoryItem ||
+        !Number.isFinite(actual) ||
+        actual < inventoryItem.reservedQuantity + inventoryItem.quarantineQuantity
+      );
+    });
+
+  const submitReview = async () => {
+    if (!reviewTarget) return;
+    const target = reviewTarget;
+    if (
+      target.kind === "count" &&
+      target.approve &&
+      (countInventoriesQuery.isLoading || countInventoriesQuery.isError)
+    ) {
+      toast.error("Reload current warehouse stock before approving this physical count");
+      return;
+    }
+    if (target.kind === "count" && target.approve && countHasStockViolation(target.count)) {
+      toast.error("A counted quantity is below reserved and quarantined stock");
+      return;
+    }
+    const targetId = target.kind === "adjustment" ? target.id : target.count.sessionId;
+    setBusy(`${target.kind}-${targetId}`);
+    try {
+      const response =
+        target.kind === "adjustment"
+          ? await warehousesApi.reviewAdjustment(
+              target.id,
+              target.approve,
+              target.rowVersion,
+              target.note.trim() || undefined,
+            )
+          : await warehousesApi.reviewPhysicalCount(
+              target.count.sessionId,
+              target.approve,
+              target.count.rowVersion,
+              target.note.trim() || undefined,
+            );
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Review failed");
+      } else {
+        suggestNext({
+          message: `${target.kind === "adjustment" ? "Adjustment" : "Physical count"} ${target.approve ? "approved" : "rejected"}`,
+          nextStep: target.approve
+            ? "Verify the resulting warehouse balance and inventory transaction."
+            : "Review the remaining governance queue.",
+          to: target.approve ? "/app/admin/warehouses" : "/app/inventory-governance",
+          actionLabel: target.approve ? "View inventory" : "Continue reviews",
+        });
+        if (target.kind === "adjustment") await adjustmentsQuery.refetch();
+        else await countsQuery.refetch();
+        setReviewTarget(null);
       }
     } finally {
       setBusy(null);
@@ -102,7 +203,12 @@ function InventoryGovernancePage() {
       const response = await warehousesApi.startPhysicalCount(Number(warehouseId), variantIds);
       if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not start count");
       else {
-        toast.success("Physical count started");
+        suggestNext({
+          message: "Physical count started",
+          nextStep: "Enter the actual quantity for every count line, then submit it for approval.",
+          to: "/app/inventory-governance",
+          actionLabel: "Enter count",
+        });
         await countsQuery.refetch();
       }
     } finally {
@@ -119,6 +225,14 @@ function InventoryGovernancePage() {
       toast.error("Every counted quantity must be zero or greater");
       return;
     }
+    if (countInventoriesQuery.isLoading || countInventoriesQuery.isError) {
+      toast.error("Reload current warehouse stock before submitting this count");
+      return;
+    }
+    if (countHasStockViolation(count)) {
+      toast.error("Actual quantity cannot be below reserved and quarantined stock");
+      return;
+    }
     setBusy(`count-${count.sessionId}`);
     try {
       const response = await warehousesApi.submitPhysicalCount(
@@ -128,28 +242,12 @@ function InventoryGovernancePage() {
       );
       if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not submit count");
       else {
-        toast.success("Physical count submitted for approval");
-        await countsQuery.refetch();
-      }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const reviewCount = async (count: PhysicalCountResponse, approve: boolean) => {
-    const reviewNote = window.prompt(`Optional ${approve ? "approval" : "rejection"} note`);
-    if (reviewNote === null) return;
-    setBusy(`count-${count.sessionId}`);
-    try {
-      const response = await warehousesApi.reviewPhysicalCount(
-        count.sessionId,
-        approve,
-        count.rowVersion,
-        reviewNote || undefined,
-      );
-      if (!response.isSuccess) toast.error(response.errorMessage ?? "Count review failed");
-      else {
-        toast.success(`Physical count ${approve ? "approved" : "rejected"}`);
+        suggestNext({
+          message: "Physical count submitted for approval",
+          nextStep: "An Admin must independently approve the variance before stock changes.",
+          to: "/app/inventory-governance",
+          actionLabel: "Track approval",
+        });
         await countsQuery.refetch();
       }
     } finally {
@@ -199,31 +297,52 @@ function InventoryGovernancePage() {
                         <Badge variant="outline">{item.status}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        {isAdmin && item.status === "PENDING" && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={!!busy}
-                              onClick={() =>
-                                reviewAdjustment(item.adjustmentId, item.rowVersion, true)
-                              }
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-destructive"
-                              disabled={!!busy}
-                              onClick={() =>
-                                reviewAdjustment(item.adjustmentId, item.rowVersion, false)
-                              }
-                            >
-                              Reject
-                            </Button>
-                          </>
-                        )}
+                        {isAdmin &&
+                          item.status === "PENDING" &&
+                          item.requestedByUserId !== session?.userId && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={!!busy}
+                                onClick={() =>
+                                  setReviewTarget({
+                                    kind: "adjustment",
+                                    id: item.adjustmentId,
+                                    rowVersion: item.rowVersion,
+                                    approve: true,
+                                    note: "",
+                                  })
+                                }
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive"
+                                disabled={!!busy}
+                                onClick={() =>
+                                  setReviewTarget({
+                                    kind: "adjustment",
+                                    id: item.adjustmentId,
+                                    rowVersion: item.rowVersion,
+                                    approve: false,
+                                    note: "",
+                                  })
+                                }
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                        {isAdmin &&
+                          item.status === "PENDING" &&
+                          item.requestedByUserId === session?.userId && (
+                            <span className="text-xs text-muted-foreground">
+                              Awaiting another administrator
+                            </span>
+                          )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -282,64 +401,175 @@ function InventoryGovernancePage() {
                     <TableRow>
                       <TableHead>Variant</TableHead>
                       <TableHead>Expected</TableHead>
+                      <TableHead>Reserved / quarantine</TableHead>
                       <TableHead>Actual</TableHead>
+                      <TableHead>Available after count</TableHead>
                       <TableHead>Variance</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {count.lines.map((line) => (
-                      <TableRow key={line.lineId}>
-                        <TableCell>#{line.variantId}</TableCell>
-                        <TableCell>{line.expectedQuantity}</TableCell>
-                        <TableCell>
-                          {count.status === "DRAFT" && isManager ? (
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={countValues[line.lineId] ?? String(line.expectedQuantity)}
-                              onChange={(event) =>
-                                setCountValues((current) => ({
-                                  ...current,
-                                  [line.lineId]: event.target.value,
-                                }))
-                              }
-                            />
-                          ) : (
-                            (line.actualQuantity ?? "-")
-                          )}
-                        </TableCell>
-                        <TableCell>{line.varianceQuantity}</TableCell>
-                      </TableRow>
-                    ))}
+                    {count.lines.map((line) => {
+                      const inventoryItem = inventoryForCountLine(
+                        count.warehouseId,
+                        line.variantId,
+                      );
+                      const minimum =
+                        (inventoryItem?.reservedQuantity ?? 0) +
+                        (inventoryItem?.quarantineQuantity ?? 0);
+                      const actual = Number(
+                        countValues[line.lineId] ?? line.actualQuantity ?? line.expectedQuantity,
+                      );
+                      const violatesMinimum =
+                        (!countInventoriesQuery.isLoading &&
+                          !countInventoriesQuery.isError &&
+                          !inventoryItem) ||
+                        (Number.isFinite(actual) && actual < minimum);
+                      return (
+                        <TableRow
+                          key={line.lineId}
+                          className={violatesMinimum ? "bg-destructive/5" : ""}
+                        >
+                          <TableCell>#{line.variantId}</TableCell>
+                          <TableCell>{line.expectedQuantity}</TableCell>
+                          <TableCell>
+                            {inventoryItem?.reservedQuantity ?? 0} /{" "}
+                            {inventoryItem?.quarantineQuantity ?? 0}
+                          </TableCell>
+                          <TableCell>
+                            {count.status === "DRAFT" && isManager ? (
+                              <Input
+                                type="number"
+                                min={minimum}
+                                step="0.01"
+                                value={countValues[line.lineId] ?? String(line.expectedQuantity)}
+                                onChange={(event) =>
+                                  setCountValues((current) => ({
+                                    ...current,
+                                    [line.lineId]: event.target.value,
+                                  }))
+                                }
+                              />
+                            ) : (
+                              (line.actualQuantity ?? "-")
+                            )}
+                          </TableCell>
+                          <TableCell
+                            className={violatesMinimum ? "text-destructive" : "tabular-nums"}
+                          >
+                            {inventoryItem && Number.isFinite(actual) ? actual - minimum : "-"}
+                          </TableCell>
+                          <TableCell className="tabular-nums">
+                            {count.status === "DRAFT" && Number.isFinite(actual)
+                              ? actual - line.expectedQuantity
+                              : line.varianceQuantity}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
                 <div className="flex justify-end gap-2">
                   {isManager && count.status === "DRAFT" && (
-                    <Button disabled={!!busy} onClick={() => submitCount(count)}>
+                    <Button
+                      disabled={
+                        !!busy ||
+                        countInventoriesQuery.isLoading ||
+                        countInventoriesQuery.isError ||
+                        countHasStockViolation(count)
+                      }
+                      onClick={() => submitCount(count)}
+                    >
                       Submit count
                     </Button>
                   )}
                   {isAdmin && count.status === "PENDING_APPROVAL" && (
                     <>
-                      <Button disabled={!!busy} onClick={() => reviewCount(count, true)}>
+                      <Button
+                        disabled={
+                          !!busy ||
+                          countInventoriesQuery.isLoading ||
+                          countInventoriesQuery.isError ||
+                          countHasStockViolation(count)
+                        }
+                        onClick={() =>
+                          setReviewTarget({
+                            kind: "count",
+                            count,
+                            approve: true,
+                            note: "",
+                          })
+                        }
+                      >
                         Approve
                       </Button>
                       <Button
                         variant="destructive"
                         disabled={!!busy}
-                        onClick={() => reviewCount(count, false)}
+                        onClick={() =>
+                          setReviewTarget({
+                            kind: "count",
+                            count,
+                            approve: false,
+                            note: "",
+                          })
+                        }
                       >
                         Reject
                       </Button>
                     </>
                   )}
                 </div>
+                {countHasStockViolation(count) && (
+                  <p className="text-xs text-destructive">
+                    At least one actual quantity is below its reserved plus quarantined minimum.
+                    Correct the count before submission or approval.
+                  </p>
+                )}
               </CardContent>
             </Card>
           ))}
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={reviewTarget !== null}
+        onOpenChange={(open) => !open && !busy && setReviewTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {reviewTarget?.approve ? "Approve" : "Reject"}{" "}
+              {reviewTarget?.kind === "count" ? "physical count" : "inventory adjustment"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="governance-review-note">Review note (optional)</Label>
+            <Textarea
+              id="governance-review-note"
+              value={reviewTarget?.note ?? ""}
+              onChange={(event) =>
+                setReviewTarget((current) =>
+                  current ? { ...current, note: event.target.value } : current,
+                )
+              }
+              placeholder="Record the reason or any follow-up needed"
+              maxLength={1000}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={!!busy} onClick={() => setReviewTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={reviewTarget?.approve ? "default" : "destructive"}
+              disabled={!!busy}
+              onClick={submitReview}
+            >
+              {busy ? "Saving..." : reviewTarget?.approve ? "Approve" : "Reject"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

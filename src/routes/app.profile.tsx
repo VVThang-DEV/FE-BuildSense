@@ -42,7 +42,12 @@ function ProfilePage() {
     staleTime: 60_000,
   });
 
-  const [form, setForm] = useState({ firstName: "", lastName: "", phoneNumber: "" });
+  const [form, setForm] = useState({
+    firstName: "",
+    lastName: "",
+    phoneNumber: "",
+    imgUrl: "",
+  });
   const [formInit, setFormInit] = useState(false);
   const [saving, setSaving] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
@@ -54,6 +59,7 @@ function ProfilePage() {
       firstName: profile.firstName ?? "",
       lastName: profile.lastName ?? "",
       phoneNumber: profile.phoneNumber ?? "",
+      imgUrl: profile.imgUrl ?? "",
     });
     setFormInit(true);
   }, [formInit, profile]);
@@ -126,9 +132,17 @@ function ProfilePage() {
         {/* Identity card */}
         <Card className="shadow-sm h-fit">
           <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
-            <div className="h-20 w-20 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl font-bold text-primary border-2 border-primary/20">
-              {initials}
-            </div>
+            {profile?.imgUrl ? (
+              <img
+                src={profile.imgUrl}
+                alt={displayName || "Profile"}
+                className="h-20 w-20 rounded-2xl border-2 border-primary/20 object-cover"
+              />
+            ) : (
+              <div className="h-20 w-20 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl font-bold text-primary border-2 border-primary/20">
+                {initials}
+              </div>
+            )}
             <div>
               <p className="font-semibold text-base leading-tight">{displayName}</p>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -203,6 +217,17 @@ function ProfilePage() {
                     value={form.phoneNumber}
                     onChange={(e) => setForm((f) => ({ ...f, phoneNumber: e.target.value }))}
                     placeholder="+84 98 765 4321"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="profile-image">Profile image URL</Label>
+                  <Input
+                    id="profile-image"
+                    type="url"
+                    value={form.imgUrl}
+                    onChange={(e) => setForm((f) => ({ ...f, imgUrl: e.target.value }))}
+                    placeholder="https://..."
                   />
                 </div>
 

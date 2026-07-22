@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleDollarSign, History, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { projectsApi } from "@/api/projects";
-import { purchaseOrdersApi } from "@/api/purchaseOrders";
 import { usersApi } from "@/api/users";
 import { requireApiResult } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -33,13 +32,25 @@ export function ProjectBudgetPanel({
   projectId,
   budget,
   currency,
+  plannedTaskBudget,
+  reportedTaskActualCost,
+  purchaseOrderCommittedCost,
+  purchaseOrderReceivedCost,
+  remainingProcurementBudget,
   canAdjust,
+  canViewHistory,
   onUpdated,
 }: {
   projectId: number;
   budget: number;
   currency: string;
+  plannedTaskBudget: number;
+  reportedTaskActualCost: number;
+  purchaseOrderCommittedCost: number;
+  purchaseOrderReceivedCost: number;
+  remainingProcurementBudget: number;
   canAdjust: boolean;
+  canViewHistory: boolean;
   onUpdated: () => Promise<unknown> | unknown;
 }) {
   const queryClient = useQueryClient();
@@ -55,18 +66,7 @@ export function ProjectBudgetPanel({
         await projectsApi.getBudgetHistories(projectId),
         "Could not load budget history",
       ) ?? [],
-    enabled: projectId > 0,
-    staleTime: 10_000,
-  });
-
-  const ordersQuery = useQuery({
-    queryKey: ["purchase-orders"],
-    queryFn: async () =>
-      requireApiResult(
-        await purchaseOrdersApi.getAll(),
-        "Could not load project purchase orders",
-      ) ?? [],
-    enabled: projectId > 0,
+    enabled: projectId > 0 && canViewHistory,
     staleTime: 10_000,
   });
 
@@ -78,12 +78,7 @@ export function ProjectBudgetPanel({
     staleTime: 30_000,
   });
 
-  const projectOrders = (ordersQuery.data ?? []).filter((order) => order.projectId === projectId);
-  const pendingAmount = sumOrders(projectOrders, "PENDING");
-  const committedAmount = sumOrders(projectOrders, "APPROVED");
-  const actualAmount = sumOrders(projectOrders, "DELIVERED");
-  const heldBudget = pendingAmount + committedAmount + actualAmount;
-  const remainingBudget = budget - heldBudget;
+  const heldBudget = purchaseOrderCommittedCost;
   const updatedByAccount = (userId: number) =>
     (usersQuery.data ?? []).find((account) => account.id === userId);
 
@@ -104,7 +99,7 @@ export function ProjectBudgetPanel({
       toast.error("The resulting project budget cannot be negative");
       return;
     }
-    if (!ordersQuery.isError && budget + parsedAmount < heldBudget) {
+    if (budget + parsedAmount < heldBudget) {
       toast.error(
         `Budget cannot be reduced below ${heldBudget.toLocaleString()} ${currency}, which is already held by active and delivered purchase orders`,
       );
@@ -181,32 +176,40 @@ export function ProjectBudgetPanel({
         <CardContent className="p-0">
           <div className="grid gap-3 border-y bg-muted/20 p-4 sm:grid-cols-2 xl:grid-cols-5">
             <BudgetMetric label="Total budget" value={budget} currency={currency} />
-            <BudgetMetric label="Pending / reserved" value={pendingAmount} currency={currency} />
             <BudgetMetric
-              label="Approved / committed"
-              value={committedAmount}
+              label="Task budget planned"
+              value={plannedTaskBudget}
               currency={currency}
             />
-            <BudgetMetric label="Delivered / actual" value={actualAmount} currency={currency} />
             <BudgetMetric
-              label="Remaining"
-              value={remainingBudget}
+              label="Task cost reported"
+              value={reportedTaskActualCost}
               currency={currency}
-              warning={remainingBudget < 0}
+            />
+            <BudgetMetric
+              label="PO committed / received"
+              value={purchaseOrderCommittedCost}
+              secondaryValue={purchaseOrderReceivedCost}
+              currency={currency}
+            />
+            <BudgetMetric
+              label="Procurement remaining"
+              value={remainingProcurementBudget}
+              currency={currency}
+              warning={remainingProcurementBudget <= 0 && budget > 0}
             />
           </div>
-          {ordersQuery.isError && (
-            <p className="border-b px-4 py-2 text-xs text-destructive">
-              PO totals are unavailable; the budget breakdown may be incomplete.
-            </p>
-          )}
           <div className="border-b px-4 py-3">
             <p className="text-sm font-medium">Budget adjustment history</p>
             <p className="text-xs text-muted-foreground">
               This audit records changes to the approved budget limit, not purchase-order spending.
             </p>
           </div>
-          {historiesQuery.isLoading ? (
+          {!canViewHistory ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              Budget adjustment history is available to administrators and the project manager.
+            </div>
+          ) : historiesQuery.isLoading ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               Loading budget history...
             </div>
@@ -335,21 +338,17 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
 }
 
-function sumOrders(orders: Array<{ status: string; totalAmount: number }>, status: string): number {
-  return orders
-    .filter((order) => order.status === status)
-    .reduce((total, order) => total + Number(order.totalAmount || 0), 0);
-}
-
 function BudgetMetric({
   label,
   value,
   currency,
+  secondaryValue,
   warning = false,
 }: {
   label: string;
   value: number;
   currency: string;
+  secondaryValue?: number;
   warning?: boolean;
 }) {
   return (
@@ -360,6 +359,11 @@ function BudgetMetric({
       >
         {value.toLocaleString()} {currency}
       </p>
+      {secondaryValue !== undefined && (
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {secondaryValue.toLocaleString()} {currency} received
+        </p>
+      )}
     </div>
   );
 }

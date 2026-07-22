@@ -10,7 +10,7 @@ export type CategoryRequest = {
   categoryName: string;
 };
 
-const CATEGORY_ROUTE = "/api/Category";
+const CATEGORY_ROUTE = "/api/Categories";
 
 export const categoriesApi = {
   getAll: () => apiClient.get<CategoryResponse[]>(CATEGORY_ROUTE),

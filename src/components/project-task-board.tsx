@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -45,7 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { requireApiResult } from "@/api/client";
-import { progressReportsApi } from "@/api/progressReports";
+import { progressReportsApi, type ProgressReportResponse } from "@/api/progressReports";
 import { type TaskResponse, tasksApi } from "@/api/tasks";
 import { materialsApi } from "@/api/materials";
 import { materialRequestsApi } from "@/api/materialRequests";
@@ -53,6 +53,9 @@ import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { isCloudinaryConfigured, uploadSitePhoto } from "@/lib/cloudinary";
 import { QueryError } from "./query-error";
+import { ConfirmDialog } from "./confirm-dialog";
+
+const MINIMUM_REPORTING_INTERVAL_MS = 15 * 60 * 1000;
 
 type ProjectTaskBoardProps = {
   projectId: number;
@@ -143,8 +146,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const [taskMaterials, setTaskMaterials] = useState<TaskMaterialForm[]>([]);
   const [reportForm, setReportForm] = useState<ReportForm>(initialReportForm);
   const [creatingTask, setCreatingTask] = useState(false);
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
   const [reviewingReport, setReviewingReport] = useState<number | null>(null);
+  const [reportClock, setReportClock] = useState(() => Date.now());
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
@@ -156,6 +161,30 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     date: string;
     reporter: string;
     notes: string;
+  } | null>(null);
+  const [reviewDialog, setReviewDialog] = useState<{
+    report: ProgressReportResponse;
+    action: "approve" | "reject" | "reverse";
+    reviewNote: string;
+    allowCostOverrun: boolean;
+  } | null>(null);
+  const [taskStatusDialog, setTaskStatusDialog] = useState<{
+    task: TaskResponse;
+    action: "cancel" | "reject" | "reopen";
+  } | null>(null);
+  const [editTaskDialog, setEditTaskDialog] = useState<{
+    taskId: number;
+    rowVersion: string;
+    phaseName: string;
+    taskName: string;
+    plannedBudget: string;
+    baselineStart: string;
+    baselineEnd: string;
+  } | null>(null);
+  const [correctionDialog, setCorrectionDialog] = useState<{
+    report: ProgressReportResponse;
+    progressIncrement: string;
+    actualCostIncrement: string;
   } | null>(null);
 
   const {
@@ -188,7 +217,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
           .filter((variant) => variant.isActive)
           .map((variant) => ({
             ...variant,
-            label: `${material.materialName} â€” ${variant.variantName}`,
+            label: `${material.materialName} - ${variant.variantName}`,
           })),
       ),
     [materials],
@@ -226,10 +255,30 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const selectedRemaining = selectedTask
     ? Math.max(0, 100 - Number(selectedTask.actualProgressPct || 0))
     : 0;
+  useEffect(() => {
+    const timer = window.setInterval(() => setReportClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const recentActiveReport = useMemo(() => {
+    const cutoff = reportClock - MINIMUM_REPORTING_INTERVAL_MS;
+    return reports
+      .filter((report) => report.status === "PENDING" || report.status === "APPROVED")
+      .filter((report) => {
+        const reportedAt = new Date(report.reportDate).getTime();
+        return Number.isFinite(reportedAt) && reportedAt >= cutoff;
+      })
+      .sort(
+        (left, right) => new Date(right.reportDate).getTime() - new Date(left.reportDate).getTime(),
+      )[0];
+  }, [reportClock, reports]);
   const canReportSelected =
     !!selectedTask &&
     selectedRemaining > 0 &&
-    (canManageTasks || selectedTask.assignedToUserID === session?.userId);
+    canManageTasks &&
+    !reportsLoading &&
+    !reportsError &&
+    !recentActiveReport;
 
   const reportIncrement = Number(reportForm.progressIncrement);
   const actualCostIncrement = Number(reportForm.actualCostIncrement);
@@ -265,7 +314,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     setUploadingPhoto(true);
     try {
       const uploaded = await uploadSitePhoto(file);
-      setReportForm((current) => ({ ...current, sitePhotoUrl: uploaded.secureUrl }));
+      setReportForm((current) => ({
+        ...current,
+        sitePhotoUrl: uploaded.secureUrl,
+      }));
       setPhotoPreviewUrl(uploaded.secureUrl);
       toast.success("Site photo uploaded");
     } catch (error) {
@@ -306,6 +358,8 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     }
     const materialRows = taskMaterials.map((item) => ({
       variantId: Number(item.variantId),
+      materialId:
+        variants.find((variant) => variant.variantId === Number(item.variantId))?.materialId ?? 0,
       grossQuantityRequired: Number(item.quantity),
     }));
     if (
@@ -313,6 +367,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         (item) =>
           !Number.isInteger(item.variantId) ||
           item.variantId <= 0 ||
+          item.materialId <= 0 ||
           !Number.isFinite(item.grossQuantityRequired) ||
           item.grossQuantityRequired <= 0,
       )
@@ -331,7 +386,6 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         projectId,
         phaseName: taskForm.phaseName.trim(),
         taskName: taskForm.taskName.trim(),
-        // Task assignment is outside the current scope, so the owning PM manages the task.
         assignedToUserID: session.userId,
         plannedBudget,
         baselineStart: `${taskForm.baselineStart}T00:00:00.000Z`,
@@ -341,6 +395,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
 
       if (response.isSuccess) {
         toast.success(responseMessage(response.result, "Task created"));
+        setCreateTaskOpen(false);
         setTaskForm(newTaskForm());
         setTaskMaterials([]);
         await refetchTasks();
@@ -348,7 +403,9 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
           queryClient.invalidateQueries({
             queryKey: ["project-material-requirements", projectId],
           }),
-          queryClient.invalidateQueries({ queryKey: ["project-mrp", projectId] }),
+          queryClient.invalidateQueries({
+            queryKey: ["project-mrp", projectId],
+          }),
         ]);
       } else {
         toast.error(
@@ -369,8 +426,16 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     }
     setMaterialAction(`assign-${selectedTask.taskId}`);
     try {
+      const selectedVariant = variants.find(
+        (variant) => variant.variantId === Number(assignVariantId),
+      );
+      if (!selectedVariant) {
+        toast.error("The selected material variant is no longer available");
+        return;
+      }
       const response = await tasksApi.assignMaterial(selectedTask.taskId, {
         variantId: Number(assignVariantId),
+        materialId: selectedVariant.materialId,
         grossQuantityRequired: Number(assignMaterialQuantity),
       });
       if (!response.isSuccess) {
@@ -471,19 +536,25 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     }
   };
 
-  const reviewReport = async (
-    report: (typeof reports)[number],
+  const openReportReview = (
+    report: ProgressReportResponse,
     action: "approve" | "reject" | "reverse",
   ) => {
-    const reviewNote = window.prompt(`Optional note for ${action}`);
-    if (reviewNote === null) return;
+    setReviewDialog({
+      report,
+      action,
+      reviewNote: "",
+      allowCostOverrun: false,
+    });
+  };
+
+  const reviewReport = async () => {
+    if (!reviewDialog) return;
+    const { report, action, reviewNote, allowCostOverrun } = reviewDialog;
     const wouldOverrun =
       action === "approve" &&
       !!selectedTask &&
       selectedTask.actualCost + report.actualCostIncrement > selectedTask.plannedBudget;
-    const allowCostOverrun = wouldOverrun
-      ? window.confirm("This approval exceeds the task budget. Approve the cost overrun?")
-      : false;
     if (wouldOverrun && !allowCostOverrun) return;
     setReviewingReport(report.reportId);
     try {
@@ -509,63 +580,102 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         return;
       }
       toast.success(`Progress report ${action}d`);
+      setReviewDialog(null);
       await Promise.all([refetchReports(), refetchTasks()]);
     } finally {
       setReviewingReport(null);
     }
   };
 
-  const changeTaskStatus = async (task: TaskResponse, action: "cancel" | "reject" | "reopen") => {
-    if (!window.confirm(`${action} task “${task.taskName}”?`)) return;
+  const changeTaskStatus = async () => {
+    if (!taskStatusDialog) return;
+    const { task, action } = taskStatusDialog;
     const response = await tasksApi.changeStatus(task.taskId, action, task.rowVersion);
     if (!response.isSuccess) {
       toast.error(response.errorMessage ?? `Could not ${action} task`);
       return;
     }
     toast.success(`Task ${action}d`);
+    setTaskStatusDialog(null);
     await refetchTasks();
   };
 
-  const editTask = async (task: TaskResponse) => {
-    const phaseName = window.prompt("Phase", task.phaseName);
-    const taskName = window.prompt("Task name", task.taskName);
-    const assignee = window.prompt("Assigned user ID", String(task.assignedToUserID));
-    const budget = window.prompt("Planned budget", String(task.plannedBudget));
-    const baselineStart = window.prompt(
-      "Baseline start (YYYY-MM-DD)",
-      task.baselineStart.slice(0, 10),
-    );
-    const baselineEnd = window.prompt("Baseline end (YYYY-MM-DD)", task.baselineEnd.slice(0, 10));
-    if (!phaseName || !taskName || !assignee || !budget || !baselineStart || !baselineEnd) return;
-    const response = await tasksApi.update(task.taskId, {
-      phaseName,
-      taskName,
-      assignedToUserID: Number(assignee),
-      plannedBudget: Number(budget),
-      baselineStart,
-      baselineEnd,
+  const editTask = (task: TaskResponse) => {
+    setEditTaskDialog({
+      taskId: task.taskId,
       rowVersion: task.rowVersion,
+      phaseName: task.phaseName,
+      taskName: task.taskName,
+      plannedBudget: String(task.plannedBudget),
+      baselineStart: task.baselineStart.slice(0, 10),
+      baselineEnd: task.baselineEnd.slice(0, 10),
+    });
+  };
+
+  const submitTaskEdit = async () => {
+    if (!editTaskDialog) return;
+    if (!session?.userId) {
+      toast.error("Could not resolve the signed-in Project Manager");
+      return;
+    }
+    const plannedBudget = Number(editTaskDialog.plannedBudget);
+    if (
+      !editTaskDialog.phaseName.trim() ||
+      !editTaskDialog.taskName.trim() ||
+      !Number.isFinite(plannedBudget) ||
+      plannedBudget < 0 ||
+      !editTaskDialog.baselineStart ||
+      !editTaskDialog.baselineEnd
+    ) {
+      toast.error("Enter a valid task name, phase, budget, and schedule");
+      return;
+    }
+    if (new Date(editTaskDialog.baselineEnd) < new Date(editTaskDialog.baselineStart)) {
+      toast.error("Baseline end cannot be before baseline start");
+      return;
+    }
+    const response = await tasksApi.update(editTaskDialog.taskId, {
+      phaseName: editTaskDialog.phaseName.trim(),
+      taskName: editTaskDialog.taskName.trim(),
+      assignedToUserID: session.userId,
+      plannedBudget,
+      baselineStart: editTaskDialog.baselineStart,
+      baselineEnd: editTaskDialog.baselineEnd,
+      rowVersion: editTaskDialog.rowVersion,
     });
     if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update task");
     else {
       toast.success("Task updated");
+      setEditTaskDialog(null);
       await refetchTasks();
     }
   };
 
-  const correctReport = async (report: (typeof reports)[number]) => {
-    const progress = window.prompt(
-      "Corrected progress increment",
-      String(report.progressIncrement),
-    );
-    const cost = window.prompt(
-      "Corrected actual cost increment",
-      String(report.actualCostIncrement),
-    );
-    if (progress === null || cost === null) return;
+  const openCorrection = (report: ProgressReportResponse) => {
+    setCorrectionDialog({
+      report,
+      progressIncrement: String(report.progressIncrement),
+      actualCostIncrement: String(report.actualCostIncrement),
+    });
+  };
+
+  const correctReport = async () => {
+    if (!correctionDialog) return;
+    const progressIncrement = Number(correctionDialog.progressIncrement);
+    const actualCostIncrement = Number(correctionDialog.actualCostIncrement);
+    if (
+      !Number.isFinite(progressIncrement) ||
+      progressIncrement <= 0 ||
+      !Number.isFinite(actualCostIncrement) ||
+      actualCostIncrement < 0
+    ) {
+      toast.error("Corrected progress must be positive and cost cannot be negative");
+      return;
+    }
+    const { report } = correctionDialog;
     const response = await progressReportsApi.correct(report.reportId, {
-      progressIncrement: Number(progress),
-      actualCostIncrement: Number(cost),
+      progressIncrement,
+      actualCostIncrement,
       notes: report.notes ?? undefined,
       sitePhotoUrl: report.sitePhotoUrl ?? undefined,
       rowVersion: report.rowVersion,
@@ -573,6 +683,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not create correction");
     else {
       toast.success("Correction submitted for approval");
+      setCorrectionDialog(null);
       await refetchReports();
     }
   };
@@ -590,190 +701,224 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       </div>
 
       {canManageTasks && (
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Create project task</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Tasks are managed by the Project Manager who owns this project.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <Label htmlFor="task-phase">Phase</Label>
-                <Input
-                  id="task-phase"
-                  placeholder="Foundation"
-                  value={taskForm.phaseName}
-                  onChange={(event) =>
-                    setTaskForm((current) => ({ ...current, phaseName: event.target.value }))
-                  }
-                  maxLength={100}
-                  disabled={creatingTask}
-                />
-              </div>
-              <div>
-                <Label htmlFor="task-name">Task name</Label>
-                <Input
-                  id="task-name"
-                  placeholder="Pour footing concrete"
-                  value={taskForm.taskName}
-                  onChange={(event) =>
-                    setTaskForm((current) => ({ ...current, taskName: event.target.value }))
-                  }
-                  maxLength={200}
-                  disabled={creatingTask}
-                />
-              </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div>
-                <Label htmlFor="task-budget">Planned budget</Label>
-                <Input
-                  id="task-budget"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={taskForm.plannedBudget}
-                  onChange={(event) =>
-                    setTaskForm((current) => ({ ...current, plannedBudget: event.target.value }))
-                  }
-                  disabled={creatingTask}
-                />
-              </div>
-              <div>
-                <Label htmlFor="task-start">Baseline start</Label>
-                <Input
-                  id="task-start"
-                  type="date"
-                  value={taskForm.baselineStart}
-                  onChange={(event) =>
-                    setTaskForm((current) => ({ ...current, baselineStart: event.target.value }))
-                  }
-                  disabled={creatingTask}
-                />
-              </div>
-              <div>
-                <Label htmlFor="task-end">Baseline end</Label>
-                <Input
-                  id="task-end"
-                  type="date"
-                  min={taskForm.baselineStart}
-                  value={taskForm.baselineEnd}
-                  onChange={(event) =>
-                    setTaskForm((current) => ({ ...current, baselineEnd: event.target.value }))
-                  }
-                  disabled={creatingTask}
-                />
-              </div>
-            </div>
-            <div className="space-y-3 rounded-lg border p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-medium">Material requirements</p>
-                  <p className="text-xs text-muted-foreground">
-                    Optional planned quantities for this task.
-                  </p>
+        <>
+          <div className="flex justify-end">
+            <Button onClick={() => setCreateTaskOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" /> New task
+            </Button>
+          </div>
+          <Dialog open={createTaskOpen} onOpenChange={setCreateTaskOpen}>
+            <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create project task</DialogTitle>
+                <p className="text-xs text-muted-foreground">
+                  Add the schedule, budget, and optional planned materials.
+                </p>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="task-phase">Phase</Label>
+                    <Input
+                      id="task-phase"
+                      placeholder="Foundation"
+                      value={taskForm.phaseName}
+                      onChange={(event) =>
+                        setTaskForm((current) => ({
+                          ...current,
+                          phaseName: event.target.value,
+                        }))
+                      }
+                      maxLength={100}
+                      disabled={creatingTask}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="task-name">Task name</Label>
+                    <Input
+                      id="task-name"
+                      placeholder="Pour footing concrete"
+                      value={taskForm.taskName}
+                      onChange={(event) =>
+                        setTaskForm((current) => ({
+                          ...current,
+                          taskName: event.target.value,
+                        }))
+                      }
+                      maxLength={200}
+                      disabled={creatingTask}
+                    />
+                  </div>
                 </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div>
+                    <Label htmlFor="task-budget">Planned budget</Label>
+                    <Input
+                      id="task-budget"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={taskForm.plannedBudget}
+                      onChange={(event) =>
+                        setTaskForm((current) => ({
+                          ...current,
+                          plannedBudget: event.target.value,
+                        }))
+                      }
+                      disabled={creatingTask}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="task-start">Baseline start</Label>
+                    <Input
+                      id="task-start"
+                      type="date"
+                      value={taskForm.baselineStart}
+                      onChange={(event) =>
+                        setTaskForm((current) => ({
+                          ...current,
+                          baselineStart: event.target.value,
+                        }))
+                      }
+                      disabled={creatingTask}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="task-end">Baseline end</Label>
+                    <Input
+                      id="task-end"
+                      type="date"
+                      min={taskForm.baselineStart}
+                      value={taskForm.baselineEnd}
+                      onChange={(event) =>
+                        setTaskForm((current) => ({
+                          ...current,
+                          baselineEnd: event.target.value,
+                        }))
+                      }
+                      disabled={creatingTask}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">Material requirements</p>
+                      <p className="text-xs text-muted-foreground">
+                        Optional planned quantities for this task.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setTaskMaterials((rows) => [...rows, { variantId: "", quantity: "1" }])
+                      }
+                      disabled={creatingTask}
+                    >
+                      <Plus className="mr-1 h-3.5 w-3.5" /> Add material
+                    </Button>
+                  </div>
+                  {taskMaterials.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No planned materials added.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {taskMaterials.map((row, index) => {
+                        const variant = variants.find(
+                          (item) => item.variantId === Number(row.variantId),
+                        );
+                        return (
+                          <div
+                            key={index}
+                            className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_36px]"
+                          >
+                            <Select
+                              value={row.variantId}
+                              onValueChange={(value) =>
+                                setTaskMaterials((rows) =>
+                                  rows.map((item, itemIndex) =>
+                                    itemIndex === index ? { ...item, variantId: value } : item,
+                                  ),
+                                )
+                              }
+                              disabled={creatingTask}
+                            >
+                              <SelectTrigger aria-label={`Material ${index + 1}`}>
+                                <SelectValue placeholder="Select material variant" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {variants.map((item) => (
+                                  <SelectItem key={item.variantId} value={String(item.variantId)}>
+                                    {item.label} ({item.unit})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                value={row.quantity}
+                                onChange={(event) =>
+                                  setTaskMaterials((rows) =>
+                                    rows.map((item, itemIndex) =>
+                                      itemIndex === index
+                                        ? {
+                                            ...item,
+                                            quantity: event.target.value,
+                                          }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                                disabled={creatingTask}
+                                aria-label={`Quantity for material ${index + 1}`}
+                              />
+                              {variant?.unit && (
+                                <span className="pointer-events-none absolute right-3 top-2 text-xs text-muted-foreground">
+                                  {variant.unit}
+                                </span>
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() =>
+                                setTaskMaterials((rows) =>
+                                  rows.filter((_, itemIndex) => itemIndex !== index),
+                                )
+                              }
+                              disabled={creatingTask}
+                              aria-label="Remove material"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
                 <Button
-                  type="button"
-                  size="sm"
                   variant="outline"
-                  onClick={() =>
-                    setTaskMaterials((rows) => [...rows, { variantId: "", quantity: "1" }])
-                  }
+                  onClick={() => setCreateTaskOpen(false)}
                   disabled={creatingTask}
                 >
-                  <Plus className="mr-1 h-3.5 w-3.5" /> Add material
+                  Cancel
                 </Button>
-              </div>
-              {taskMaterials.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No planned materials added.</p>
-              ) : (
-                <div className="space-y-2">
-                  {taskMaterials.map((row, index) => {
-                    const variant = variants.find(
-                      (item) => item.variantId === Number(row.variantId),
-                    );
-                    return (
-                      <div
-                        key={index}
-                        className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_36px]"
-                      >
-                        <Select
-                          value={row.variantId}
-                          onValueChange={(value) =>
-                            setTaskMaterials((rows) =>
-                              rows.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, variantId: value } : item,
-                              ),
-                            )
-                          }
-                          disabled={creatingTask}
-                        >
-                          <SelectTrigger aria-label={`Material ${index + 1}`}>
-                            <SelectValue placeholder="Select material variant" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {variants.map((item) => (
-                              <SelectItem key={item.variantId} value={String(item.variantId)}>
-                                {item.label} ({item.unit})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <div className="relative">
-                          <Input
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            value={row.quantity}
-                            onChange={(event) =>
-                              setTaskMaterials((rows) =>
-                                rows.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, quantity: event.target.value }
-                                    : item,
-                                ),
-                              )
-                            }
-                            disabled={creatingTask}
-                            aria-label={`Quantity for material ${index + 1}`}
-                          />
-                          {variant?.unit && (
-                            <span className="pointer-events-none absolute right-3 top-2 text-xs text-muted-foreground">
-                              {variant.unit}
-                            </span>
-                          )}
-                        </div>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          onClick={() =>
-                            setTaskMaterials((rows) =>
-                              rows.filter((_, itemIndex) => itemIndex !== index),
-                            )
-                          }
-                          disabled={creatingTask}
-                          aria-label="Remove material"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end">
-              <Button onClick={submitTask} disabled={creatingTask}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                {creatingTask ? "Creating..." : "Create task"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                <Button onClick={submitTask} disabled={creatingTask}>
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  {creatingTask ? "Creating..." : "Create task"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
       )}
 
       {!tasksLoading && !tasksError && tasks.length > 0 && (
@@ -799,7 +944,6 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
               <TableHeader>
                 <TableRow>
                   <TableHead>Task</TableHead>
-                  <TableHead>Project Manager</TableHead>
                   <TableHead>Schedule</TableHead>
                   <TableHead>Budget</TableHead>
                   <TableHead>Progress</TableHead>
@@ -810,7 +954,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
               <TableBody>
                 {tasks.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                       No tasks yet for this project.
                     </TableCell>
                   </TableRow>
@@ -820,9 +964,6 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                     <TableCell>
                       <p className="font-medium">{task.taskName}</p>
                       <p className="text-xs text-muted-foreground">{task.phaseName}</p>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {task.assignedToUserName || `User #${task.assignedToUserID}`}
                     </TableCell>
                     <TableCell className="text-xs">
                       {formatDate(task.baselineStart)} → {formatDate(task.baselineEnd)}
@@ -864,7 +1005,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => changeTaskStatus(task, "reject")}
+                          onClick={() => setTaskStatusDialog({ task, action: "reject" })}
                         >
                           Reject
                         </Button>
@@ -876,7 +1017,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                             size="sm"
                             variant="ghost"
                             className="text-destructive"
-                            onClick={() => changeTaskStatus(task, "cancel")}
+                            onClick={() => setTaskStatusDialog({ task, action: "cancel" })}
                           >
                             Cancel
                           </Button>
@@ -886,7 +1027,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => changeTaskStatus(task, "reopen")}
+                            onClick={() => setTaskStatusDialog({ task, action: "reopen" })}
                           >
                             Reopen
                           </Button>
@@ -904,20 +1045,14 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
         open={selectedTaskId !== null}
         onOpenChange={(open) => !open && setSelectedTaskId(null)}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedTask?.taskName ?? "Task progress"}</DialogTitle>
           </DialogHeader>
           {selectedTask && (
             <div className="space-y-4">
-              <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
+              <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2">
                 <InfoBlock label="Phase" value={selectedTask.phaseName} />
-                <InfoBlock
-                  label="Project Manager"
-                  value={
-                    selectedTask.assignedToUserName || `User #${selectedTask.assignedToUserID}`
-                  }
-                />
                 <InfoBlock label="Remaining" value={`${selectedRemaining}%`} />
               </div>
 
@@ -954,7 +1089,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm"
                       >
                         <span>
-                          {item.materialName} â€” {item.variantName}
+                          {item.materialName} - {item.variantName}
                         </span>
                         <span className="font-medium tabular-nums">
                           {item.grossQuantityRequired.toLocaleString()} {item.unit}
@@ -999,6 +1134,40 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   active or issued request for the same task.
                 </p>
               </div>
+
+              {canManageTasks && selectedTask && selectedRemaining > 0 && !canReportSelected && (
+                <div className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm">
+                  {reportsLoading ? (
+                    <p className="text-muted-foreground">Checking recent progress reports...</p>
+                  ) : reportsError ? (
+                    <p className="text-destructive">
+                      Progress report history could not be loaded. Reload before submitting a new
+                      report so the reporting interval can be verified.
+                    </p>
+                  ) : recentActiveReport?.status === "PENDING" ? (
+                    <>
+                      <p className="font-medium">A progress report is already awaiting review.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Approve or reject the submitted report in the history below before entering
+                        another report.
+                      </p>
+                    </>
+                  ) : recentActiveReport ? (
+                    <>
+                      <p className="font-medium">A progress report was submitted recently.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        You can submit another report after{" "}
+                        {new Date(
+                          new Date(recentActiveReport.reportDate).getTime() +
+                            MINIMUM_REPORTING_INTERVAL_MS,
+                        ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        . Use Correct or Reverse on the approved report below if its details need to
+                        be changed.
+                      </p>
+                    </>
+                  ) : null}
+                </div>
+              )}
 
               {canReportSelected && (
                 <div className="space-y-3 rounded-lg border p-4">
@@ -1111,7 +1280,10 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       placeholder="Work completed, blockers, site notes..."
                       value={reportForm.notes}
                       onChange={(event) =>
-                        setReportForm((current) => ({ ...current, notes: event.target.value }))
+                        setReportForm((current) => ({
+                          ...current,
+                          notes: event.target.value,
+                        }))
                       }
                       maxLength={1000}
                       disabled={submittingReport}
@@ -1158,7 +1330,6 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
-                        <TableHead>Reporter</TableHead>
                         <TableHead className="text-right">Increment</TableHead>
                         <TableHead className="text-right">Cost added</TableHead>
                         <TableHead>Status</TableHead>
@@ -1169,7 +1340,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                     <TableBody>
                       {reports.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                          <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                             No progress reports yet.
                           </TableCell>
                         </TableRow>
@@ -1178,9 +1349,6 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                         <TableRow key={report.reportId} className="[&>td]:align-top [&>td]:py-4">
                           <TableCell className="whitespace-nowrap text-xs">
                             {formatDate(report.reportDate)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {report.reportedByName || `User #${report.reportedByUserId}`}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-right tabular-nums">
                             +{report.progressIncrement}%
@@ -1229,7 +1397,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                                   size="sm"
                                   variant="ghost"
                                   disabled={reviewingReport === report.reportId}
-                                  onClick={() => reviewReport(report, "approve")}
+                                  onClick={() => openReportReview(report, "approve")}
                                 >
                                   Approve
                                 </Button>
@@ -1238,7 +1406,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                                   variant="ghost"
                                   className="text-destructive"
                                   disabled={reviewingReport === report.reportId}
-                                  onClick={() => reviewReport(report, "reject")}
+                                  onClick={() => openReportReview(report, "reject")}
                                 >
                                   Reject
                                 </Button>
@@ -1250,7 +1418,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                                   size="sm"
                                   variant="ghost"
                                   disabled={reviewingReport === report.reportId}
-                                  onClick={() => correctReport(report)}
+                                  onClick={() => openCorrection(report)}
                                 >
                                   Correct
                                 </Button>
@@ -1259,7 +1427,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                                   variant="ghost"
                                   className="text-destructive"
                                   disabled={reviewingReport === report.reportId}
-                                  onClick={() => reviewReport(report, "reverse")}
+                                  onClick={() => openReportReview(report, "reverse")}
                                 >
                                   Reverse
                                 </Button>
@@ -1276,6 +1444,261 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={editTaskDialog !== null}
+        onOpenChange={(open) => !open && setEditTaskDialog(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit task</DialogTitle>
+          </DialogHeader>
+          {editTaskDialog && (
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="edit-task-phase">Phase</Label>
+                  <Input
+                    id="edit-task-phase"
+                    value={editTaskDialog.phaseName}
+                    onChange={(event) =>
+                      setEditTaskDialog((current) =>
+                        current ? { ...current, phaseName: event.target.value } : current,
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-task-name">Task name</Label>
+                  <Input
+                    id="edit-task-name"
+                    value={editTaskDialog.taskName}
+                    onChange={(event) =>
+                      setEditTaskDialog((current) =>
+                        current ? { ...current, taskName: event.target.value } : current,
+                      )
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="edit-task-budget">Planned budget</Label>
+                <Input
+                  id="edit-task-budget"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editTaskDialog.plannedBudget}
+                  onChange={(event) =>
+                    setEditTaskDialog((current) =>
+                      current ? { ...current, plannedBudget: event.target.value } : current,
+                    )
+                  }
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="edit-task-start">Baseline start</Label>
+                  <Input
+                    id="edit-task-start"
+                    type="date"
+                    value={editTaskDialog.baselineStart}
+                    onChange={(event) =>
+                      setEditTaskDialog((current) =>
+                        current ? { ...current, baselineStart: event.target.value } : current,
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-task-end">Baseline end</Label>
+                  <Input
+                    id="edit-task-end"
+                    type="date"
+                    min={editTaskDialog.baselineStart}
+                    value={editTaskDialog.baselineEnd}
+                    onChange={(event) =>
+                      setEditTaskDialog((current) =>
+                        current ? { ...current, baselineEnd: event.target.value } : current,
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTaskDialog(null)}>
+              Cancel
+            </Button>
+            <Button onClick={submitTaskEdit}>Save task</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reviewDialog !== null} onOpenChange={(open) => !open && setReviewDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="capitalize">{reviewDialog?.action} progress report</DialogTitle>
+          </DialogHeader>
+          {reviewDialog && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 rounded-md border bg-muted/30 p-3 text-sm">
+                <InfoBlock label="Progress" value={`+${reviewDialog.report.progressIncrement}%`} />
+                <InfoBlock
+                  label="Cost"
+                  value={formatMoney(reviewDialog.report.actualCostIncrement)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="report-review-note">Review note</Label>
+                <Textarea
+                  id="report-review-note"
+                  value={reviewDialog.reviewNote}
+                  onChange={(event) =>
+                    setReviewDialog((current) =>
+                      current ? { ...current, reviewNote: event.target.value } : current,
+                    )
+                  }
+                  maxLength={1000}
+                  placeholder="Optional review context"
+                />
+              </div>
+              {reviewDialog.action === "approve" &&
+                selectedTask &&
+                selectedTask.actualCost + reviewDialog.report.actualCostIncrement >
+                  selectedTask.plannedBudget && (
+                  <label className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={reviewDialog.allowCostOverrun}
+                      onChange={(event) =>
+                        setReviewDialog((current) =>
+                          current
+                            ? {
+                                ...current,
+                                allowCostOverrun: event.target.checked,
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                    <span>Approve this report even though it exceeds the planned task budget.</span>
+                  </label>
+                )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setReviewDialog(null)}
+              disabled={reviewingReport !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={
+                reviewDialog?.action === "reject" || reviewDialog?.action === "reverse"
+                  ? "destructive"
+                  : "default"
+              }
+              onClick={reviewReport}
+              disabled={
+                reviewingReport !== null ||
+                (!!reviewDialog &&
+                  reviewDialog.action === "approve" &&
+                  !!selectedTask &&
+                  selectedTask.actualCost + reviewDialog.report.actualCostIncrement >
+                    selectedTask.plannedBudget &&
+                  !reviewDialog.allowCostOverrun)
+              }
+            >
+              {reviewingReport !== null ? "Saving..." : "Confirm review"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={correctionDialog !== null}
+        onOpenChange={(open) => !open && setCorrectionDialog(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Correct progress report</DialogTitle>
+          </DialogHeader>
+          {correctionDialog && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="correct-progress">Progress increment (%)</Label>
+                <Input
+                  id="correct-progress"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={correctionDialog.progressIncrement}
+                  onChange={(event) =>
+                    setCorrectionDialog((current) =>
+                      current ? { ...current, progressIncrement: event.target.value } : current,
+                    )
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="correct-cost">Actual cost increment</Label>
+                <Input
+                  id="correct-cost"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={correctionDialog.actualCostIncrement}
+                  onChange={(event) =>
+                    setCorrectionDialog((current) =>
+                      current
+                        ? {
+                            ...current,
+                            actualCostIncrement: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCorrectionDialog(null)}>
+              Cancel
+            </Button>
+            <Button onClick={correctReport}>Submit correction</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={taskStatusDialog !== null}
+        onOpenChange={(open) => !open && setTaskStatusDialog(null)}
+        title={`${taskStatusDialog?.action === "reopen" ? "Reopen" : taskStatusDialog?.action === "reject" ? "Reject" : "Cancel"} this task?`}
+        description={
+          taskStatusDialog
+            ? `${taskStatusDialog.task.taskName} will move to ${
+                taskStatusDialog.action === "reopen"
+                  ? "an active workflow"
+                  : taskStatusDialog.action === "reject"
+                    ? "rejected status"
+                    : "cancelled status"
+              }.`
+            : ""
+        }
+        confirmLabel={
+          taskStatusDialog?.action === "reopen"
+            ? "Reopen task"
+            : `${taskStatusDialog?.action ?? "Update"} task`
+        }
+        destructive={taskStatusDialog?.action !== "reopen"}
+        onConfirm={changeTaskStatus}
+      />
 
       <Dialog open={reportPhoto !== null} onOpenChange={(open) => !open && setReportPhoto(null)}>
         <DialogContent className="max-w-4xl">
@@ -1456,7 +1879,10 @@ function ScheduleTimeline({
                           )}
                           <div
                             className="absolute top-1.5 h-5 rounded border bg-muted/60"
-                            style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
+                            style={{
+                              left: `${left}%`,
+                              width: `${Math.min(width, 100 - left)}%`,
+                            }}
                             title={`${task.taskName}: ${formatDate(task.baselineStart)} - ${formatDate(task.baselineEnd)}, ${Number(task.actualProgressPct || 0)}% complete`}
                           >
                             <span
@@ -1570,7 +1996,8 @@ function ProjectProgressSummary({
                   <div className="mb-1 flex items-center justify-between gap-3 text-xs">
                     <span className="truncate font-medium">{phase.phase}</span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {phase.value}% · {phase.taskCount} task{phase.taskCount === 1 ? "" : "s"}
+                      {phase.value}% · {phase.taskCount} task
+                      {phase.taskCount === 1 ? "" : "s"}
                     </span>
                   </div>
                   <Progress value={phase.value} className="h-1.5" />

@@ -17,7 +17,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,8 +49,10 @@ import { materialRequestsApi, type MaterialRequestResponse } from "@/api/materia
 import { materialsApi } from "@/api/materials";
 import { projectsApi } from "@/api/projects";
 import { warehousesApi } from "@/api/warehouses";
+import { tasksApi } from "@/api/tasks";
 import { requireApiResult } from "@/api/client";
 import { useSession } from "@/lib/session";
+import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 
 export const Route = createFileRoute("/app/material-requests")({
   head: () => ({ meta: [{ title: "Material Requests - BuildSense AI" }] }),
@@ -119,7 +127,12 @@ function requestUrgency(request: MaterialRequestResponse): RequestUrgency {
   const days = Math.round((earliest.getTime() - today.getTime()) / 86_400_000);
 
   if (request.status !== "PENDING") {
-    return { rank: 3, label: "Processed", className: "", neededBy: earliest.toISOString() };
+    return {
+      rank: 3,
+      label: "Processed",
+      className: "",
+      neededBy: earliest.toISOString(),
+    };
   }
   if (days < 0) {
     return {
@@ -155,6 +168,7 @@ function requestUrgency(request: MaterialRequestResponse): RequestUrgency {
 
 function MaterialRequestsPage() {
   const session = useSession();
+  const suggestNext = useWorkflowSuggestion();
   const canReview = session?.role === "ADMIN" || session?.role === "WAREHOUSE_MANAGER";
   const canDecide = session?.role === "WAREHOUSE_MANAGER";
   const canCreate = session?.role === "PM";
@@ -165,6 +179,8 @@ function MaterialRequestsPage() {
         ? "Request project materials and track the status of your submissions."
         : "Create material requests and oversee their approval workflow.";
   const [projectId, setProjectId] = useState("");
+  const [taskId, setTaskId] = useState("");
+  const [createRequestOpen, setCreateRequestOpen] = useState(false);
   const [lines, setLines] = useState<RequestLine[]>(() => [newLine()]);
   const [submitting, setSubmitting] = useState(false);
   const [processing, setProcessing] = useState<"approve" | "reject" | "issue" | "release" | null>(
@@ -182,6 +198,25 @@ function MaterialRequestsPage() {
   const [urgencyFilter, setUrgencyFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
+  const [requestMutationBusy, setRequestMutationBusy] = useState(false);
+  const [cancelRequest, setCancelRequest] = useState<{
+    request: MaterialRequestResponse;
+    reason: string;
+  } | null>(null);
+  const [editingRequest, setEditingRequest] = useState<{
+    requestId: number;
+    rowVersion: string;
+    requestNote: string;
+    items: {
+      itemId: number;
+      materialName: string;
+      quantity: string;
+      neededByDate: string;
+      note?: string | null;
+    }[];
+  } | null>(null);
+  const [remainderRequest, setRemainderRequest] = useState<MaterialRequestResponse | null>(null);
+  const [remainderBusy, setRemainderBusy] = useState(false);
 
   const {
     data: projects = [],
@@ -203,6 +238,38 @@ function MaterialRequestsPage() {
       requireApiResult(await warehousesApi.getAll(), "Could not load managed warehouses") ?? [],
     enabled: !!session?.token && canDecide,
     staleTime: 30_000,
+  });
+
+  const approvalInventoryQuery = useQuery({
+    queryKey: ["warehouse-inventory", "material-request-approval", approvalWarehouseId],
+    queryFn: async () =>
+      requireApiResult(
+        await warehousesApi.getInventory(Number(approvalWarehouseId)),
+        "Could not load warehouse stock",
+      ) ?? [],
+    enabled:
+      (confirming?.action === "approve" ||
+        confirming?.action === "issue" ||
+        confirming?.action === "release") &&
+      !!approvalWarehouseId,
+    staleTime: 5_000,
+  });
+
+  const {
+    data: projectTasks = [],
+    isLoading: tasksLoading,
+    isError: tasksError,
+    error: tasksErrorValue,
+    refetch: refetchTasks,
+  } = useQuery({
+    queryKey: ["tasks", "material-request", projectId],
+    queryFn: async () =>
+      requireApiResult(
+        await tasksApi.getByProject(Number(projectId)),
+        "Could not load project tasks",
+      ) ?? [],
+    enabled: !!session?.token && canCreate && !!projectId,
+    staleTime: 10_000,
   });
 
   const {
@@ -278,6 +345,19 @@ function MaterialRequestsPage() {
     (request) => request.status === "PENDING" && requestUrgency(request).rank <= 1,
   ).length;
   const processedCount = roleScopedRequests.length - pendingCount;
+  const tasksWithActiveRequests = new Set(
+    roleScopedRequests
+      .filter((request) => ["PENDING", "APPROVED", "PARTIALLY_APPROVED"].includes(request.status))
+      .map((request) => request.taskId)
+      .filter((id): id is number => typeof id === "number"),
+  );
+  const eligibleRequestTasks = projectTasks.filter(
+    (task) =>
+      task.materialRequirements.length > 0 &&
+      !["COMPLETED", "CANCELLED", "REJECTED"].includes(task.status) &&
+      !tasksWithActiveRequests.has(task.taskId),
+  );
+  const selectedRequestTask = eligibleRequestTasks.find((task) => task.taskId === Number(taskId));
 
   const {
     data: materials = [],
@@ -293,27 +373,69 @@ function MaterialRequestsPage() {
     staleTime: 30_000,
   });
 
+  const plannedVariantIds = new Set(
+    selectedRequestTask?.materialRequirements.map((requirement) => requirement.variantId) ?? [],
+  );
   const variantOptions = materials.flatMap((material) => {
     const activeVariants = (material.variants ?? []).filter((variant) => variant.isActive);
     if (activeVariants.length > 0) {
-      return activeVariants.map((variant) => ({
-        key: `V:${variant.variantId}`,
-        variantId: variant.variantId,
-        materialId: material.materialId,
-        label: `${material.materialName} — ${variant.variantName}`,
-        unit: variant.unit || material.unit,
-      }));
+      return activeVariants
+        .filter((variant) => plannedVariantIds.has(variant.variantId))
+        .map((variant) => ({
+          key: `V:${variant.variantId}`,
+          variantId: variant.variantId,
+          materialId: material.materialId,
+          label: `${material.materialName} - ${variant.variantName}`,
+          unit: variant.unit || material.unit,
+        }));
     }
-    return [
-      {
-        key: `M:${material.materialId}`,
-        variantId: 0,
-        materialId: material.materialId,
-        label: material.materialName,
-        unit: material.unit,
-      },
-    ];
+    return selectedRequestTask
+      ? []
+      : [
+          {
+            key: `M:${material.materialId}`,
+            variantId: 0,
+            materialId: material.materialId,
+            label: material.materialName,
+            unit: material.unit,
+          },
+        ];
   });
+
+  const selectTaskForRequest = (value: string) => {
+    setTaskId(value);
+    const task = eligibleRequestTasks.find((item) => item.taskId === Number(value));
+    if (!task) {
+      setLines([newLine()]);
+      return;
+    }
+    const issuedByVariant = new Map<number, number>();
+    roleScopedRequests
+      .filter((request) => request.taskId === task.taskId)
+      .flatMap((request) => request.items)
+      .forEach((item) =>
+        issuedByVariant.set(
+          item.variantId,
+          (issuedByVariant.get(item.variantId) ?? 0) + item.issuedQuantity,
+        ),
+      );
+    const remainingLines = task.materialRequirements
+      .map((requirement) => ({
+        requirement,
+        remaining: Math.max(
+          0,
+          requirement.grossQuantityRequired - (issuedByVariant.get(requirement.variantId) ?? 0),
+        ),
+      }))
+      .filter(({ remaining }) => remaining > 0)
+      .map(({ requirement, remaining }) => ({
+        key: nextLineKey++,
+        variantKey: `V:${requirement.variantId}`,
+        quantity: String(remaining),
+        neededByDate: task.baselineStart.slice(0, 10),
+      }));
+    setLines(remainingLines.length > 0 ? remainingLines : [newLine()]);
+  };
 
   const updateLine = (key: number, update: Partial<RequestLine>) => {
     setLines((current) =>
@@ -328,8 +450,8 @@ function MaterialRequestsPage() {
   };
 
   const submitRequest = async () => {
-    if (!projectId) {
-      toast.error("Select a project");
+    if (!projectId || !taskId) {
+      toast.error("Select a project and task");
       return;
     }
     if (
@@ -348,10 +470,14 @@ function MaterialRequestsPage() {
     try {
       const response = await materialRequestsApi.create({
         projectId: Number(projectId),
+        taskId: Number(taskId),
         items: lines.map((line) => ({
           ...(() => {
             const option = variantOptions.find((variant) => variant.key === line.variantKey)!;
-            return { variantId: option.variantId, materialId: option.materialId };
+            return {
+              variantId: option.variantId,
+              materialId: option.materialId,
+            };
           })(),
           quantity: Number(line.quantity),
           neededByDate: `${line.neededByDate}T00:00:00.000Z`,
@@ -359,8 +485,16 @@ function MaterialRequestsPage() {
       });
 
       if (response.isSuccess) {
-        toast.success(responseMessage(response.result, "Material request created"));
+        suggestNext({
+          message: responseMessage(response.result, "Material request created"),
+          nextStep: "Track the request while a Warehouse Manager reviews stock availability.",
+          to: "/app/material-requests",
+          actionLabel: "View request queue",
+          onAction: () => setStatusFilter("ALL"),
+        });
+        setCreateRequestOpen(false);
         setProjectId("");
+        setTaskId("");
         setLines([newLine()]);
         refetchRequests();
       } else {
@@ -419,6 +553,59 @@ function MaterialRequestsPage() {
         toast.error("Approved quantity cannot exceed requested quantity");
         return;
       }
+      if (approvalInventoryQuery.isLoading) {
+        toast.error("Warehouse stock is still loading. Try again in a moment.");
+        return;
+      }
+      if (approvalInventoryQuery.isError) {
+        toast.error("Reload warehouse stock before approving this request.");
+        return;
+      }
+      const insufficientItem = quantities.find((quantity) => {
+        const requestItem = confirming.request.items.find(
+          (item) => item.itemId === quantity.itemId,
+        );
+        const available =
+          approvalInventoryQuery.data?.find(
+            (inventoryItem) => inventoryItem.variantId === requestItem?.variantId,
+          )?.availableQuantity ?? 0;
+        return quantity.approvedQuantity > available;
+      });
+      if (insufficientItem) {
+        const requestItem = confirming.request.items.find(
+          (item) => item.itemId === insufficientItem.itemId,
+        );
+        toast.error(`${requestItem?.materialName ?? "Material"} exceeds available warehouse stock`);
+        return;
+      }
+    }
+    if (action === "issue") {
+      if (approvalInventoryQuery.isLoading) {
+        toast.error("Warehouse stock is still loading. Try again in a moment.");
+        return;
+      }
+      if (approvalInventoryQuery.isError) {
+        toast.error("Reload warehouse stock before issuing this request.");
+        return;
+      }
+      const unavailableItem = confirming.request.items.find((item) => {
+        const issueQuantity = Math.max(0, item.approvedQuantity - item.issuedQuantity);
+        if (issueQuantity === 0) return false;
+        const inventoryItem = approvalInventoryQuery.data?.find(
+          (record) => record.variantId === item.variantId,
+        );
+        return (
+          !inventoryItem ||
+          inventoryItem.reservedQuantity < issueQuantity ||
+          inventoryItem.quantity - inventoryItem.quarantineQuantity < issueQuantity
+        );
+      });
+      if (unavailableItem) {
+        toast.error(
+          `${unavailableItem.materialName} no longer has enough physical and reserved stock to issue`,
+        );
+        return;
+      }
     }
     setProcessing(action);
     try {
@@ -439,14 +626,48 @@ function MaterialRequestsPage() {
               : await materialRequestsApi.release(id);
 
       if (response.isSuccess) {
-        toast.success(responseMessage(response.result, `Request #${id} ${action}d`));
+        const suggestion =
+          action === "approve"
+            ? {
+                nextStep: "Issue the reserved materials when they physically leave the warehouse.",
+                actionLabel: "View approved requests",
+              }
+            : action === "issue"
+              ? {
+                  nextStep:
+                    "Review any unfulfilled task demand; the Project Manager can request the remainder.",
+                  actionLabel: "Review requests",
+                }
+              : action === "release"
+                ? {
+                    nextStep:
+                      "The released quantity is available for other requests, transfers, or stock decisions.",
+                    actionLabel: "View request queue",
+                  }
+                : {
+                    nextStep: "Review the remaining material request queue.",
+                    actionLabel: "View request queue",
+                  };
+        suggestNext({
+          message: responseMessage(response.result, `Request #${id} ${action}d`),
+          nextStep: suggestion.nextStep,
+          to: "/app/material-requests",
+          actionLabel: suggestion.actionLabel,
+          onAction: () => setStatusFilter(action === "approve" ? "APPROVED" : "ALL"),
+        });
         setConfirming(null);
         refetchRequests();
       } else {
-        toast.error(
+        const message =
           response.errorMessage ??
-            responseMessage(response.result, `Could not ${action} request #${id}`),
-        );
+          responseMessage(response.result, `Could not ${action} request #${id}`);
+        if (/inventory|stock|reservation/i.test(message)) {
+          toast.error(message, {
+            description:
+              "Next: reload current stock. If it cannot satisfy the request, release the reservation and replenish or transfer inventory.",
+            action: { label: "Reload", onClick: () => approvalInventoryQuery.refetch() },
+          });
+        } else toast.error(message);
       }
     } catch {
       toast.error("Could not reach the backend. Check the API server and try again.");
@@ -455,59 +676,119 @@ function MaterialRequestsPage() {
     }
   };
 
-  const cancelPendingRequest = async (request: MaterialRequestResponse) => {
-    const reason = window.prompt("Optional cancellation reason") ?? undefined;
-    if (reason === undefined) return;
-    setProcessing("release");
+  const cancelPendingRequest = (request: MaterialRequestResponse) => {
+    setCancelRequest({ request, reason: "" });
+  };
+
+  const submitPendingCancellation = async () => {
+    if (!cancelRequest) return;
+    setRequestMutationBusy(true);
     try {
       const response = await materialRequestsApi.cancelPending(
-        request.requestId,
-        request.rowVersion,
-        reason.trim() || undefined,
+        cancelRequest.request.requestId,
+        cancelRequest.request.rowVersion,
+        cancelRequest.reason.trim() || undefined,
       );
       if (!response.isSuccess) {
         toast.error(response.errorMessage ?? "Could not cancel material request");
         if (response.statusCode === 409) await refetchRequests();
         return;
       }
-      toast.success(`Request #${request.requestId} cancelled`);
+      suggestNext({
+        message: `Request #${cancelRequest.request.requestId} cancelled`,
+        nextStep: "Review the task material plan before creating a corrected request.",
+        to: `/app/projects/${cancelRequest.request.projectId}`,
+        actionLabel: "Open project",
+      });
+      setCancelRequest(null);
       await refetchRequests();
     } finally {
-      setProcessing(null);
+      setRequestMutationBusy(false);
     }
   };
 
-  const editPendingRequest = async (request: MaterialRequestResponse) => {
-    const requestNote = window.prompt("Request note", request.requestNote ?? "");
-    if (requestNote === null) return;
-    const items: { itemId: number; quantity: number; neededByDate: string; note?: string }[] = [];
-    for (const item of request.items) {
-      const quantity = window.prompt(`Quantity for ${item.materialName}`, String(item.quantity));
-      const neededByDate = window.prompt(
-        `Needed-by date for ${item.materialName} (YYYY-MM-DD)`,
-        item.neededByDate.slice(0, 10),
-      );
-      if (quantity === null || neededByDate === null) return;
-      if (!Number.isFinite(Number(quantity)) || Number(quantity) <= 0 || !neededByDate) {
-        toast.error("Every quantity and needed-by date must be valid");
+  const editPendingRequest = (request: MaterialRequestResponse) => {
+    setEditingRequest({
+      requestId: request.requestId,
+      rowVersion: request.rowVersion,
+      requestNote: request.requestNote ?? "",
+      items: request.items.map((item) => ({
+        itemId: item.itemId,
+        materialName: item.materialName,
+        quantity: String(item.quantity),
+        neededByDate: item.neededByDate.slice(0, 10),
+        note: item.note,
+      })),
+    });
+  };
+
+  const submitPendingEdit = async () => {
+    if (!editingRequest) return;
+    if (
+      editingRequest.items.some(
+        (item) =>
+          !Number.isFinite(Number(item.quantity)) ||
+          Number(item.quantity) <= 0 ||
+          !item.neededByDate,
+      )
+    ) {
+      toast.error("Every quantity and needed-by date must be valid");
+      return;
+    }
+    setRequestMutationBusy(true);
+    try {
+      const response = await materialRequestsApi.updatePending(editingRequest.requestId, {
+        rowVersion: editingRequest.rowVersion,
+        requestNote: editingRequest.requestNote.trim() || undefined,
+        items: editingRequest.items.map((item) => ({
+          itemId: item.itemId,
+          quantity: Number(item.quantity),
+          neededByDate: item.neededByDate,
+          note: item.note ?? undefined,
+        })),
+      });
+      if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update request");
+      else {
+        suggestNext({
+          message: `Request #${editingRequest.requestId} updated`,
+          nextStep: "Track the revised request while a Warehouse Manager reviews it.",
+          actionLabel: "View pending requests",
+          onAction: () => setStatusFilter("PENDING"),
+        });
+        setEditingRequest(null);
+        await refetchRequests();
+      }
+    } finally {
+      setRequestMutationBusy(false);
+    }
+  };
+
+  const createRemainderRequest = async () => {
+    const taskId = remainderRequest?.taskId;
+    if (!taskId) return;
+    const request = remainderRequest;
+    setRemainderBusy(true);
+    try {
+      const response = await materialRequestsApi.createFromTask(taskId);
+      if (!response.isSuccess) {
+        toast.error(
+          response.errorMessage ??
+            responseMessage(response.result, "Could not create the remainder request"),
+        );
         return;
       }
-      items.push({
-        itemId: item.itemId,
-        quantity: Number(quantity),
-        neededByDate,
-        note: item.note ?? undefined,
+      suggestNext({
+        message: `Follow-up request created for Task #${request.taskId}`,
+        nextStep: "Track the new request while the Warehouse Manager checks available stock.",
+        actionLabel: "View pending requests",
+        onAction: () => setStatusFilter("PENDING"),
       });
-    }
-    const response = await materialRequestsApi.updatePending(request.requestId, {
-      rowVersion: request.rowVersion,
-      requestNote: requestNote || undefined,
-      items,
-    });
-    if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update request");
-    else {
-      toast.success(`Request #${request.requestId} updated`);
+      setRemainderRequest(null);
       await refetchRequests();
+    } catch {
+      toast.error("Could not reach the backend. Check the API server and try again.");
+    } finally {
+      setRemainderBusy(false);
     }
   };
 
@@ -517,6 +798,13 @@ function MaterialRequestsPage() {
         section="Operations"
         title="Material Requests"
         description={workflowDescription}
+        actions={
+          canCreate ? (
+            <Button size="sm" onClick={() => setCreateRequestOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" /> New request
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="space-y-4">
@@ -536,162 +824,367 @@ function MaterialRequestsPage() {
         </div>
 
         {canCreate && (
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">New material request</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {(projectsError || materialsError) && (
-                <QueryError
-                  message={
-                    projectsErrorValue instanceof Error
-                      ? projectsErrorValue.message
-                      : materialsErrorValue instanceof Error
-                        ? materialsErrorValue.message
-                        : undefined
-                  }
-                  onRetry={() => {
-                    refetchProjects();
-                    refetchMaterials();
-                  }}
-                />
-              )}
-              <div>
-                <Label id="request-project-label">Project</Label>
-                <Select
-                  value={projectId}
-                  onValueChange={setProjectId}
-                  disabled={projectsLoading || submitting}
-                >
-                  <SelectTrigger aria-labelledby="request-project-label">
-                    <SelectValue
-                      placeholder={projectsLoading ? "Loading projects..." : "Select project"}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accessibleProjects.map((project) => (
-                      <SelectItem key={project.projectId} value={String(project.projectId)}>
-                        {project.projectName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Requested materials</Label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs"
-                    onClick={() => setLines((current) => [...current, newLine()])}
-                    disabled={submitting || materials.length === 0}
+          <Dialog open={createRequestOpen} onOpenChange={setCreateRequestOpen}>
+            <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>New material request</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {(projectsError || materialsError || tasksError) && (
+                  <QueryError
+                    message={
+                      projectsErrorValue instanceof Error
+                        ? projectsErrorValue.message
+                        : materialsErrorValue instanceof Error
+                          ? materialsErrorValue.message
+                          : tasksErrorValue instanceof Error
+                            ? tasksErrorValue.message
+                            : undefined
+                    }
+                    onRetry={() => {
+                      refetchProjects();
+                      refetchMaterials();
+                      if (projectId) refetchTasks();
+                    }}
+                  />
+                )}
+                <div>
+                  <Label id="request-project-label">Project</Label>
+                  <Select
+                    value={projectId}
+                    onValueChange={(value) => {
+                      setProjectId(value);
+                      setTaskId("");
+                      setLines([newLine()]);
+                    }}
+                    disabled={projectsLoading || submitting}
                   >
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Add item
-                  </Button>
+                    <SelectTrigger aria-labelledby="request-project-label">
+                      <SelectValue
+                        placeholder={projectsLoading ? "Loading projects..." : "Select project"}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accessibleProjects.map((project) => (
+                        <SelectItem key={project.projectId} value={String(project.projectId)}>
+                          {project.projectName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                {lines.map((line, index) => (
-                  <div
-                    key={line.key}
-                    className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_130px_170px_36px]"
+                <div>
+                  <Label id="request-task-label">Task material plan</Label>
+                  <Select
+                    value={taskId}
+                    onValueChange={selectTaskForRequest}
+                    disabled={!projectId || tasksLoading || submitting}
                   >
-                    <div>
-                      <Label id={`request-material-${line.key}`} className="text-xs">
-                        Material {index + 1}
-                      </Label>
-                      <Select
-                        value={line.variantKey}
-                        onValueChange={(value) => updateLine(line.key, { variantKey: value })}
-                        disabled={materialsLoading || submitting}
-                      >
-                        <SelectTrigger aria-labelledby={`request-material-${line.key}`}>
-                          <SelectValue
-                            placeholder={materialsLoading ? "Loading..." : "Select material"}
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {variantOptions.map((variant) => (
-                            <SelectItem
-                              key={variant.key}
-                              value={variant.key}
-                              disabled={lines.some(
-                                (other) =>
-                                  other.key !== line.key && other.variantKey === variant.key,
-                              )}
-                            >
-                              {variant.label} ({variant.unit})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label htmlFor={`request-quantity-${line.key}`} className="text-xs">
-                        Quantity
-                      </Label>
-                      <Input
-                        id={`request-quantity-${line.key}`}
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={line.quantity}
-                        onChange={(event) => updateLine(line.key, { quantity: event.target.value })}
-                        disabled={submitting}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor={`request-date-${line.key}`} className="text-xs">
-                        Needed by
-                      </Label>
-                      <Input
-                        id={`request-date-${line.key}`}
-                        type="date"
-                        min={new Date().toISOString().slice(0, 10)}
-                        value={line.neededByDate}
-                        onChange={(event) =>
-                          updateLine(line.key, { neededByDate: event.target.value })
+                    <SelectTrigger aria-labelledby="request-task-label">
+                      <SelectValue
+                        placeholder={
+                          !projectId
+                            ? "Select a project first"
+                            : tasksLoading
+                              ? "Loading tasks..."
+                              : "Select task"
                         }
-                        disabled={submitting}
                       />
-                    </div>
-                    <div className="flex items-end">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-9 w-9 text-destructive"
-                        onClick={() => removeLine(line.key)}
-                        disabled={lines.length === 1 || submitting}
-                        aria-label={`Remove material ${index + 1}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eligibleRequestTasks.map((task) => (
+                        <SelectItem key={task.taskId} value={String(task.taskId)}>
+                          {task.taskName} ({task.phaseName})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {projectId && !tasksLoading && eligibleRequestTasks.length === 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      No task with an available material plan can accept a new request.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Requested materials</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs"
+                      onClick={() => setLines((current) => [...current, newLine()])}
+                      disabled={submitting || !taskId || variantOptions.length === 0}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Add item
+                    </Button>
                   </div>
-                ))}
+
+                  {lines.map((line, index) => (
+                    <div
+                      key={line.key}
+                      className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_130px_170px_36px]"
+                    >
+                      <div>
+                        <Label id={`request-material-${line.key}`} className="text-xs">
+                          Material {index + 1}
+                        </Label>
+                        <Select
+                          value={line.variantKey}
+                          onValueChange={(value) => updateLine(line.key, { variantKey: value })}
+                          disabled={!taskId || materialsLoading || submitting}
+                        >
+                          <SelectTrigger aria-labelledby={`request-material-${line.key}`}>
+                            <SelectValue
+                              placeholder={materialsLoading ? "Loading..." : "Select material"}
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {variantOptions.map((variant) => (
+                              <SelectItem
+                                key={variant.key}
+                                value={variant.key}
+                                disabled={lines.some(
+                                  (other) =>
+                                    other.key !== line.key && other.variantKey === variant.key,
+                                )}
+                              >
+                                {variant.label} ({variant.unit})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label htmlFor={`request-quantity-${line.key}`} className="text-xs">
+                          Quantity
+                        </Label>
+                        <Input
+                          id={`request-quantity-${line.key}`}
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={line.quantity}
+                          onChange={(event) =>
+                            updateLine(line.key, {
+                              quantity: event.target.value,
+                            })
+                          }
+                          disabled={submitting}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor={`request-date-${line.key}`} className="text-xs">
+                          Needed by
+                        </Label>
+                        <Input
+                          id={`request-date-${line.key}`}
+                          type="date"
+                          min={new Date().toISOString().slice(0, 10)}
+                          value={line.neededByDate}
+                          onChange={(event) =>
+                            updateLine(line.key, {
+                              neededByDate: event.target.value,
+                            })
+                          }
+                          disabled={submitting}
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 text-destructive"
+                          onClick={() => removeLine(line.key)}
+                          disabled={lines.length === 1 || submitting}
+                          aria-label={`Remove material ${index + 1}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {taskId && !materialsLoading && variantOptions.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    This task has no active material variants available to request.
+                  </p>
+                )}
               </div>
-
-              {!materialsLoading && materials.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No materials are available. Add materials to the catalog first.
-                </p>
-              )}
-
-              <div className="flex justify-end">
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setCreateRequestOpen(false)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
                 <Button
                   onClick={submitRequest}
-                  disabled={submitting || accessibleProjects.length === 0 || materials.length === 0}
+                  disabled={
+                    submitting ||
+                    accessibleProjects.length === 0 ||
+                    !taskId ||
+                    variantOptions.length === 0
+                  }
                 >
                   <Send className="h-4 w-4 mr-1.5" />
                   {submitting ? "Submitting..." : "Submit request"}
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         )}
+
+        <Dialog
+          open={editingRequest !== null}
+          onOpenChange={(open) => !open && setEditingRequest(null)}
+        >
+          <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit material request #{editingRequest?.requestId}</DialogTitle>
+            </DialogHeader>
+            {editingRequest && (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="edit-request-note">Request note</Label>
+                  <Textarea
+                    id="edit-request-note"
+                    value={editingRequest.requestNote}
+                    onChange={(event) =>
+                      setEditingRequest((current) =>
+                        current ? { ...current, requestNote: event.target.value } : current,
+                      )
+                    }
+                    maxLength={1000}
+                  />
+                </div>
+                <div className="space-y-2">
+                  {editingRequest.items.map((item, index) => (
+                    <div
+                      key={item.itemId}
+                      className="grid gap-3 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_130px_170px]"
+                    >
+                      <div>
+                        <p className="text-sm font-medium">{item.materialName}</p>
+                        <p className="text-xs text-muted-foreground">Request item {index + 1}</p>
+                      </div>
+                      <div>
+                        <Label htmlFor={`edit-request-quantity-${item.itemId}`}>Quantity</Label>
+                        <Input
+                          id={`edit-request-quantity-${item.itemId}`}
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={item.quantity}
+                          onChange={(event) =>
+                            setEditingRequest((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    items: current.items.map((line) =>
+                                      line.itemId === item.itemId
+                                        ? {
+                                            ...line,
+                                            quantity: event.target.value,
+                                          }
+                                        : line,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor={`edit-request-date-${item.itemId}`}>Needed by</Label>
+                        <Input
+                          id={`edit-request-date-${item.itemId}`}
+                          type="date"
+                          value={item.neededByDate}
+                          onChange={(event) =>
+                            setEditingRequest((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    items: current.items.map((line) =>
+                                      line.itemId === item.itemId
+                                        ? {
+                                            ...line,
+                                            neededByDate: event.target.value,
+                                          }
+                                        : line,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setEditingRequest(null)}
+                disabled={requestMutationBusy}
+              >
+                Cancel
+              </Button>
+              <Button onClick={submitPendingEdit} disabled={requestMutationBusy}>
+                {requestMutationBusy ? "Saving..." : "Save request"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={cancelRequest !== null}
+          onOpenChange={(open) => !open && setCancelRequest(null)}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cancel material request #{cancelRequest?.request.requestId}</DialogTitle>
+            </DialogHeader>
+            <div>
+              <Label htmlFor="cancel-request-reason">Cancellation reason</Label>
+              <Textarea
+                id="cancel-request-reason"
+                value={cancelRequest?.reason ?? ""}
+                onChange={(event) =>
+                  setCancelRequest((current) =>
+                    current ? { ...current, reason: event.target.value } : current,
+                  )
+                }
+                maxLength={1000}
+                placeholder="Optional reason"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setCancelRequest(null)}
+                disabled={requestMutationBusy}
+              >
+                Keep request
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={submitPendingCancellation}
+                disabled={requestMutationBusy}
+              >
+                {requestMutationBusy ? "Cancelling..." : "Cancel request"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -899,6 +1392,29 @@ function MaterialRequestsPage() {
                                 </Button>
                               </>
                             )}
+                          {canCreate &&
+                            request.requestedBy === session?.userId &&
+                            request.status === "PARTIALLY_ISSUED" &&
+                            request.taskId &&
+                            !roleScopedRequests.some(
+                              (other) =>
+                                other.requestId !== request.requestId &&
+                                other.taskId === request.taskId &&
+                                ["PENDING", "APPROVED", "PARTIALLY_APPROVED"].includes(
+                                  other.status,
+                                ),
+                            ) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => setRemainderRequest(request)}
+                                disabled={remainderBusy}
+                              >
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                Request remainder
+                              </Button>
+                            )}
                           {canDecide &&
                             (request.status === "APPROVED" ||
                               request.status === "PARTIALLY_APPROVED") && (
@@ -1019,7 +1535,8 @@ function MaterialRequestsPage() {
                       <TableHead>Material</TableHead>
                       <TableHead className="text-right">Quantity</TableHead>
                       <TableHead className="text-right">Approved</TableHead>
-                      <TableHead className="text-right">Issued</TableHead>
+                      <TableHead className="text-right">Net issued</TableHead>
+                      <TableHead className="text-right">Still required</TableHead>
                       <TableHead>Needed by</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1031,6 +1548,11 @@ function MaterialRequestsPage() {
                           {item.variantName && (
                             <p className="text-xs text-muted-foreground">{item.variantName}</p>
                           )}
+                          {item.sku && (
+                            <p className="font-mono text-xs text-muted-foreground">
+                              SKU {item.sku}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {item.quantity} {item.unit ?? ""}
@@ -1039,7 +1561,15 @@ function MaterialRequestsPage() {
                           {item.approvedQuantity} {item.unit ?? ""}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {item.issuedQuantity} {item.unit ?? ""}
+                          {item.netIssuedQuantity} {item.unit ?? ""}
+                          {item.returnedQuantity > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              {item.issuedQuantity} issued, {item.returnedQuantity} returned
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {item.remainingRequestQuantity} {item.unit ?? ""}
                         </TableCell>
                         <TableCell>{formatDate(item.neededByDate)}</TableCell>
                       </TableRow>
@@ -1097,36 +1627,82 @@ function MaterialRequestsPage() {
                 )}
               </div>
               <div className="space-y-2">
-                {confirming.request.items.map((item) => (
-                  <div
-                    key={item.itemId}
-                    className="grid grid-cols-[1fr_140px] items-end gap-3 rounded-lg border p-3"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">{item.materialName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Requested {item.quantity} {item.unit ?? ""}
-                      </p>
+                {confirming.request.items.map((item) => {
+                  const inventoryItem = approvalInventoryQuery.data?.find(
+                    (record) => record.variantId === item.variantId,
+                  );
+                  const available = inventoryItem?.availableQuantity ?? 0;
+                  const approving = Number(approvedQuantities[item.itemId] ?? 0);
+                  const remaining = available - (Number.isFinite(approving) ? approving : 0);
+                  const exceedsAvailable = approving > available;
+                  return (
+                    <div
+                      key={item.itemId}
+                      className={`rounded-lg border p-3 ${exceedsAvailable ? "border-destructive/50 bg-destructive/5" : ""}`}
+                    >
+                      <div className="grid gap-3 sm:grid-cols-[1fr_140px] sm:items-end">
+                        <div>
+                          <p className="text-sm font-medium">{item.materialName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Requested {item.quantity} {item.unit ?? ""}
+                          </p>
+                        </div>
+                        <div>
+                          <Label htmlFor={`approved-${item.itemId}`}>Approve quantity</Label>
+                          <Input
+                            id={`approved-${item.itemId}`}
+                            type="number"
+                            min="0"
+                            max={Math.min(item.quantity, available)}
+                            step="0.01"
+                            value={approvedQuantities[item.itemId] ?? "0"}
+                            onChange={(event) =>
+                              setApprovedQuantities((current) => ({
+                                ...current,
+                                [item.itemId]: event.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      {approvalWarehouseId && (
+                        <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-muted/50 p-2 text-xs sm:grid-cols-4">
+                          <div>
+                            <p className="text-muted-foreground">On hand</p>
+                            <p className="font-medium tabular-nums">
+                              {inventoryItem?.quantity ?? 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Reserved / quarantine</p>
+                            <p className="font-medium tabular-nums">
+                              {inventoryItem?.reservedQuantity ?? 0} /{" "}
+                              {inventoryItem?.quarantineQuantity ?? 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Available now</p>
+                            <p className="font-medium tabular-nums">{available}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">After approval</p>
+                            <p
+                              className={`font-medium tabular-nums ${remaining < 0 ? "text-destructive" : ""}`}
+                            >
+                              {remaining}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {exceedsAvailable && (
+                        <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
+                          <AlertTriangle className="h-3.5 w-3.5" /> Reduce the approved quantity to{" "}
+                          {available} {item.unit ?? ""} or less.
+                        </p>
+                      )}
                     </div>
-                    <div>
-                      <Label htmlFor={`approved-${item.itemId}`}>Approve quantity</Label>
-                      <Input
-                        id={`approved-${item.itemId}`}
-                        type="number"
-                        min="0"
-                        max={item.quantity}
-                        step="0.01"
-                        value={approvedQuantities[item.itemId] ?? "0"}
-                        onChange={(event) =>
-                          setApprovedQuantities((current) => ({
-                            ...current,
-                            [item.itemId]: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1142,15 +1718,118 @@ function MaterialRequestsPage() {
             </div>
           )}
           {confirming?.action === "issue" && (
-            <p className="text-sm text-muted-foreground">
-              Reserved stock will leave the assigned warehouse and the request will be marked
-              issued.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Reserved stock will leave the assigned warehouse. Availability normally stays the
+                same because on-hand and reserved quantities decrease together.
+              </p>
+              {confirming.request.items
+                .filter((item) => item.approvedQuantity - item.issuedQuantity > 0)
+                .map((item) => {
+                  const issueQuantity = item.approvedQuantity - item.issuedQuantity;
+                  const inventoryItem = approvalInventoryQuery.data?.find(
+                    (record) => record.variantId === item.variantId,
+                  );
+                  const usablePhysical =
+                    (inventoryItem?.quantity ?? 0) - (inventoryItem?.quarantineQuantity ?? 0);
+                  const unavailable =
+                    !inventoryItem ||
+                    inventoryItem.reservedQuantity < issueQuantity ||
+                    usablePhysical < issueQuantity;
+                  return (
+                    <div
+                      key={item.itemId}
+                      className={`rounded-lg border p-3 ${unavailable ? "border-destructive/50 bg-destructive/5" : ""}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">{item.materialName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Issue {issueQuantity} {item.unit ?? ""}
+                          </p>
+                        </div>
+                        <Badge variant={unavailable ? "destructive" : "secondary"}>
+                          {unavailable ? "Unavailable" : "Reserved"}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-muted/50 p-2 text-xs sm:grid-cols-4">
+                        <div>
+                          <p className="text-muted-foreground">On hand</p>
+                          <p className="font-medium tabular-nums">{inventoryItem?.quantity ?? 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Reserved</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem?.reservedQuantity ?? 0}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Quarantine</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem?.quarantineQuantity ?? 0}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">On hand after issue</p>
+                          <p
+                            className={`font-medium tabular-nums ${unavailable ? "text-destructive" : ""}`}
+                          >
+                            {(inventoryItem?.quantity ?? 0) - issueQuantity}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              {approvalInventoryQuery.isError && (
+                <p className="text-xs text-destructive">
+                  Current warehouse stock could not be loaded. Reload before issuing.
+                </p>
+              )}
+            </div>
           )}
           {confirming?.action === "release" && (
-            <p className="text-sm text-muted-foreground">
-              All active reservations will be released without issuing stock.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Active reservations will be released without changing on-hand stock. The released
+                quantity becomes available to other workflows.
+              </p>
+              {confirming.request.items
+                .filter((item) => item.approvedQuantity - item.issuedQuantity > 0)
+                .map((item) => {
+                  const releaseQuantity = item.approvedQuantity - item.issuedQuantity;
+                  const inventoryItem = approvalInventoryQuery.data?.find(
+                    (record) => record.variantId === item.variantId,
+                  );
+                  return (
+                    <div key={item.itemId} className="rounded-lg border p-3">
+                      <p className="text-sm font-medium">{item.materialName}</p>
+                      <div className="mt-2 grid grid-cols-3 gap-2 rounded-md bg-muted/50 p-2 text-xs">
+                        <div>
+                          <p className="text-muted-foreground">Release</p>
+                          <p className="font-medium tabular-nums">
+                            {releaseQuantity} {item.unit ?? ""}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Available now</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem?.availableQuantity ?? "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">After release</p>
+                          <p className="font-medium tabular-nums">
+                            {inventoryItem
+                              ? inventoryItem.availableQuantity + releaseQuantity
+                              : "-"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           )}
           <div className="flex justify-end gap-2">
             <Button
@@ -1167,13 +1846,43 @@ function MaterialRequestsPage() {
                   : "default"
               }
               onClick={() => confirming && processRequest(confirming.action)}
-              disabled={processing !== null}
+              disabled={
+                processing !== null ||
+                (confirming?.action === "issue" &&
+                  (approvalInventoryQuery.isLoading ||
+                    approvalInventoryQuery.isError ||
+                    confirming.request.items.some((item) => {
+                      const issueQuantity = Math.max(
+                        0,
+                        item.approvedQuantity - item.issuedQuantity,
+                      );
+                      if (issueQuantity === 0) return false;
+                      const inventoryItem = approvalInventoryQuery.data?.find(
+                        (record) => record.variantId === item.variantId,
+                      );
+                      return (
+                        !inventoryItem ||
+                        inventoryItem.reservedQuantity < issueQuantity ||
+                        inventoryItem.quantity - inventoryItem.quarantineQuantity < issueQuantity
+                      );
+                    })))
+              }
             >
               {processing ? "Processing..." : `${confirming?.action ?? "Confirm"} request`}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={remainderRequest !== null}
+        onOpenChange={(open) => !open && !remainderBusy && setRemainderRequest(null)}
+        title={`Request remaining materials for Task #${remainderRequest?.taskId ?? ""}?`}
+        description="This creates a new pending request from the task quantities that have not yet been issued. Use it after the shortage purchase has been received into warehouse stock. The original request remains partially issued for audit history."
+        confirmLabel="Create follow-up request"
+        onConfirm={createRemainderRequest}
+        busy={remainderBusy}
+      />
     </div>
   );
 }

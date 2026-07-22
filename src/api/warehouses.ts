@@ -8,6 +8,10 @@ export type WarehouseResponse = {
   managerName?: string | null;
   inventoryRecords?: InventoryRecord[];
   createdDate?: string;
+  modifiedDate?: string | null;
+  createdBy?: number | null;
+  modifiedBy?: number | null;
+  isDeleted?: boolean;
 };
 
 export type InventoryItem = {
@@ -27,7 +31,14 @@ export type InventoryItem = {
   warehouseName?: string;
   material?: { materialName: string; unit: string };
   variantName?: string;
+  sku?: string | null;
+  brand?: string | null;
+  grade?: string | null;
+  size?: string | null;
+  specification?: string | null;
+  packaging?: string | null;
   rowVersion?: string;
+  updatedAt?: string;
 };
 
 type RawInventoryItem = Partial<InventoryItem> & {
@@ -134,6 +145,13 @@ export type PhysicalCountResponse = {
   }[];
 };
 
+export type PhysicalCountMutationResponse = {
+  sessionId: number;
+  status: PhysicalCountResponse["status"];
+  lineCount?: number;
+  rowVersion: string;
+};
+
 function normalizeInventoryItem(item: RawInventoryItem, index: number): InventoryItem {
   return {
     inventoryId: item.inventoryId ?? index,
@@ -161,7 +179,14 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
         (item.reorderLevel ?? 0),
     warehouseName: item.warehouseName,
     variantName: item.variantName,
+    sku: item.sku ?? null,
+    brand: item.brand ?? null,
+    grade: item.grade ?? null,
+    size: item.size ?? null,
+    specification: item.specification ?? null,
+    packaging: item.packaging ?? null,
     rowVersion: item.rowVersion,
+    updatedAt: item.updatedAt,
     material: item.material ?? {
       materialName: item.materialName ?? "Unknown material",
       unit: item.unit ?? "",
@@ -171,8 +196,20 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
 
 export const warehousesApi = {
   getAll: () => apiClient.get<WarehouseResponse[]>("/api/warehouses"),
+  getById: (id: number) => apiClient.get<WarehouseResponse>(`/api/warehouses/${id}`),
   create: (body: { managerId: number; warehouseName: string; location: string }) =>
     apiClient.post<string>("/api/warehouses", body),
+  update: (id: number, body: { managerId: number; warehouseName: string; location: string }) =>
+    apiClient.put<WarehouseResponse>(`/api/warehouses/${id}`, body),
+  getInventoryItem: async (warehouseId: number, variantId: number) => {
+    const response = await apiClient.get<RawInventoryItem>(
+      `/api/warehouses/${warehouseId}/inventory/${variantId}`,
+    );
+    return {
+      ...response,
+      result: response.result ? normalizeInventoryItem(response.result, 0) : response.result,
+    };
+  },
   getInventory: async (id: number) => {
     const response = await apiClient.get<RawInventoryItem[]>(`/api/warehouses/${id}/inventory`);
     return {
@@ -216,7 +253,7 @@ export const warehousesApi = {
       { rowVersion, reviewNote },
     ),
   startPhysicalCount: (warehouseId: number, variantIds: number[], note?: string) =>
-    apiClient.post<PhysicalCountResponse>("/api/warehouses/physical-counts", {
+    apiClient.post<PhysicalCountMutationResponse>("/api/warehouses/physical-counts", {
       warehouseId,
       variantIds,
       note,
@@ -226,10 +263,13 @@ export const warehousesApi = {
     rowVersion: string,
     lines: { lineId: number; actualQuantity: number }[],
   ) =>
-    apiClient.post(`/api/warehouses/physical-counts/${sessionId}/submit`, {
-      rowVersion,
-      lines,
-    }),
+    apiClient.post<PhysicalCountMutationResponse>(
+      `/api/warehouses/physical-counts/${sessionId}/submit`,
+      {
+        rowVersion,
+        lines,
+      },
+    ),
   reviewPhysicalCount: (
     sessionId: number,
     approve: boolean,

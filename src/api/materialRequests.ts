@@ -32,10 +32,15 @@ export type MaterialRequestDetail = {
   materialId: number;
   materialName: string;
   variantName: string;
+  sku?: string | null;
   unit?: string | null;
   quantity: number;
   approvedQuantity: number;
   issuedQuantity: number;
+  returnedQuantity: number;
+  netIssuedQuantity: number;
+  remainingRequestQuantity: number;
+  remainingTaskDemand: number;
   neededByDate: string;
   note?: string | null;
 };
@@ -67,7 +72,12 @@ export type ApproveMaterialRequest = {
 export type UpdatePendingMaterialRequest = {
   rowVersion: string;
   requestNote?: string;
-  items: { itemId: number; quantity: number; neededByDate: string; note?: string }[];
+  items: {
+    itemId: number;
+    quantity: number;
+    neededByDate: string;
+    note?: string;
+  }[];
 };
 
 export const materialRequestsApi = {

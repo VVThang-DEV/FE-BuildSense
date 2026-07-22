@@ -98,7 +98,7 @@ export const NAV: NavItem[] = [
     to: "/app/admin/suppliers",
     label: "Suppliers",
     icon: Truck,
-    roles: ["ADMIN", "SUPPLIER"],
+    roles: ["ADMIN"],
     group: "Setup",
   },
   {
