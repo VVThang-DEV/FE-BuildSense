@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -54,6 +54,8 @@ import { cn } from "@/lib/utils";
 import { isCloudinaryConfigured, uploadSitePhoto } from "@/lib/cloudinary";
 import { QueryError } from "./query-error";
 import { ConfirmDialog } from "./confirm-dialog";
+
+const MINIMUM_REPORTING_INTERVAL_MS = 15 * 60 * 1000;
 
 type ProjectTaskBoardProps = {
   projectId: number;
@@ -147,6 +149,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
   const [reviewingReport, setReviewingReport] = useState<number | null>(null);
+  const [reportClock, setReportClock] = useState(() => Date.now());
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
@@ -252,7 +255,30 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const selectedRemaining = selectedTask
     ? Math.max(0, 100 - Number(selectedTask.actualProgressPct || 0))
     : 0;
-  const canReportSelected = !!selectedTask && selectedRemaining > 0 && canManageTasks;
+  useEffect(() => {
+    const timer = window.setInterval(() => setReportClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const recentActiveReport = useMemo(() => {
+    const cutoff = reportClock - MINIMUM_REPORTING_INTERVAL_MS;
+    return reports
+      .filter((report) => report.status === "PENDING" || report.status === "APPROVED")
+      .filter((report) => {
+        const reportedAt = new Date(report.reportDate).getTime();
+        return Number.isFinite(reportedAt) && reportedAt >= cutoff;
+      })
+      .sort(
+        (left, right) => new Date(right.reportDate).getTime() - new Date(left.reportDate).getTime(),
+      )[0];
+  }, [reportClock, reports]);
+  const canReportSelected =
+    !!selectedTask &&
+    selectedRemaining > 0 &&
+    canManageTasks &&
+    !reportsLoading &&
+    !reportsError &&
+    !recentActiveReport;
 
   const reportIncrement = Number(reportForm.progressIncrement);
   const actualCostIncrement = Number(reportForm.actualCostIncrement);
@@ -1108,6 +1134,40 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                   active or issued request for the same task.
                 </p>
               </div>
+
+              {canManageTasks && selectedTask && selectedRemaining > 0 && !canReportSelected && (
+                <div className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm">
+                  {reportsLoading ? (
+                    <p className="text-muted-foreground">Checking recent progress reports...</p>
+                  ) : reportsError ? (
+                    <p className="text-destructive">
+                      Progress report history could not be loaded. Reload before submitting a new
+                      report so the reporting interval can be verified.
+                    </p>
+                  ) : recentActiveReport?.status === "PENDING" ? (
+                    <>
+                      <p className="font-medium">A progress report is already awaiting review.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Approve or reject the submitted report in the history below before entering
+                        another report.
+                      </p>
+                    </>
+                  ) : recentActiveReport ? (
+                    <>
+                      <p className="font-medium">A progress report was submitted recently.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        You can submit another report after{" "}
+                        {new Date(
+                          new Date(recentActiveReport.reportDate).getTime() +
+                            MINIMUM_REPORTING_INTERVAL_MS,
+                        ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        . Use Correct or Reverse on the approved report below if its details need to
+                        be changed.
+                      </p>
+                    </>
+                  ) : null}
+                </div>
+              )}
 
               {canReportSelected && (
                 <div className="space-y-3 rounded-lg border p-4">

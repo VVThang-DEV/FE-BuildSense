@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useSession, type Role } from "@/lib/session";
 
 export type NextAction = {
   id: string;
@@ -13,6 +14,8 @@ export type NextAction = {
   buttonLabel: string;
   count?: number;
   state?: "attention" | "ready" | "waiting";
+  actionRoles?: Role[];
+  waitingNote?: string;
 };
 
 export function NextActionGuide({
@@ -22,6 +25,8 @@ export function NextActionGuide({
   actions: NextAction[];
   loading?: boolean;
 }) {
+  const session = useSession();
+
   return (
     <Card className="overflow-hidden border-primary/20 shadow-sm">
       <CardHeader className="border-b bg-primary/[0.04] pb-4">
@@ -57,42 +62,54 @@ export function NextActionGuide({
           </div>
         ) : (
           <ol className="divide-y">
-            {actions.map((action, index) => (
-              <li key={action.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-                <div
-                  className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-                    action.state === "attention" &&
-                      "border-warning/40 bg-warning/15 text-warning-foreground",
-                    action.state === "ready" && "border-primary/30 bg-primary/10 text-primary",
-                    action.state === "waiting" &&
-                      "border-muted-foreground/25 bg-muted text-muted-foreground",
-                  )}
-                >
-                  {index + 1}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-medium">{action.title}</p>
-                    {typeof action.count === "number" && action.count > 0 && (
-                      <Badge variant="secondary" className="tabular-nums">
-                        {action.count}
-                      </Badge>
+            {actions.map((action, index) => {
+              const canAct =
+                !action.actionRoles ||
+                (session?.role !== undefined && action.actionRoles.includes(session.role));
+
+              return (
+                <li key={action.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+                  <div
+                    className={cn(
+                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                      action.state === "attention" &&
+                        "border-warning/40 bg-warning/15 text-warning-foreground",
+                      action.state === "ready" && "border-primary/30 bg-primary/10 text-primary",
+                      action.state === "waiting" &&
+                        "border-muted-foreground/25 bg-muted text-muted-foreground",
                     )}
-                    {action.state === "waiting" && <Badge variant="outline">Waiting</Badge>}
+                  >
+                    {index + 1}
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {action.description}
-                  </p>
-                </div>
-                <Button asChild size="sm" variant={index === 0 ? "default" : "outline"}>
-                  <Link to={action.to}>
-                    {action.buttonLabel}
-                    <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Link>
-                </Button>
-              </li>
-            ))}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium">{action.title}</p>
+                      {typeof action.count === "number" && action.count > 0 && (
+                        <Badge variant="secondary" className="tabular-nums">
+                          {action.count}
+                        </Badge>
+                      )}
+                      {action.state === "waiting" && <Badge variant="outline">Waiting</Badge>}
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {action.description}
+                    </p>
+                  </div>
+                  {canAct ? (
+                    <Button asChild size="sm" variant={index === 0 ? "default" : "outline"}>
+                      <Link to={action.to}>
+                        {action.buttonLabel}
+                        <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                  ) : (
+                    <span className="max-w-56 text-right text-xs text-muted-foreground">
+                      {action.waitingNote ?? "Waiting for another role to continue"}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ol>
         )}
       </CardContent>

@@ -271,9 +271,12 @@ function ProcurementPage() {
       if (response.isSuccess) {
         suggestNext({
           message: `PO #${poId} rejected`,
-          nextStep: "Review remaining shortages before creating a corrected purchase order.",
+          nextStep:
+            "A Warehouse Manager must review shortages and create a corrected purchase order.",
           to: "/app/procurement",
-          actionLabel: "Review shortages",
+          actionLabel: "Create replacement PO",
+          actionRoles: ["WAREHOUSE_MANAGER"],
+          waitingNote: "Only a Warehouse Manager can create the replacement purchase order.",
           onAction: () => setCreating(true),
         });
         setRejectPOId(null);
@@ -357,7 +360,9 @@ function ProcurementPage() {
           message: `PO #${poId} cancelled`,
           nextStep: "Review whether the uncovered shortage still needs a replacement order.",
           to: "/app/procurement",
-          actionLabel: "Review shortages",
+          actionLabel: "Create replacement PO",
+          actionRoles: ["WAREHOUSE_MANAGER"],
+          waitingNote: "Only a Warehouse Manager can create the replacement purchase order.",
           onAction: () => setCreating(true),
         });
         setCancelPOId(null);
@@ -1883,8 +1888,15 @@ function PurchaseOrderTable({
                           className="h-7 text-xs"
                           onClick={() => onImport(po.poId)}
                           disabled={busyAction !== null}
+                          title={
+                            po.status === "APPROVED"
+                              ? "Use this when the delivery arrives before the expected date"
+                              : "Record the quantities delivered to the warehouse"
+                          }
+                          aria-label={`${po.status === "APPROVED" ? "Receive early" : "Receive"} purchase order #${po.poId}`}
                         >
-                          <Download className="h-3 w-3 mr-1" /> Receive
+                          <Download className="h-3 w-3 mr-1" />
+                          {po.status === "APPROVED" ? "Receive early" : "Receive"}
                         </Button>
                       )}
                     {po.status === "APPROVED" && onProcessing && (
