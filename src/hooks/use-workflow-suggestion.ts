@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useSession, type Role } from "@/lib/session";
+import { setChatPrompt, type ChatPromptData } from "@/hooks/use-chat-store";
 
 type WorkflowSuggestion = {
   message: string;
@@ -10,6 +11,8 @@ type WorkflowSuggestion = {
   onAction?: () => void;
   actionRoles?: Role[];
   waitingNote?: string;
+  /** When provided and the next step requires a different role, a chat prompt dialog opens. */
+  chatPrompt?: ChatPromptData;
 };
 
 export function useWorkflowSuggestion() {
@@ -24,9 +27,16 @@ export function useWorkflowSuggestion() {
     onAction,
     actionRoles,
     waitingNote,
+    chatPrompt,
   }: WorkflowSuggestion) => {
     const canAct =
       !actionRoles || (session?.role !== undefined && actionRoles.includes(session.role));
+
+    // If the current user can't perform the next step and we have a chat prompt,
+    // trigger the workflow chat prompt dialog so they can notify the responsible person.
+    if (!canAct && chatPrompt) {
+      setChatPrompt(chatPrompt);
+    }
 
     toast.success(message, {
       description: canAct
@@ -43,7 +53,14 @@ export function useWorkflowSuggestion() {
               },
             },
           }
-        : {}),
+        : chatPrompt
+          ? {
+              action: {
+                label: "💬 Notify via chat",
+                onClick: () => setChatPrompt(chatPrompt),
+              },
+            }
+          : {}),
     });
   };
 }

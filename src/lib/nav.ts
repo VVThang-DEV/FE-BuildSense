@@ -10,6 +10,7 @@ import {
   Warehouse,
   Truck,
   Tags,
+  MessageCircle,
 } from "lucide-react";
 import type { Role } from "./session";
 
@@ -18,7 +19,7 @@ export type NavItem = {
   label: string;
   icon: LucideIcon;
   roles: Role[];
-  group: "Overview" | "Operations" | "Field" | "Intelligence" | "Setup" | "Portal";
+  group: "Overview" | "Operations" | "Field" | "Communication" | "Intelligence" | "Setup" | "Portal";
 };
 
 export const NAV: NavItem[] = [
@@ -78,6 +79,14 @@ export const NAV: NavItem[] = [
     icon: ClipboardList,
     roles: ["ADMIN", "PM"],
     group: "Field",
+  },
+
+  {
+    to: "/app/ai",
+    label: "Team Chat",
+    icon: MessageCircle,
+    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
+    group: "Communication",
   },
 
   {
