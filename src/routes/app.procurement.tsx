@@ -60,6 +60,7 @@ import { requireApiResult } from "@/api/client";
 import { materialsApi } from "@/api/materials";
 import { catalogsApi } from "@/api/catalogs";
 import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
+import { AiSupplierRecommendation } from "@/components/ai-supplier-recommendation";
 
 export const Route = createFileRoute("/app/procurement")({
   head: () => ({ meta: [{ title: "Procurement - BuildSense AI" }] }),
@@ -247,6 +248,14 @@ function ProcurementPage() {
           to: "/app/procurement",
           actionLabel: "View approved POs",
           onAction: () => setWorkflowTab("approved"),
+          chatPrompt: {
+            projectId: po?.projectId ?? 0,
+            entityType: "PURCHASE_ORDER",
+            entityId: poId,
+            targetRoles: ["WAREHOUSE_MANAGER"],
+            suggestedMessage: `Purchase Order #${poId} for project "${projectName(po?.projectId ?? 0)}" has been approved. You can now move it into supplier processing.`,
+            conversationTitle: `PO #${poId} Approved`,
+          },
         });
         await refetchPOs();
       } else {
@@ -278,6 +287,14 @@ function ProcurementPage() {
           actionRoles: ["WAREHOUSE_MANAGER"],
           waitingNote: "Only a Warehouse Manager can create the replacement purchase order.",
           onAction: () => setCreating(true),
+          chatPrompt: {
+            projectId: po?.projectId ?? 0,
+            entityType: "PURCHASE_ORDER",
+            entityId: poId,
+            targetRoles: ["WAREHOUSE_MANAGER"],
+            suggestedMessage: `Purchase Order #${poId} for project "${projectName(po?.projectId ?? 0)}" has been rejected. Please review the shortage and create a corrected purchase order.`,
+            conversationTitle: `PO #${poId} Rejected`,
+          },
         });
         setRejectPOId(null);
         await refetchPOs();
@@ -456,6 +473,14 @@ function ProcurementPage() {
             "Verify the updated balance and check Material Requests because received stock may have been reserved automatically for linked shortages.",
           to: "/app/admin/warehouses",
           actionLabel: "View inventory",
+          chatPrompt: {
+            projectId: po.projectId,
+            entityType: "PURCHASE_ORDER",
+            entityId: importPOId!,
+            targetRoles: ["PM"],
+            suggestedMessage: `Delivery for PO #${importPOId} (project "${projectName(po.projectId)}") has been received and imported to warehouse. Stock balances have been updated.`,
+            conversationTitle: `PO #${importPOId} Delivered`,
+          },
         });
         setImportOpen(false);
         setImportPOId(null);
@@ -620,6 +645,13 @@ function ProcurementPage() {
           to: "/app/procurement",
           actionLabel: "Track approval",
           onAction: () => setWorkflowTab("pending"),
+          chatPrompt: {
+            projectId: Number(newPO.projectId),
+            entityType: "PURCHASE_ORDER",
+            targetRoles: ["PM", "ADMIN"],
+            suggestedMessage: `A new Purchase Order has been created for project "${projectName(Number(newPO.projectId))}" — ${poLines.length} line item(s), total ${draftTotal.toLocaleString()} VND from ${supplierName(Number(newPO.supplierId))}. Please review and approve.`,
+            conversationTitle: `New PO — ${projectName(Number(newPO.projectId))}`,
+          },
         });
         setCreating(false);
         resetPOBuilder();
@@ -1084,7 +1116,19 @@ function ProcurementPage() {
                       : "One supplier, project, and warehouse per PO"}
                   </p>
                 </div>
-                <p className="text-sm font-semibold tabular-nums">{formatMoney(draftTotal)}</p>
+                <div className="flex items-center gap-2">
+                  <AiSupplierRecommendation
+                    materials={poLines.map((line) => ({ materialId: line.materialId, quantity: line.quantity }))}
+                    projectId={newPO.projectId ? Number(newPO.projectId) : undefined}
+                    onSelectSupplier={(rec) => {
+                      if (rec.supplierId > 0) {
+                        setNewPO((po) => ({ ...po, supplierId: String(rec.supplierId) }));
+                        toast.success(`Supplier set to ${rec.companyName}`);
+                      }
+                    }}
+                  />
+                  <p className="text-sm font-semibold tabular-nums">{formatMoney(draftTotal)}</p>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <Table>

@@ -491,6 +491,13 @@ function MaterialRequestsPage() {
           to: "/app/material-requests",
           actionLabel: "View request queue",
           onAction: () => setStatusFilter("ALL"),
+          chatPrompt: {
+            projectId: Number(projectId),
+            entityType: "MATERIAL_REQUEST",
+            targetRoles: ["WAREHOUSE_MANAGER"],
+            suggestedMessage: `Hi, I've submitted a new Material Request for project "${projects.find((p) => p.projectId === Number(projectId))?.projectName ?? `#${projectId}`}". ${lines.length} item(s) requested. Please review available stock and approve when ready.`,
+            conversationTitle: `Material Request — ${projects.find((p) => p.projectId === Number(projectId))?.projectName ?? "Project"}`,
+          },
         });
         setCreateRequestOpen(false);
         setProjectId("");
@@ -654,6 +661,19 @@ function MaterialRequestsPage() {
           to: "/app/material-requests",
           actionLabel: suggestion.actionLabel,
           onAction: () => setStatusFilter(action === "approve" ? "APPROVED" : "ALL"),
+          chatPrompt: (action === "issue" || action === "approve" || action === "reject") ? {
+            projectId: confirming.request.projectId,
+            entityType: "MATERIAL_REQUEST",
+            entityId: id,
+            targetRoles: ["PM"],
+            targetUserIds: confirming.request.requestedBy ? [confirming.request.requestedBy] : undefined,
+            suggestedMessage: action === "approve"
+              ? `Material Request #${id} has been approved. Reserved stock is ready for issuance.`
+              : action === "issue"
+                ? `Materials for Request #${id} have been issued. Your task can now proceed.`
+                : `Material Request #${id} has been rejected. Please review and resubmit if needed.`,
+            conversationTitle: `Material Request #${id}`,
+          } : undefined,
         });
         setConfirming(null);
         refetchRequests();

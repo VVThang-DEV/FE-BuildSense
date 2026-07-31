@@ -1,5 +1,6 @@
 export * from "./auth";
 export * from "./catalogs";
+export * from "./chat";
 export * from "./categories";
 export * from "./client";
 export * from "./materialRequests";

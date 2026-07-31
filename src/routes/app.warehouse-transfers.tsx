@@ -195,6 +195,13 @@ function WarehouseTransfersPage() {
         nextStep: "A different manager or Admin must approve it before the source can ship stock.",
         to: "/app/dashboard",
         actionLabel: "View next actions",
+        chatPrompt: {
+          projectId: 0,
+          entityType: "PROJECT",
+          targetRoles: ["ADMIN", "WAREHOUSE_MANAGER"],
+          suggestedMessage: `Warehouse Transfer #${response.result.transferId} has been created from ${(warehousesQuery.data ?? []).find((w) => w.warehouseId === source)?.warehouseName ?? "source"} to ${(warehousesQuery.data ?? []).find((w) => w.warehouseId === destination)?.warehouseName ?? "destination"}. Please review and approve.`,
+          conversationTitle: `Transfer #${response.result.transferId} Request`,
+        },
       });
       setCreating(false);
       resetCreate();
@@ -242,6 +249,15 @@ function WarehouseTransfersPage() {
         nextStep,
         to: "/app/warehouse-transfers",
         actionLabel: "View transfers",
+        chatPrompt: (action === "approve" || action === "ship") ? {
+          projectId: 0,
+          entityType: "PROJECT",
+          targetRoles: ["WAREHOUSE_MANAGER"],
+          suggestedMessage: action === "approve"
+            ? `Transfer #${transfer.transferId} has been approved. The source warehouse manager can now prepare and ship the reserved stock.`
+            : `Transfer #${transfer.transferId} has been shipped. The destination warehouse manager should record receipt when materials arrive.`,
+          conversationTitle: `Transfer #${transfer.transferId} ${action === "approve" ? "Approved" : "Shipped"}`,
+        } : undefined,
       });
       if (action === "approve") setApprovalTransfer(null);
       if (action === "ship") setShippingTransfer(null);
