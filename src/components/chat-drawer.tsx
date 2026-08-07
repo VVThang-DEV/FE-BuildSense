@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useSession, ROLE_LABELS } from "@/lib/session";
+import { useSession, ROLE_LABELS, type Role } from "@/lib/session";
 import {
   useChatStore,
   closeChatDrawer,
@@ -77,6 +77,7 @@ type View = "list" | "thread" | "new";
 export function ChatDrawer() {
   const { isDrawerOpen, activeProjectId } = useChatStore();
   const session = useSession();
+  const isAdmin = session?.role === "ADMIN";
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>("list");
   const [selectedConv, setSelectedConv] = useState<ConversationResponse | null>(null);
@@ -85,7 +86,7 @@ export function ChatDrawer() {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // New conversation form
+  // New conversation form (admin only)
   const [newTitle, setNewTitle] = useState("");
   const [newProjectId, setNewProjectId] = useState("");
   const [newType, setNewType] = useState<ConversationType>("PROJECT");
@@ -118,7 +119,7 @@ export function ChatDrawer() {
     queryKey: ["users", "chat-drawer"],
     queryFn: async () =>
       requireApiResult(await usersApi.getAll(), "Could not load users") ?? [],
-    enabled: isDrawerOpen && !!session?.token,
+    enabled: isDrawerOpen && !!session?.token && isAdmin,
     staleTime: 30_000,
   });
 
@@ -267,7 +268,7 @@ export function ChatDrawer() {
             {view === "thread" && (selectedConv?.title ?? "Conversation")}
             {view === "new" && "New Conversation"}
           </h2>
-          {view === "list" && (
+          {view === "list" && isAdmin && (
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setView("new")}>
               <Plus className="h-4 w-4" />
             </Button>
@@ -306,9 +307,15 @@ export function ChatDrawer() {
                 <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
                   <Hash className="h-8 w-8 text-muted-foreground/40" />
                   <p className="text-sm text-muted-foreground">No conversations yet</p>
-                  <Button variant="outline" size="sm" onClick={() => setView("new")}>
-                    <Plus className="mr-1 h-3 w-3" /> Start one
-                  </Button>
+                  {isAdmin ? (
+                    <Button variant="outline" size="sm" onClick={() => setView("new")}>
+                      <Plus className="mr-1 h-3 w-3" /> Start one
+                    </Button>
+                  ) : (
+                    <p className="text-xs text-muted-foreground/70 mt-1">
+                      Ask your Admin to create a conversation for this project.
+                    </p>
+                  )}
                 </div>
               )}
               {conversations.map((conv) => (

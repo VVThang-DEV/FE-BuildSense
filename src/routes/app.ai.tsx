@@ -81,6 +81,7 @@ function formatDate(iso: string): string {
 
 function TeamChatPage() {
   const session = useSession();
+  const isAdmin = session?.role === "ADMIN";
   const isLive = !!session?.token;
   const [projectId, setProjectId] = useState("");
   const [selectedConv, setSelectedConv] = useState<ConversationResponse | null>(null);
@@ -105,7 +106,7 @@ function TeamChatPage() {
     queryKey: ["users", "team-chat-page"],
     queryFn: async () =>
       requireApiResult(await usersApi.getAll(), "Could not load users") ?? [],
-    enabled: isLive,
+    enabled: isLive && isAdmin,
     staleTime: 30_000,
   });
 
@@ -206,9 +207,11 @@ function TeamChatPage() {
         title="Team Chat"
         description="Collaborate with your team across projects, tasks, and workflow handoffs."
         actions={
-          <Button size="sm" className="h-8 text-xs" onClick={() => setNewOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> New conversation
-          </Button>
+          isAdmin ? (
+            <Button size="sm" className="h-8 text-xs" onClick={() => setNewOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> New conversation
+            </Button>
+          ) : undefined
         }
       />
 
@@ -231,6 +234,11 @@ function TeamChatPage() {
               <div className="flex flex-col items-center gap-2 p-8 text-center">
                 <Hash className="h-8 w-8 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">No conversations yet</p>
+                {!isAdmin && (
+                  <p className="text-xs text-muted-foreground/70 mt-1">
+                    Ask your Admin to create a conversation for this project.
+                  </p>
+                )}
               </div>
             )}
             {conversations.map((conv) => (

@@ -40,6 +40,7 @@ function roleTargetLabel(roles: Role[]): string {
 export function WorkflowChatPrompt() {
   const { pendingPrompt } = useChatStore();
   const session = useSession();
+  const isAdmin = session?.role === "ADMIN";
   const [messageBody, setMessageBody] = useState("");
   const [sending, setSending] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -59,12 +60,12 @@ export function WorkflowChatPrompt() {
     setInitialized(false);
   };
 
-  // Load users to resolve target recipients
+  // Load users to resolve target recipients (admin-only endpoint)
   const { data: allUsers = [] } = useQuery({
     queryKey: ["users", "chat-prompt"],
     queryFn: async () =>
       requireApiResult(await usersApi.getAll(), "Could not load users") ?? [],
-    enabled: isOpen && !!session?.token,
+    enabled: isOpen && !!session?.token && isAdmin,
     staleTime: 30_000,
   });
 
@@ -189,7 +190,13 @@ export function WorkflowChatPrompt() {
             </div>
           )}
 
-          {targetUsers.length === 0 && allUsers.length > 0 && (
+          {targetUsers.length === 0 && !isAdmin && (
+            <p className="text-xs text-muted-foreground">
+              Only admins can send workflow notifications. Ask your Admin to set up a conversation for this project.
+            </p>
+          )}
+
+          {targetUsers.length === 0 && isAdmin && allUsers.length > 0 && (
             <p className="text-xs text-destructive">
               No users with {roleTargetLabel(pendingPrompt.targetRoles)} role found in the system.
             </p>
