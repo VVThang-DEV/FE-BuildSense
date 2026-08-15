@@ -6,8 +6,13 @@ import {
   type AuthTokens,
 } from "@/lib/session";
 
-/** Base URL - override with VITE_API_URL env var for production */
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5290";
+/**
+ * Base URL - in development always use the Vite proxy to avoid CORS.
+ * In production use VITE_API_URL if set, otherwise fallback to localhost.
+ */
+const BASE = import.meta.env.DEV
+  ? "/api"
+  : import.meta.env.VITE_API_URL ?? "http://localhost:5290";
 
 export type ApiEnvelope<T = unknown> = {
   statusCode: number;

@@ -844,7 +844,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                               }
                               disabled={creatingTask}
                             >
-                              <SelectTrigger aria-label={`Material ${index + 1}`}>
+                              <SelectTrigger hideChevron aria-label={`Material ${index + 1}`}>
                                 <SelectValue placeholder="Select material variant" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1101,7 +1101,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                 {canManageTasks && (
                   <div className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_160px_auto]">
                     <Select value={assignVariantId} onValueChange={setAssignVariantId}>
-                      <SelectTrigger aria-label="Material to assign">
+                      <SelectTrigger hideChevron aria-label="Material to assign">
                         <SelectValue placeholder="Add or update variant" />
                       </SelectTrigger>
                       <SelectContent>

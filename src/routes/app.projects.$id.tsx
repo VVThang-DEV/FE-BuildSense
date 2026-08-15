@@ -1,5 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, CalendarDays, CircleDollarSign, ClipboardList, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  CircleDollarSign,
+  ClipboardList,
+  UserCheck,
+  UserRound,
+} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -62,8 +69,10 @@ function ProjectDetail() {
   const [saving, setSaving] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
+  const [assignCustomerOpen, setAssignCustomerOpen] = useState(false);
   const [confirmStatus, setConfirmStatus] = useState<"cancel" | "complete" | null>(null);
   const [managerId, setManagerId] = useState("");
+  const [customerId, setCustomerId] = useState("");
   const [editForm, setEditForm] = useState({
     projectName: "",
     address: "",
@@ -96,6 +105,17 @@ function ProjectDetail() {
       return (response.result ?? []).filter((account) => account.role === "PM");
     },
     enabled: isLive && session?.role === "ADMIN" && reassignOpen,
+    staleTime: 30_000,
+  });
+
+  const customersQuery = useQuery({
+    queryKey: ["users", "customers"],
+    queryFn: async () => {
+      const response = await usersApi.getAll();
+      if (!response.isSuccess) throw new Error(response.errorMessage ?? "Could not load customers");
+      return (response.result ?? []).filter((account) => account.role === "CUSTOMER");
+    },
+    enabled: isLive && session?.role === "ADMIN" && assignCustomerOpen,
     staleTime: 30_000,
   });
 
@@ -200,6 +220,38 @@ function ProjectDetail() {
     }
   };
 
+  const openCustomerDialog = () => {
+    if (!project) return;
+    setCustomerId(project.customerUserID ? String(project.customerUserID) : "");
+    setAssignCustomerOpen(true);
+  };
+
+  const assignCustomer = async () => {
+    if (!project) return;
+    const userId = Number(customerId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      toast.error("Select a customer");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await projectsApi.assignCustomer(
+        project.projectId,
+        userId,
+        project.rowVersion,
+      );
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Could not assign customer");
+        return;
+      }
+      toast.success("Customer assigned");
+      setAssignCustomerOpen(false);
+      await refetch();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto">
       <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
@@ -245,9 +297,14 @@ function ProjectDetail() {
                       </Button>
                     )}
                     {session.role === "ADMIN" && (
-                      <Button size="sm" variant="outline" onClick={openManagerDialog}>
-                        Reassign PM
-                      </Button>
+                      <>
+                        <Button size="sm" variant="outline" onClick={openManagerDialog}>
+                          Reassign PM
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={openCustomerDialog}>
+                          Assign customer
+                        </Button>
+                      </>
                     )}
                     {project.status === "PLANNING" && (
                       <Button
@@ -303,7 +360,7 @@ function ProjectDetail() {
             }
           />
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <SummaryCard
               icon={CircleDollarSign}
               label="Budget"
@@ -319,6 +376,14 @@ function ProjectDetail() {
               icon={UserRound}
               label="Project Manager"
               value={project.pmName || `User #${project.pmUserID}`}
+            />
+            <SummaryCard
+              icon={UserCheck}
+              label="Customer"
+              value={
+                project.customerName ||
+                (project.customerUserID ? `User #${project.customerUserID}` : "Unassigned")
+              }
             />
           </div>
 
@@ -488,6 +553,59 @@ function ProjectDetail() {
             </Button>
             <Button onClick={reassignProjectManager} disabled={saving || !managerId}>
               {saving ? "Reassigning..." : "Reassign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={assignCustomerOpen} onOpenChange={setAssignCustomerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Customer</DialogTitle>
+          </DialogHeader>
+          <div>
+            <Label>Customer</Label>
+            <Select
+              value={customerId}
+              onValueChange={setCustomerId}
+              disabled={saving || customersQuery.isLoading}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={customersQuery.isLoading ? "Loading customers..." : "Select customer"}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {(customersQuery.data ?? []).map((customer) => (
+                  <SelectItem key={customer.id} value={String(customer.id)}>
+                    {customer.firstName} {customer.lastName} ({customer.email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {customersQuery.isError && (
+              <p className="mt-2 text-sm text-destructive">
+                {customersQuery.error instanceof Error
+                  ? customersQuery.error.message
+                  : "Could not load customers"}
+              </p>
+            )}
+            {customersQuery.isSuccess && (customersQuery.data ?? []).length === 0 && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No customer accounts are available. Create or promote an account to Customer first.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAssignCustomerOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={assignCustomer} disabled={saving || !customerId}>
+              {saving ? "Assigning..." : "Assign"}
             </Button>
           </DialogFooter>
         </DialogContent>

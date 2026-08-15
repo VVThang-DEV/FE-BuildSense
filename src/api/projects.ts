@@ -10,6 +10,10 @@ export type ProjectStatus =
 
 type RawProjectResponse = Omit<Partial<ProjectResponse>, "status"> & {
   baselineStart?: string;
+  customerUserID?: number | null;
+  customerUserId?: number | null;
+  customerId?: number | null;
+  customerName?: string | null;
   status?: ProjectStatus | number | string;
 };
 
@@ -31,6 +35,8 @@ export type ProjectResponse = {
   currency: string;
   pmUserID: number;
   pmName: string;
+  customerUserID: number | null;
+  customerName: string | null;
   totalTasks: number;
   totalAIAlerts: number;
   status: ProjectStatus;
@@ -166,6 +172,8 @@ function normalizeProject(project: RawProjectResponse): ProjectResponse {
     currency: project.currency ?? "VND",
     pmUserID: project.pmUserID ?? 0,
     pmName: project.pmName ?? "",
+    customerUserID: project.customerUserID ?? project.customerUserId ?? project.customerId ?? null,
+    customerName: project.customerName ?? null,
     totalTasks: project.totalTasks ?? 0,
     totalAIAlerts: project.totalAIAlerts ?? 0,
     status: normalizeStatus(project.status),
@@ -242,4 +250,20 @@ export const projectsApi = {
       projectManagerUserId,
       rowVersion,
     }),
+  assignCustomer: async (projectId: number, customerUserId: number, rowVersion: string) => {
+    const response = await apiClient.put<RawProjectResponse | string>(
+      `/api/Projects/${projectId}/customer`,
+      {
+        customerUserId,
+        rowVersion,
+      },
+    );
+    return {
+      ...response,
+      result:
+        response.isSuccess && typeof response.result === "object" && response.result !== null
+          ? normalizeProject(response.result)
+          : response.result,
+    };
+  },
 };

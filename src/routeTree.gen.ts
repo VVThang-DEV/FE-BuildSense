@@ -36,6 +36,7 @@ import { Route as AppStaffNotificationsRouteImport } from './routes/app.staff.no
 import { Route as AppSiteReportRouteImport } from './routes/app.site.report'
 import { Route as AppSiteAttendanceRouteImport } from './routes/app.site.attendance'
 import { Route as AppProjectsIdRouteImport } from './routes/app.projects.$id'
+import { Route as AppPortalIdRouteImport } from './routes/app.portal.$id'
 import { Route as AppAdminWbsRouteImport } from './routes/app.admin.wbs'
 import { Route as AppAdminWarehousesRouteImport } from './routes/app.admin.warehouses'
 import { Route as AppAdminThresholdsRouteImport } from './routes/app.admin.thresholds'
@@ -177,6 +178,11 @@ const AppProjectsIdRoute = AppProjectsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => AppProjectsRoute,
 } as any)
+const AppPortalIdRoute = AppPortalIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AppPortalRoute,
+} as any)
 const AppAdminWbsRoute = AppAdminWbsRouteImport.update({
   id: '/admin/wbs',
   path: '/admin/wbs',
@@ -217,7 +223,7 @@ export interface FileRoutesByFullPath {
   '/app/inventory-governance': typeof AppInventoryGovernanceRoute
   '/app/material-requests': typeof AppMaterialRequestsRoute
   '/app/materials': typeof AppMaterialsRoute
-  '/app/portal': typeof AppPortalRoute
+  '/app/portal': typeof AppPortalRouteWithChildren
   '/app/procurement': typeof AppProcurementRoute
   '/app/profile': typeof AppProfileRoute
   '/app/projects': typeof AppProjectsRouteWithChildren
@@ -230,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -250,7 +257,7 @@ export interface FileRoutesByTo {
   '/app/inventory-governance': typeof AppInventoryGovernanceRoute
   '/app/material-requests': typeof AppMaterialRequestsRoute
   '/app/materials': typeof AppMaterialsRoute
-  '/app/portal': typeof AppPortalRoute
+  '/app/portal': typeof AppPortalRouteWithChildren
   '/app/procurement': typeof AppProcurementRoute
   '/app/profile': typeof AppProfileRoute
   '/app/projects': typeof AppProjectsRouteWithChildren
@@ -262,6 +269,7 @@ export interface FileRoutesByTo {
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -284,7 +292,7 @@ export interface FileRoutesById {
   '/app/inventory-governance': typeof AppInventoryGovernanceRoute
   '/app/material-requests': typeof AppMaterialRequestsRoute
   '/app/materials': typeof AppMaterialsRoute
-  '/app/portal': typeof AppPortalRoute
+  '/app/portal': typeof AppPortalRouteWithChildren
   '/app/procurement': typeof AppProcurementRoute
   '/app/profile': typeof AppProfileRoute
   '/app/projects': typeof AppProjectsRouteWithChildren
@@ -297,6 +305,7 @@ export interface FileRoutesById {
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
   '/app/site/report': typeof AppSiteReportRoute
@@ -333,6 +342,7 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
+    | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
     | '/app/site/report'
@@ -365,6 +375,7 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
+    | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
     | '/app/site/report'
@@ -399,6 +410,7 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
+    | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
     | '/app/site/report'
@@ -608,6 +620,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProjectsIdRouteImport
       parentRoute: typeof AppProjectsRoute
     }
+    '/app/portal/$id': {
+      id: '/app/portal/$id'
+      path: '/$id'
+      fullPath: '/app/portal/$id'
+      preLoaderRoute: typeof AppPortalIdRouteImport
+      parentRoute: typeof AppPortalRoute
+    }
     '/app/admin/wbs': {
       id: '/app/admin/wbs'
       path: '/admin/wbs'
@@ -646,6 +665,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppPortalRouteChildren {
+  AppPortalIdRoute: typeof AppPortalIdRoute
+}
+
+const AppPortalRouteChildren: AppPortalRouteChildren = {
+  AppPortalIdRoute: AppPortalIdRoute,
+}
+
+const AppPortalRouteWithChildren = AppPortalRoute._addFileChildren(
+  AppPortalRouteChildren,
+)
+
 interface AppProjectsRouteChildren {
   AppProjectsIdRoute: typeof AppProjectsIdRoute
 }
@@ -680,7 +711,7 @@ interface AppRouteChildren {
   AppInventoryGovernanceRoute: typeof AppInventoryGovernanceRoute
   AppMaterialRequestsRoute: typeof AppMaterialRequestsRoute
   AppMaterialsRoute: typeof AppMaterialsRoute
-  AppPortalRoute: typeof AppPortalRoute
+  AppPortalRoute: typeof AppPortalRouteWithChildren
   AppProcurementRoute: typeof AppProcurementRoute
   AppProfileRoute: typeof AppProfileRoute
   AppProjectsRoute: typeof AppProjectsRouteWithChildren
@@ -704,7 +735,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInventoryGovernanceRoute: AppInventoryGovernanceRoute,
   AppMaterialRequestsRoute: AppMaterialRequestsRoute,
   AppMaterialsRoute: AppMaterialsRoute,
-  AppPortalRoute: AppPortalRoute,
+  AppPortalRoute: AppPortalRouteWithChildren,
   AppProcurementRoute: AppProcurementRoute,
   AppProfileRoute: AppProfileRoute,
   AppProjectsRoute: AppProjectsRouteWithChildren,
