@@ -1,16 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  ArrowLeft,
-  Hash,
-  MessageCircle,
-  Plus,
-  Send,
-  Trash2,
-  Users,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Bot, Hash, MessageCircle, Plus, Send, Trash2, Users, X } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,12 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useSession, ROLE_LABELS } from "@/lib/session";
-import {
-  useChatStore,
-  closeChatDrawer,
-} from "@/hooks/use-chat-store";
+import { useChatStore, closeChatDrawer } from "@/hooks/use-chat-store";
 import {
   chatApi,
   type ConversationResponse,
@@ -40,6 +29,7 @@ import {
 import { projectsApi } from "@/api/projects";
 import { usersApi } from "@/api/users";
 import { requireApiResult } from "@/api/client";
+import { AiChatBot } from "@/components/ai-chat-bot";
 
 const TYPE_LABEL: Record<string, string> = {
   PROJECT: "Project",
@@ -73,17 +63,22 @@ function formatDate(iso: string): string {
 }
 
 type View = "list" | "thread" | "new";
+type ChatMode = "team" | "ai";
 
 export function ChatDrawer() {
   const { isDrawerOpen, activeProjectId } = useChatStore();
   const session = useSession();
   const queryClient = useQueryClient();
+  const [chatMode, setChatMode] = useState<ChatMode>("team");
   const [view, setView] = useState<View>("list");
   const [selectedConv, setSelectedConv] = useState<ConversationResponse | null>(null);
   const [projectId, setProjectId] = useState("");
   const [compose, setCompose] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // The backend role matrix marks AI chat as available to any authenticated user.
+  const canUseAiChat = !!session?.token;
 
   // New conversation form
   const [newTitle, setNewTitle] = useState("");
@@ -103,6 +98,7 @@ export function ChatDrawer() {
       setView("list");
       setSelectedConv(null);
       setCompose("");
+      setChatMode("team");
     }
   }, [isDrawerOpen]);
 
@@ -116,8 +112,7 @@ export function ChatDrawer() {
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ["users", "chat-drawer"],
-    queryFn: async () =>
-      requireApiResult(await usersApi.getAll(), "Could not load users") ?? [],
+    queryFn: async () => requireApiResult(await usersApi.getAll(), "Could not load users") ?? [],
     enabled: isDrawerOpen && !!session?.token,
     staleTime: 30_000,
   });
@@ -251,24 +246,44 @@ export function ChatDrawer() {
 
         {/* ── Header ── */}
         <div className="flex h-14 items-center gap-2 border-b px-4 shrink-0">
-          {view !== "list" && (
+          {view !== "list" && chatMode === "team" && (
             <Button
               variant="ghost"
               size="icon"
               className="h-7 w-7 shrink-0"
-              onClick={() => { setView("list"); setSelectedConv(null); }}
+              onClick={() => {
+                setView("list");
+                setSelectedConv(null);
+              }}
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
           )}
-          <MessageCircle className="h-4 w-4 text-primary shrink-0" />
+          {chatMode === "team" ? (
+            <MessageCircle className="h-4 w-4 text-primary shrink-0" />
+          ) : (
+            <Bot className="h-4 w-4 text-blue-600 shrink-0" />
+          )}
           <h2 className="text-sm font-semibold truncate flex-1">
-            {view === "list" && "Team Chat"}
-            {view === "thread" && (selectedConv?.title ?? "Conversation")}
-            {view === "new" && "New Conversation"}
+            {chatMode === "team" && (
+              <>
+                {view === "list" && "Team Chat"}
+                {view === "thread" && (selectedConv?.title ?? "Conversation")}
+                {view === "new" && "New Conversation"}
+              </>
+            )}
+            {chatMode === "ai" && "AI Assistant"}
           </h2>
-          {view === "list" && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setView("new")}>
+          {view === "list" && chatMode === "team" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => {
+                setNewProjectId(currentProjectId);
+                setView("new");
+              }}
+            >
               <Plus className="h-4 w-4" />
             </Button>
           )}
@@ -277,275 +292,323 @@ export function ChatDrawer() {
           </Button>
         </div>
 
-        {/* ── List View ── */}
+        {/* Chat Mode Tabs - only show on list view */}
         {view === "list" && (
-          <div className="flex flex-1 flex-col min-h-0">
-            <div className="px-4 py-2 border-b">
-              <Select value={currentProjectId} onValueChange={setProjectId}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select project" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.projectId} value={String(p.projectId)}>
-                      {p.projectName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <ScrollArea className="flex-1">
-              {convsLoading && (
-                <div className="space-y-2 p-4">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
-                  ))}
-                </div>
-              )}
-              {!convsLoading && conversations.length === 0 && (
-                <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-                  <Hash className="h-8 w-8 text-muted-foreground/40" />
-                  <p className="text-sm text-muted-foreground">No conversations yet</p>
-                  <Button variant="outline" size="sm" onClick={() => setView("new")}>
-                    <Plus className="mr-1 h-3 w-3" /> Start one
-                  </Button>
-                </div>
-              )}
-              {conversations.map((conv) => (
-                <button
-                  key={conv.conversationId}
-                  type="button"
-                  onClick={() => openThread(conv)}
-                  className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b border-border/50"
-                >
-                  <div className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold mt-0.5",
-                    TYPE_COLORS[String(conv.type)] ?? TYPE_COLORS.PROJECT,
-                  )}>
-                    <MessageCircle className="h-3.5 w-3.5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate">{conv.title}</p>
-                      <span className="text-[10px] text-muted-foreground shrink-0">
-                        {timeAgo(conv.lastMessageAt)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <Badge variant="outline" className="text-[9px] px-1 py-0">
-                        {TYPE_LABEL[String(conv.type)] ?? "Chat"}
-                      </Badge>
-                      <span className="text-[10px] text-muted-foreground">
-                        {conv.participants.length} member{conv.participants.length !== 1 ? "s" : ""}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </ScrollArea>
+          <div className="px-4 py-2 border-b">
+            <Tabs value={chatMode} onValueChange={(v) => setChatMode(v as ChatMode)}>
+              <TabsList className="grid w-full grid-cols-2 h-7">
+                <TabsTrigger value="team" className="text-xs">
+                  <MessageCircle className="h-3 w-3 mr-1" />
+                  Team
+                </TabsTrigger>
+                {canUseAiChat && (
+                  <TabsTrigger value="ai" className="text-xs">
+                    <Bot className="h-3 w-3 mr-1" />
+                    AI (Gemini + Tavily)
+                  </TabsTrigger>
+                )}
+              </TabsList>
+            </Tabs>
           </div>
         )}
 
-        {/* ── Thread View ── */}
-        {view === "thread" && selectedConv && (
-          <div className="flex flex-1 flex-col min-h-0">
-            {/* Participants bar */}
-            <div className="px-4 py-2 border-b flex items-center gap-1.5 flex-wrap">
-              <Users className="h-3 w-3 text-muted-foreground shrink-0" />
-              {selectedConv.participants.map((p) => (
-                <Badge key={p.userId} variant="outline" className="text-[9px] px-1.5 py-0 font-normal">
-                  {p.fullName ?? p.email ?? `#${p.userId}`}
-                </Badge>
-              ))}
-            </div>
+        {/* AI Chat Bot */}
+        {chatMode === "ai" && <AiChatBot isOpen={isDrawerOpen} onClose={closeChatDrawer} />}
 
-            {/* Messages */}
-            <ScrollArea className="flex-1" ref={scrollRef}>
-              <div className="px-4 py-3 space-y-3">
-                {msgsLoading && (
-                  <div className="space-y-2">
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} className="h-12 animate-pulse rounded-lg bg-muted" />
-                    ))}
-                  </div>
-                )}
-                {!msgsLoading && messages.length === 0 && (
-                  <p className="text-center text-xs text-muted-foreground py-8">
-                    No messages yet. Start the conversation below.
-                  </p>
-                )}
-                {messages.map((msg, idx) => {
-                  const isOwn = msg.senderId === session?.userId;
-                  const isDeleted = !!msg.deletedAt;
-                  const showDate =
-                    idx === 0 ||
-                    formatDate(msg.sentAt) !== formatDate(messages[idx - 1].sentAt);
-
-                  return (
-                    <div key={msg.messageId}>
-                      {showDate && (
-                        <p className="text-center text-[10px] text-muted-foreground py-2">
-                          {formatDate(msg.sentAt)}
-                        </p>
-                      )}
-                      <div className={cn("flex", isOwn ? "justify-end" : "justify-start")}>
-                        <div
-                          className={cn(
-                            "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed group relative",
-                            isOwn
-                              ? "bg-primary text-primary-foreground rounded-br-md"
-                              : "bg-muted rounded-bl-md",
-                            isDeleted && "opacity-50 italic",
-                          )}
-                        >
-                          {!isOwn && (
-                            <p className={cn(
-                              "text-[10px] font-semibold mb-0.5",
-                              isOwn ? "text-primary-foreground/70" : "text-foreground/60",
-                            )}>
-                              {msg.senderName ?? "User"}
-                            </p>
-                          )}
-                          <p className="whitespace-pre-wrap break-words">{msg.body}</p>
-                          <div className={cn(
-                            "flex items-center gap-1.5 mt-1",
-                            isOwn ? "justify-end" : "justify-start",
-                          )}>
-                            <span className={cn(
-                              "text-[9px]",
-                              isOwn ? "text-primary-foreground/50" : "text-muted-foreground",
-                            )}>
-                              {formatTime(msg.sentAt)}
-                              {msg.editedAt && " · edited"}
-                            </span>
-                            {isOwn && !isDeleted && (
-                              <button
-                                type="button"
-                                onClick={() => deleteMessage(msg.messageId)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-primary-foreground/40 hover:text-primary-foreground/80"
-                                title="Delete message"
-                              >
-                                <Trash2 className="h-2.5 w-2.5" />
-                              </button>
-                            )}
-                          </div>
+        {/* Team Chat */}
+        {chatMode === "team" && (
+          <>
+            {/* ── List View ── */}
+            {view === "list" && (
+              <div className="flex flex-1 flex-col min-h-0">
+                <div className="px-4 py-2 border-b">
+                  <Select value={currentProjectId} onValueChange={setProjectId}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((p) => (
+                        <SelectItem key={p.projectId} value={String(p.projectId)}>
+                          {p.projectName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <ScrollArea className="flex-1">
+                  {convsLoading && (
+                    <div className="space-y-2 p-4">
+                      {[0, 1, 2].map((i) => (
+                        <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
+                      ))}
+                    </div>
+                  )}
+                  {!convsLoading && conversations.length === 0 && (
+                    <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
+                      <Hash className="h-8 w-8 text-muted-foreground/40" />
+                      <p className="text-sm text-muted-foreground">No conversations yet</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setNewProjectId(currentProjectId);
+                          setView("new");
+                        }}
+                      >
+                        <Plus className="mr-1 h-3 w-3" /> Start one
+                      </Button>
+                    </div>
+                  )}
+                  {conversations.map((conv) => (
+                    <button
+                      key={conv.conversationId}
+                      type="button"
+                      onClick={() => openThread(conv)}
+                      className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b border-border/50"
+                    >
+                      <div
+                        className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold mt-0.5",
+                          TYPE_COLORS[String(conv.type)] ?? TYPE_COLORS.PROJECT,
+                        )}
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium truncate">{conv.title}</p>
+                          <span className="text-[10px] text-muted-foreground shrink-0">
+                            {timeAgo(conv.lastMessageAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Badge variant="outline" className="text-[9px] px-1 py-0">
+                            {TYPE_LABEL[String(conv.type)] ?? "Chat"}
+                          </Badge>
+                          <span className="text-[10px] text-muted-foreground">
+                            {conv.participants.length} member
+                            {conv.participants.length !== 1 ? "s" : ""}
+                          </span>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    </button>
+                  ))}
+                </ScrollArea>
               </div>
-            </ScrollArea>
+            )}
 
-            {/* Compose */}
-            <div className="border-t px-4 py-3 shrink-0">
-              <div className="flex items-end gap-2">
-                <Textarea
-                  className="min-h-[40px] max-h-[120px] text-sm resize-none flex-1"
-                  placeholder="Type a message…"
-                  value={compose}
-                  onChange={(e) => setCompose(e.target.value)}
-                  disabled={sending}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
-                />
+            {/* ── Thread View ── */}
+            {view === "thread" && selectedConv && (
+              <div className="flex flex-1 flex-col min-h-0">
+                {/* Participants bar */}
+                <div className="px-4 py-2 border-b flex items-center gap-1.5 flex-wrap">
+                  <Users className="h-3 w-3 text-muted-foreground shrink-0" />
+                  {selectedConv.participants.map((p) => (
+                    <Badge
+                      key={p.userId}
+                      variant="outline"
+                      className="text-[9px] px-1.5 py-0 font-normal"
+                    >
+                      {p.fullName ?? p.email ?? `#${p.userId}`}
+                    </Badge>
+                  ))}
+                </div>
+
+                {/* Messages */}
+                <ScrollArea className="flex-1" ref={scrollRef}>
+                  <div className="px-4 py-3 space-y-3">
+                    {msgsLoading && (
+                      <div className="space-y-2">
+                        {[0, 1, 2].map((i) => (
+                          <div key={i} className="h-12 animate-pulse rounded-lg bg-muted" />
+                        ))}
+                      </div>
+                    )}
+                    {!msgsLoading && messages.length === 0 && (
+                      <p className="text-center text-xs text-muted-foreground py-8">
+                        No messages yet. Start the conversation below.
+                      </p>
+                    )}
+                    {messages.map((msg, idx) => {
+                      const isOwn = msg.senderId === session?.userId;
+                      const isDeleted = !!msg.deletedAt;
+                      const showDate =
+                        idx === 0 ||
+                        formatDate(msg.sentAt) !== formatDate(messages[idx - 1].sentAt);
+
+                      return (
+                        <div key={msg.messageId}>
+                          {showDate && (
+                            <p className="text-center text-[10px] text-muted-foreground py-2">
+                              {formatDate(msg.sentAt)}
+                            </p>
+                          )}
+                          <div className={cn("flex", isOwn ? "justify-end" : "justify-start")}>
+                            <div
+                              className={cn(
+                                "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed group relative",
+                                isOwn
+                                  ? "bg-primary text-primary-foreground rounded-br-md"
+                                  : "bg-muted rounded-bl-md",
+                                isDeleted && "opacity-50 italic",
+                              )}
+                            >
+                              {!isOwn && (
+                                <p
+                                  className={cn(
+                                    "text-[10px] font-semibold mb-0.5",
+                                    isOwn ? "text-primary-foreground/70" : "text-foreground/60",
+                                  )}
+                                >
+                                  {msg.senderName ?? "User"}
+                                </p>
+                              )}
+                              <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+                              <div
+                                className={cn(
+                                  "flex items-center gap-1.5 mt-1",
+                                  isOwn ? "justify-end" : "justify-start",
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "text-[9px]",
+                                    isOwn ? "text-primary-foreground/50" : "text-muted-foreground",
+                                  )}
+                                >
+                                  {formatTime(msg.sentAt)}
+                                  {msg.editedAt && " · edited"}
+                                </span>
+                                {isOwn && !isDeleted && (
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteMessage(msg.messageId)}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-primary-foreground/40 hover:text-primary-foreground/80"
+                                    title="Delete message"
+                                  >
+                                    <Trash2 className="h-2.5 w-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+
+                {/* Compose */}
+                <div className="border-t px-4 py-3 shrink-0">
+                  <div className="flex items-end gap-2">
+                    <Textarea
+                      className="min-h-[40px] max-h-[120px] text-sm resize-none flex-1"
+                      placeholder="Type a message…"
+                      value={compose}
+                      onChange={(e) => setCompose(e.target.value)}
+                      disabled={sending}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage();
+                        }
+                      }}
+                    />
+                    <Button
+                      size="icon"
+                      className="h-9 w-9 shrink-0"
+                      onClick={sendMessage}
+                      disabled={sending || !compose.trim()}
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── New Conversation View ── */}
+            {view === "new" && (
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div>
+                  <Label className="text-xs">Project</Label>
+                  <Select value={newProjectId} onValueChange={setNewProjectId}>
+                    <SelectTrigger className="mt-1 h-8 text-xs">
+                      <SelectValue placeholder="Select project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((p) => (
+                        <SelectItem key={p.projectId} value={String(p.projectId)}>
+                          {p.projectName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Title</Label>
+                  <Input
+                    className="mt-1 h-8 text-xs"
+                    placeholder="Conversation title"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Type</Label>
+                  <Select value={newType} onValueChange={(v) => setNewType(v as ConversationType)}>
+                    <SelectTrigger className="mt-1 h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PROJECT">Project</SelectItem>
+                      <SelectItem value="TASK">Task</SelectItem>
+                      <SelectItem value="MATERIAL_REQUEST">Material Request</SelectItem>
+                      <SelectItem value="PURCHASE_ORDER">Purchase Order</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Participants</Label>
+                  <div className="mt-1.5 space-y-1 max-h-[200px] overflow-y-auto">
+                    {otherUsers.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => toggleParticipant(u.id)}
+                        className={cn(
+                          "w-full flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+                          newParticipants.includes(u.id)
+                            ? "bg-primary/10 border border-primary/30"
+                            : "hover:bg-muted border border-transparent",
+                        )}
+                      >
+                        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-bold">
+                          {(u.firstName?.[0] ?? "") + (u.lastName?.[0] ?? "")}
+                        </div>
+                        <span className="truncate flex-1 text-left">
+                          {u.firstName} {u.lastName}
+                        </span>
+                        <Badge variant="outline" className="text-[8px] px-1 py-0">
+                          {ROLE_LABELS[u.role as keyof typeof ROLE_LABELS] ?? u.role}
+                        </Badge>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Button
-                  size="icon"
-                  className="h-9 w-9 shrink-0"
-                  onClick={sendMessage}
-                  disabled={sending || !compose.trim()}
+                  size="sm"
+                  className="w-full"
+                  onClick={createConversation}
+                  disabled={creating || !newTitle.trim() || !newProjectId}
                 >
-                  <Send className="h-4 w-4" />
+                  <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
+                  {creating ? "Creating…" : "Create conversation"}
                 </Button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── New Conversation View ── */}
-        {view === "new" && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div>
-              <Label className="text-xs">Project</Label>
-              <Select value={newProjectId} onValueChange={setNewProjectId}>
-                <SelectTrigger className="mt-1 h-8 text-xs">
-                  <SelectValue placeholder="Select project" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.projectId} value={String(p.projectId)}>
-                      {p.projectName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Title</Label>
-              <Input
-                className="mt-1 h-8 text-xs"
-                placeholder="Conversation title"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                maxLength={100}
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Type</Label>
-              <Select value={newType} onValueChange={(v) => setNewType(v as ConversationType)}>
-                <SelectTrigger className="mt-1 h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PROJECT">Project</SelectItem>
-                  <SelectItem value="TASK">Task</SelectItem>
-                  <SelectItem value="MATERIAL_REQUEST">Material Request</SelectItem>
-                  <SelectItem value="PURCHASE_ORDER">Purchase Order</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Participants</Label>
-              <div className="mt-1.5 space-y-1 max-h-[200px] overflow-y-auto">
-                {otherUsers.map((u) => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => toggleParticipant(u.id)}
-                    className={cn(
-                      "w-full flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
-                      newParticipants.includes(u.id)
-                        ? "bg-primary/10 border border-primary/30"
-                        : "hover:bg-muted border border-transparent",
-                    )}
-                  >
-                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-bold">
-                      {(u.firstName?.[0] ?? "") + (u.lastName?.[0] ?? "")}
-                    </div>
-                    <span className="truncate flex-1 text-left">
-                      {u.firstName} {u.lastName}
-                    </span>
-                    <Badge variant="outline" className="text-[8px] px-1 py-0">
-                      {ROLE_LABELS[u.role as keyof typeof ROLE_LABELS] ?? u.role}
-                    </Badge>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <Button
-              size="sm"
-              className="w-full"
-              onClick={createConversation}
-              disabled={creating || !newTitle.trim() || !newProjectId}
-            >
-              <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
-              {creating ? "Creating…" : "Create conversation"}
-            </Button>
-          </div>
+            )}
+          </>
         )}
       </SheetContent>
     </Sheet>

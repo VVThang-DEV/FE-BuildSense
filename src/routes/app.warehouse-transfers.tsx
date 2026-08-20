@@ -249,15 +249,21 @@ function WarehouseTransfersPage() {
         nextStep,
         to: "/app/warehouse-transfers",
         actionLabel: "View transfers",
-        chatPrompt: (action === "approve" || action === "ship") ? {
-          projectId: 0,
-          entityType: "PROJECT",
-          targetRoles: ["WAREHOUSE_MANAGER"],
-          suggestedMessage: action === "approve"
-            ? `Transfer #${transfer.transferId} has been approved. The source warehouse manager can now prepare and ship the reserved stock.`
-            : `Transfer #${transfer.transferId} has been shipped. The destination warehouse manager should record receipt when materials arrive.`,
-          conversationTitle: `Transfer #${transfer.transferId} ${action === "approve" ? "Approved" : "Shipped"}`,
-        } : undefined,
+        chatPrompt:
+          action === "approve" || action === "ship"
+            ? {
+                projectId: 0,
+                entityType: "PROJECT",
+                targetRoles: ["WAREHOUSE_MANAGER"],
+                suggestedMessage:
+                  action === "approve"
+                    ? `Transfer #${transfer.transferId} has been approved. The source warehouse manager can now prepare and ship the reserved stock.`
+                    : `Transfer #${transfer.transferId} has been shipped. The destination warehouse manager should record receipt when materials arrive.`,
+                conversationTitle: `Transfer #${transfer.transferId} ${
+                  action === "approve" ? "Approved" : "Shipped"
+                }`,
+              }
+            : undefined,
       });
       if (action === "approve") setApprovalTransfer(null);
       if (action === "ship") setShippingTransfer(null);

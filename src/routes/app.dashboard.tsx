@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -107,8 +107,16 @@ const BUDGET_CHART_CONFIG = {
 
 function DashboardPage() {
   const session = useSession();
+  const navigate = useNavigate();
   const role = session?.role ?? "CUSTOMER";
   const isLive = !!session?.token;
+  
+  // Redirect suppliers to their dedicated dashboard
+  if (role === "SUPPLIER") {
+    navigate({ to: "/app/supplier/dashboard" });
+    return null;
+  }
+  
   const canSeeProjects = role === "ADMIN" || role === "PM";
   const canSeeWarehouse = role === "ADMIN" || role === "WAREHOUSE_MANAGER";
   const canSeeSuppliers = role === "ADMIN";
@@ -646,7 +654,7 @@ function DashboardPage() {
         />
       )}
 
-      {!failedQuery && (role === "SUPPLIER" || role === "CUSTOMER") && (
+      {!failedQuery && role === "CUSTOMER" && (
         <Card className="shadow-sm">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             Dashboard views are currently implemented for Admin, Project Manager, and Warehouse

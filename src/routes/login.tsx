@@ -70,7 +70,7 @@ function LoginPage() {
       const nextSession = loginWithTokens(response.result);
       navigate({ to: ROLE_HOME[nextSession.role] });
     } catch {
-      const backendUrl = import.meta.env.VITE_API_URL ?? "http://localhost:5290";
+      const backendUrl = import.meta.env.VITE_API_URL ?? "https://buildsense-qltv.onrender.com";
       setError(`Cannot reach the backend. Check that the API is running on ${backendUrl}.`);
     } finally {
       setLoading(false);

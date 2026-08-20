@@ -6,7 +6,7 @@ import buildSenseLogo from "@/assets/buildsense-logo.svg";
 const roles = [
   { to: "/", label: "Project Manager", icon: LayoutDashboard },
   { to: "/app/admin/warehouses", label: "Warehouse Manager", icon: Warehouse },
-  { to: "/app/admin/suppliers", label: "Supplier", icon: Package },
+  { to: "/app/supplier/dashboard", label: "Supplier", icon: Package },
   { to: "/customer", label: "Customer", icon: User },
 ] as const;
 

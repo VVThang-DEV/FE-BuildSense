@@ -31,6 +31,8 @@ import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
 import { Route as AppCheckRouteImport } from './routes/app.check'
 import { Route as AppAiRouteImport } from './routes/app.ai'
 import { Route as AppSiteIndexRouteImport } from './routes/app.site.index'
+import { Route as AppSupplierOrdersRouteImport } from './routes/app.supplier.orders'
+import { Route as AppSupplierDashboardRouteImport } from './routes/app.supplier.dashboard'
 import { Route as AppStaffUsersRouteImport } from './routes/app.staff.users'
 import { Route as AppStaffNotificationsRouteImport } from './routes/app.staff.notifications'
 import { Route as AppSiteReportRouteImport } from './routes/app.site.report'
@@ -153,6 +155,16 @@ const AppSiteIndexRoute = AppSiteIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppSiteRoute,
 } as any)
+const AppSupplierOrdersRoute = AppSupplierOrdersRouteImport.update({
+  id: '/supplier/orders',
+  path: '/supplier/orders',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSupplierDashboardRoute = AppSupplierDashboardRouteImport.update({
+  id: '/supplier/dashboard',
+  path: '/supplier/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppStaffUsersRoute = AppStaffUsersRouteImport.update({
   id: '/staff/users',
   path: '/staff/users',
@@ -242,6 +254,8 @@ export interface FileRoutesByFullPath {
   '/app/site/report': typeof AppSiteReportRoute
   '/app/staff/notifications': typeof AppStaffNotificationsRoute
   '/app/staff/users': typeof AppStaffUsersRoute
+  '/app/supplier/dashboard': typeof AppSupplierDashboardRoute
+  '/app/supplier/orders': typeof AppSupplierOrdersRoute
   '/app/site/': typeof AppSiteIndexRoute
 }
 export interface FileRoutesByTo {
@@ -275,6 +289,8 @@ export interface FileRoutesByTo {
   '/app/site/report': typeof AppSiteReportRoute
   '/app/staff/notifications': typeof AppStaffNotificationsRoute
   '/app/staff/users': typeof AppStaffUsersRoute
+  '/app/supplier/dashboard': typeof AppSupplierDashboardRoute
+  '/app/supplier/orders': typeof AppSupplierOrdersRoute
   '/app/site': typeof AppSiteIndexRoute
 }
 export interface FileRoutesById {
@@ -311,6 +327,8 @@ export interface FileRoutesById {
   '/app/site/report': typeof AppSiteReportRoute
   '/app/staff/notifications': typeof AppStaffNotificationsRoute
   '/app/staff/users': typeof AppStaffUsersRoute
+  '/app/supplier/dashboard': typeof AppSupplierDashboardRoute
+  '/app/supplier/orders': typeof AppSupplierOrdersRoute
   '/app/site/': typeof AppSiteIndexRoute
 }
 export interface FileRouteTypes {
@@ -348,6 +366,8 @@ export interface FileRouteTypes {
     | '/app/site/report'
     | '/app/staff/notifications'
     | '/app/staff/users'
+    | '/app/supplier/dashboard'
+    | '/app/supplier/orders'
     | '/app/site/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -381,6 +401,8 @@ export interface FileRouteTypes {
     | '/app/site/report'
     | '/app/staff/notifications'
     | '/app/staff/users'
+    | '/app/supplier/dashboard'
+    | '/app/supplier/orders'
     | '/app/site'
   id:
     | '__root__'
@@ -416,6 +438,8 @@ export interface FileRouteTypes {
     | '/app/site/report'
     | '/app/staff/notifications'
     | '/app/staff/users'
+    | '/app/supplier/dashboard'
+    | '/app/supplier/orders'
     | '/app/site/'
   fileRoutesById: FileRoutesById
 }
@@ -585,6 +609,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSiteIndexRouteImport
       parentRoute: typeof AppSiteRoute
     }
+    '/app/supplier/orders': {
+      id: '/app/supplier/orders'
+      path: '/supplier/orders'
+      fullPath: '/app/supplier/orders'
+      preLoaderRoute: typeof AppSupplierOrdersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/supplier/dashboard': {
+      id: '/app/supplier/dashboard'
+      path: '/supplier/dashboard'
+      fullPath: '/app/supplier/dashboard'
+      preLoaderRoute: typeof AppSupplierDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/staff/users': {
       id: '/app/staff/users'
       path: '/staff/users'
@@ -726,6 +764,8 @@ interface AppRouteChildren {
   AppAdminWbsRoute: typeof AppAdminWbsRoute
   AppStaffNotificationsRoute: typeof AppStaffNotificationsRoute
   AppStaffUsersRoute: typeof AppStaffUsersRoute
+  AppSupplierDashboardRoute: typeof AppSupplierDashboardRoute
+  AppSupplierOrdersRoute: typeof AppSupplierOrdersRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -750,6 +790,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminWbsRoute: AppAdminWbsRoute,
   AppStaffNotificationsRoute: AppStaffNotificationsRoute,
   AppStaffUsersRoute: AppStaffUsersRoute,
+  AppSupplierDashboardRoute: AppSupplierDashboardRoute,
+  AppSupplierOrdersRoute: AppSupplierOrdersRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

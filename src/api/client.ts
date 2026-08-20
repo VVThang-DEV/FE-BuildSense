@@ -12,7 +12,7 @@ import {
  */
 const BASE = import.meta.env.DEV
   ? "/api"
-  : import.meta.env.VITE_API_URL ?? "http://localhost:5290";
+  : (import.meta.env.VITE_API_URL ?? "https://buildsense-qltv.onrender.com");
 
 export type ApiEnvelope<T = unknown> = {
   statusCode: number;

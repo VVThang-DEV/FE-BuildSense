@@ -1,4 +1,5 @@
 export * from "./auth";
+export * from "./aiChat";
 export * from "./catalogs";
 export * from "./chat";
 export * from "./categories";

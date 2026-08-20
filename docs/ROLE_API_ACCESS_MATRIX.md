@@ -51,6 +51,7 @@ Use this as the high-level menu/sidebar rule:
 | Inventory operations/count creation/returns | no | no | yes | no |
 | Warehouse transfers | read/review yes | no | create/read/ship/receive/cancel yes | no |
 | Chat | yes, if participant | yes, if participant | yes, if participant | yes, if participant |
+| AI Chat | yes | yes | yes | yes |
 | Meetings | yes | yes | yes | yes, if logged in |
 
 ## Public APIs
@@ -92,6 +93,11 @@ Any logged-in user can call these. That includes `ADMIN`, `PM`, `WAREHOUSE_MANAG
 | PUT | `/api/Chat/messages/{messageId}` | Only sender can edit. |
 | DELETE | `/api/Chat/messages/{messageId}` | Only sender can delete. |
 | PUT | `/api/Chat/conversations/{conversationId}/read` | Must be participant. |
+| POST | `/api/AiChat/sessions` | Create AI chat session. Session is scoped to current user. |
+| GET | `/api/AiChat/sessions` | Get user's AI chat sessions. |
+| GET | `/api/AiChat/sessions/{sessionId}/messages` | Get messages in session owned by user. |
+| POST | `/api/AiChat/sessions/{sessionId}/messages` | Send message to AI. User must own session. |
+| DELETE | `/api/AiChat/sessions/{sessionId}` | Delete session. User must own session. |
 | POST | `/api/Meetings` | Any logged-in user. |
 | GET | `/api/Meetings/project/{projectId}` | Any logged-in user by route. |
 | GET | `/api/Meetings/{meetingId}` | Any logged-in user by route. |

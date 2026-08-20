@@ -68,12 +68,16 @@ const TYPE_BY_NUMBER: Record<number, ConversationType> = {
   3: "PURCHASE_ORDER",
 };
 
-function normalizeConversationType(
-  type: ConversationType | number | string,
-): ConversationType {
+const TYPE_TO_NUMBER: Record<ConversationType, number> = {
+  PROJECT: 0,
+  TASK: 1,
+  MATERIAL_REQUEST: 2,
+  PURCHASE_ORDER: 3,
+};
+
+function normalizeConversationType(type: ConversationType | number | string): ConversationType {
   if (typeof type === "number") return TYPE_BY_NUMBER[type] ?? "PROJECT";
   const upper = String(type).toUpperCase();
-  if (upper in TYPE_BY_NUMBER) return upper as ConversationType;
   if (["PROJECT", "TASK", "MATERIAL_REQUEST", "PURCHASE_ORDER"].includes(upper))
     return upper as ConversationType;
   return "PROJECT";
@@ -83,6 +87,11 @@ function normalizeConversation(c: ConversationResponse): ConversationResponse {
   return { ...c, type: normalizeConversationType(c.type) };
 }
 
+function serializeConversationType(type: CreateConversationRequest["type"]): number {
+  if (typeof type === "number") return type;
+  return TYPE_TO_NUMBER[type ?? "PROJECT"];
+}
+
 // ────────────────────────────────────────
 // Chat API client
 // ────────────────────────────────────────
@@ -90,10 +99,10 @@ function normalizeConversation(c: ConversationResponse): ConversationResponse {
 export const chatApi = {
   /** Create a new conversation */
   createConversation: async (body: CreateConversationRequest) => {
-    const response = await apiClient.post<ConversationResponse>(
-      "/api/chat/conversations",
-      body,
-    );
+    const response = await apiClient.post<ConversationResponse>("/api/chat/conversations", {
+      ...body,
+      type: serializeConversationType(body.type),
+    });
     return {
       ...response,
       result: response.result ? normalizeConversation(response.result) : response.result,
@@ -113,16 +122,11 @@ export const chatApi = {
 
   /** Get messages in a conversation */
   getMessages: (conversationId: number) =>
-    apiClient.get<MessageResponse[]>(
-      `/api/chat/conversations/${conversationId}/messages`,
-    ),
+    apiClient.get<MessageResponse[]>(`/api/chat/conversations/${conversationId}/messages`),
 
   /** Send a message to a conversation */
   sendMessage: (conversationId: number, body: SendMessageRequest) =>
-    apiClient.post<MessageResponse>(
-      `/api/chat/conversations/${conversationId}/messages`,
-      body,
-    ),
+    apiClient.post<MessageResponse>(`/api/chat/conversations/${conversationId}/messages`, body),
 
   /** Edit a message (sender only) */
   updateMessage: (messageId: number, body: UpdateMessageRequest) =>

@@ -124,6 +124,20 @@ export const NAV: NavItem[] = [
     roles: ["CUSTOMER"],
     group: "Portal",
   },
+  {
+    to: "/app/supplier/dashboard",
+    label: "Supplier Dashboard",
+    icon: LayoutDashboard,
+    roles: ["SUPPLIER"],
+    group: "Overview",
+  },
+  {
+    to: "/app/supplier/orders",
+    label: "Supplier Orders",
+    icon: ShoppingCart,
+    roles: ["SUPPLIER"],
+    group: "Operations",
+  },
 ];
 
 export function navForRole(role: Role): NavItem[] {
