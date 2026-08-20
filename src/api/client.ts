@@ -6,13 +6,7 @@ import {
   type AuthTokens,
 } from "@/lib/session";
 
-/**
- * Base URL - in development always use the Vite proxy to avoid CORS.
- * In production use VITE_API_URL if set, otherwise fallback to localhost.
- */
-const BASE = import.meta.env.DEV
-  ? "/api"
-  : (import.meta.env.VITE_API_URL ?? "https://buildsense-qltv.onrender.com");
+const BASE = "";
 
 export type ApiEnvelope<T = unknown> = {
   statusCode: number;
