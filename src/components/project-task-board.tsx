@@ -47,10 +47,11 @@ import {
 import { requireApiResult } from "@/api/client";
 import { progressReportsApi, type ProgressReportResponse } from "@/api/progressReports";
 import { type TaskResponse, tasksApi } from "@/api/tasks";
+import { phasesApi } from "@/api/phases";
 import { materialsApi } from "@/api/materials";
 import { materialRequestsApi } from "@/api/materialRequests";
 import { useSession } from "@/lib/session";
-import { cn } from "@/lib/utils";
+import { cn, isClosedProjectStatus } from "@/lib/utils";
 import { isCloudinaryConfigured, uploadSitePhoto } from "@/lib/cloudinary";
 import { QueryError } from "./query-error";
 import { ConfirmDialog } from "./confirm-dialog";
@@ -60,10 +61,11 @@ const MINIMUM_REPORTING_INTERVAL_MS = 15 * 60 * 1000;
 type ProjectTaskBoardProps = {
   projectId: number;
   projectName?: string;
+  projectStatus?: string;
 };
 
 type TaskForm = {
-  phaseName: string;
+  phaseId: string;
   taskName: string;
   plannedBudget: string;
   baselineStart: string;
@@ -92,7 +94,7 @@ function plusDaysInput(days: number): string {
 
 function newTaskForm(): TaskForm {
   return {
-    phaseName: "",
+    phaseId: "",
     taskName: "",
     plannedBudget: "0",
     baselineStart: todayInput(),
@@ -120,6 +122,11 @@ function responseMessage(result: unknown, fallback: string): string {
   return typeof result === "string" && result.trim() ? result : fallback;
 }
 
+function isForbiddenError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return /forbidden|403|not have access/i.test(message);
+}
+
 function statusClass(status: string): string {
   if (status === "COMPLETED") return "border-success/30 bg-success/10 text-success";
   if (status === "ACTIVE" || status === "IN_PROGRESS")
@@ -138,10 +145,13 @@ function validHttpsUrl(value: string): boolean {
   }
 }
 
-export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardProps) {
+export function ProjectTaskBoard({ projectId, projectName, projectStatus }: ProjectTaskBoardProps) {
   const queryClient = useQueryClient();
   const session = useSession();
-  const canManageTasks = session?.role === "PM";
+  // A closed (COMPLETED/CANCELLED) project is read-only: every task/phase
+  // mutation 409s backend-side, so all edit UI is hidden. Reads stay visible.
+  const isClosedProject = isClosedProjectStatus(projectStatus);
+  const canManageTasks = session?.role === "PM" && !isClosedProject;
   const [taskForm, setTaskForm] = useState<TaskForm>(() => newTaskForm());
   const [taskMaterials, setTaskMaterials] = useState<TaskMaterialForm[]>([]);
   const [reportForm, setReportForm] = useState<ReportForm>(initialReportForm);
@@ -175,7 +185,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   const [editTaskDialog, setEditTaskDialog] = useState<{
     taskId: number;
     rowVersion: string;
-    phaseName: string;
+    phaseId: string;
     taskName: string;
     plannedBudget: string;
     baselineStart: string;
@@ -260,6 +270,14 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     return () => window.clearInterval(timer);
   }, []);
 
+  // A PENDING report of any age blocks a new submit — the backend rejects
+  // a second pending report inside the reporting interval, so an older
+  // pending report must be approved/rejected first. The 15-minute interval
+  // only gates back-to-back submissions after the previous report settled.
+  const pendingReport = useMemo(
+    () => reports.find((report) => report.status === "PENDING"),
+    [reports],
+  );
   const recentActiveReport = useMemo(() => {
     const cutoff = reportClock - MINIMUM_REPORTING_INTERVAL_MS;
     return reports
@@ -278,6 +296,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     canManageTasks &&
     !reportsLoading &&
     !reportsError &&
+    !pendingReport &&
     !recentActiveReport;
 
   const reportIncrement = Number(reportForm.progressIncrement);
@@ -334,8 +353,19 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     setPhotoPreviewUrl("");
   };
 
+  const {
+    data: phases = [],
+  } = useQuery({
+    queryKey: ["phases", projectId],
+    queryFn: async () =>
+      requireApiResult(await phasesApi.listByProject(projectId), "Could not load phases") ?? [],
+    enabled: !!session?.token && projectId > 0,
+    staleTime: 10_000,
+  });
+
   const submitTask = async () => {
-    if (!taskForm.phaseName.trim() || !taskForm.taskName.trim()) {
+    if (rejectIfClosed()) return;
+    if (!taskForm.phaseId || !taskForm.taskName.trim()) {
       toast.error("Phase and task name are required");
       return;
     }
@@ -382,9 +412,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
 
     setCreatingTask(true);
     try {
-      const response = await tasksApi.create({
-        projectId,
-        phaseName: taskForm.phaseName.trim(),
+      const response = await tasksApi.create(Number(taskForm.phaseId), {
         taskName: taskForm.taskName.trim(),
         assignedToUserID: session.userId,
         plannedBudget,
@@ -420,6 +448,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   };
 
   const assignMaterial = async () => {
+    if (rejectIfClosed()) return;
     if (!selectedTask || !assignVariantId || Number(assignMaterialQuantity) <= 0) {
       toast.error("Select a material variant and enter a quantity greater than 0");
       return;
@@ -463,6 +492,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   };
 
   const createMaterialRequestFromTask = async () => {
+    if (rejectIfClosed()) return;
     if (!selectedTask) return;
     setMaterialAction(`request-${selectedTask.taskId}`);
     try {
@@ -484,6 +514,12 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   };
 
   const submitReport = async () => {
+    if (rejectIfClosed()) return;
+    if (reports.some((report) => report.status === "PENDING")) {
+      toast.error("A pending progress report already exists — approve or reject it first");
+      await refetchReports();
+      return;
+    }
     if (!selectedTask) return;
     const progressIncrement = Number(reportForm.progressIncrement);
     const actualCostIncrement = Number(reportForm.actualCostIncrement);
@@ -549,6 +585,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   };
 
   const reviewReport = async () => {
+    if (rejectIfClosed()) return;
     if (!reviewDialog) return;
     const { report, action, reviewNote, allowCostOverrun } = reviewDialog;
     const wouldOverrun =
@@ -588,6 +625,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   };
 
   const changeTaskStatus = async () => {
+    if (rejectIfClosed()) return;
     if (!taskStatusDialog) return;
     const { task, action } = taskStatusDialog;
     const response = await tasksApi.changeStatus(task.taskId, action, task.rowVersion);
@@ -604,7 +642,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     setEditTaskDialog({
       taskId: task.taskId,
       rowVersion: task.rowVersion,
-      phaseName: task.phaseName,
+      phaseId: String(task.phaseId ?? ""),
       taskName: task.taskName,
       plannedBudget: String(task.plannedBudget),
       baselineStart: task.baselineStart.slice(0, 10),
@@ -613,6 +651,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   };
 
   const submitTaskEdit = async () => {
+    if (rejectIfClosed()) return;
     if (!editTaskDialog) return;
     if (!session?.userId) {
       toast.error("Could not resolve the signed-in Project Manager");
@@ -620,7 +659,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     }
     const plannedBudget = Number(editTaskDialog.plannedBudget);
     if (
-      !editTaskDialog.phaseName.trim() ||
+      !editTaskDialog.phaseId ||
       !editTaskDialog.taskName.trim() ||
       !Number.isFinite(plannedBudget) ||
       plannedBudget < 0 ||
@@ -635,7 +674,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
       return;
     }
     const response = await tasksApi.update(editTaskDialog.taskId, {
-      phaseName: editTaskDialog.phaseName.trim(),
+      phaseId: Number(editTaskDialog.phaseId),
       taskName: editTaskDialog.taskName.trim(),
       assignedToUserID: session.userId,
       plannedBudget,
@@ -660,6 +699,7 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
   };
 
   const correctReport = async () => {
+    if (rejectIfClosed()) return;
     if (!correctionDialog) return;
     const progressIncrement = Number(correctionDialog.progressIncrement);
     const actualCostIncrement = Number(correctionDialog.actualCostIncrement);
@@ -688,8 +728,22 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
     }
   };
 
+  const rejectIfClosed = () => {
+    if (isClosedProject) {
+      toast.error("This project is closed — it is read-only and cannot be changed");
+      return true;
+    }
+    return false;
+  };
+
   return (
     <div className="space-y-4">
+      {isClosedProject && (
+        <p className="rounded-lg border border-muted-foreground/25 bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground">
+          This project is {projectStatus?.replaceAll("_", " ").toLowerCase()} and read-only. Tasks,
+          phases, reports, and material plans remain visible below.
+        </p>
+      )}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[180px_180px_minmax(0,1fr)]">
         <TaskMetric label="Tasks" value={String(tasks.length)} />
         <TaskMetric label="Completed" value={String(completedCount)} />
@@ -719,19 +773,24 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <Label htmlFor="task-phase">Phase</Label>
-                    <Input
-                      id="task-phase"
-                      placeholder="Foundation"
-                      value={taskForm.phaseName}
-                      onChange={(event) =>
-                        setTaskForm((current) => ({
-                          ...current,
-                          phaseName: event.target.value,
-                        }))
+                    <Select
+                      value={taskForm.phaseId || undefined}
+                      onValueChange={(value) =>
+                        setTaskForm((current) => ({ ...current, phaseId: value }))
                       }
-                      maxLength={100}
                       disabled={creatingTask}
-                    />
+                    >
+                      <SelectTrigger id="task-phase">
+                        <SelectValue placeholder="Select a phase" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {phases.map((phase) => (
+                          <SelectItem key={phase.phaseId} value={String(phase.phaseId)}>
+                            {phase.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label htmlFor="task-name">Task name</Label>
@@ -1001,15 +1060,6 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                             Edit
                           </Button>
                         )}
-                      {canManageTasks && task.status === "PENDING" && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setTaskStatusDialog({ task, action: "reject" })}
-                        >
-                          Reject
-                        </Button>
-                      )}
                       {canManageTasks &&
                         task.status !== "COMPLETED" &&
                         task.status !== "CANCELLED" && (
@@ -1144,12 +1194,12 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                       Progress report history could not be loaded. Reload before submitting a new
                       report so the reporting interval can be verified.
                     </p>
-                  ) : recentActiveReport?.status === "PENDING" ? (
+                  ) : pendingReport ? (
                     <>
                       <p className="font-medium">A progress report is already awaiting review.</p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         Approve or reject the submitted report in the history below before entering
-                        another report.
+                        another report — only one pending report per task is allowed.
                       </p>
                     </>
                   ) : recentActiveReport ? (
@@ -1319,12 +1369,19 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
                     Loading report history...
                   </div>
                 ) : reportsError ? (
-                  <QueryError
-                    message={
-                      reportsErrorValue instanceof Error ? reportsErrorValue.message : undefined
-                    }
-                    onRetry={() => refetchReports()}
-                  />
+                  isForbiddenError(reportsErrorValue) ? (
+                    <div className="p-8 text-center text-sm text-muted-foreground">
+                      Task reports aren&apos;t shared with your role yet. They remain visible to
+                      admins and the project manager.
+                    </div>
+                  ) : (
+                    <QueryError
+                      message={
+                        reportsErrorValue instanceof Error ? reportsErrorValue.message : undefined
+                      }
+                      onRetry={() => refetchReports()}
+                    />
+                  )
                 ) : (
                   <Table>
                     <TableHeader>
@@ -1458,15 +1515,25 @@ export function ProjectTaskBoard({ projectId, projectName }: ProjectTaskBoardPro
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="edit-task-phase">Phase</Label>
-                  <Input
-                    id="edit-task-phase"
-                    value={editTaskDialog.phaseName}
-                    onChange={(event) =>
+                  <Select
+                    value={editTaskDialog.phaseId || undefined}
+                    onValueChange={(value) =>
                       setEditTaskDialog((current) =>
-                        current ? { ...current, phaseName: event.target.value } : current,
+                        current ? { ...current, phaseId: value } : current,
                       )
                     }
-                  />
+                  >
+                    <SelectTrigger id="edit-task-phase">
+                      <SelectValue placeholder="Select a phase" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {phases.map((phase) => (
+                        <SelectItem key={phase.phaseId} value={String(phase.phaseId)}>
+                          {phase.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label htmlFor="edit-task-name">Task name</Label>

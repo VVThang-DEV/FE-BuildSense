@@ -1,27 +1,19 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
-  Pie,
-  PieChart,
   XAxis,
   YAxis,
 } from "recharts";
 import {
   AlertTriangle,
-  Boxes,
-  CheckCircle2,
   CircleDollarSign,
-  Clock3,
   FolderKanban,
   Package,
-  ShoppingCart,
   Truck,
   Users,
   Warehouse,
@@ -46,15 +38,13 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { NextActionGuide, type NextAction } from "@/components/next-action-guide";
 import { QueryError } from "@/components/query-error";
-import { cn, healthConfig, statusConfig } from "@/lib/utils";
+import { cn, healthConfig } from "@/lib/utils";
 import { ROLE_LABELS, useSession, type Role } from "@/lib/session";
 import { projectsApi, type ProjectResponse } from "@/api/projects";
 import { materialsApi } from "@/api/materials";
 import { suppliersApi } from "@/api/suppliers";
 import { warehousesApi, type InventoryItem, type WarehouseResponse } from "@/api/warehouses";
-import { purchaseOrdersApi, type PurchaseOrderResponse } from "@/api/purchaseOrders";
 import { materialRequestsApi } from "@/api/materialRequests";
-import { warehouseTransfersApi } from "@/api/warehouseTransfers";
 import { usersApi } from "@/api/users";
 import { requireApiResult } from "@/api/client";
 
@@ -90,11 +80,6 @@ const PROJECT_CHART_CONFIG = {
   count: { label: "Projects", color: CHART_COLORS.primary },
 } satisfies ChartConfig;
 
-const PO_CHART_CONFIG = {
-  count: { label: "Orders", color: CHART_COLORS.primary },
-  value: { label: "Value", color: CHART_COLORS.success },
-} satisfies ChartConfig;
-
 const STOCK_CHART_CONFIG = {
   quantity: { label: "Available", color: CHART_COLORS.primary },
   reorderLevel: { label: "Reorder level", color: CHART_COLORS.warning },
@@ -102,21 +87,13 @@ const STOCK_CHART_CONFIG = {
 
 const BUDGET_CHART_CONFIG = {
   budget: { label: "Budget", color: CHART_COLORS.primary },
-  poValue: { label: "PO value", color: CHART_COLORS.warning },
 } satisfies ChartConfig;
 
 function DashboardPage() {
   const session = useSession();
-  const navigate = useNavigate();
   const role = session?.role ?? "CUSTOMER";
   const isLive = !!session?.token;
-  
-  // Redirect suppliers to their dedicated dashboard
-  if (role === "SUPPLIER") {
-    navigate({ to: "/app/supplier/dashboard" });
-    return null;
-  }
-  
+
   const canSeeProjects = role === "ADMIN" || role === "PM";
   const canSeeWarehouse = role === "ADMIN" || role === "WAREHOUSE_MANAGER";
   const canSeeSuppliers = role === "ADMIN";
@@ -135,7 +112,7 @@ function DashboardPage() {
     queryKey: ["dashboard-materials"],
     queryFn: async () =>
       requireApiResult(await materialsApi.getAll(), "Could not load materials") ?? [],
-    enabled: isLive && role !== "CUSTOMER" && role !== "SUPPLIER",
+    enabled: isLive && role !== "CUSTOMER",
     staleTime: 30_000,
   });
   const { data: materials = [] } = materialsQuery;
@@ -183,15 +160,6 @@ function DashboardPage() {
   });
   const { data: inventory = [], isLoading: inventoryLoading } = inventoryQuery;
 
-  const purchaseOrdersQuery = useQuery({
-    queryKey: ["dashboard-purchase-orders"],
-    queryFn: async () =>
-      requireApiResult(await purchaseOrdersApi.getAll(), "Could not load purchase orders") ?? [],
-    enabled: isLive && role !== "CUSTOMER" && role !== "SUPPLIER",
-    staleTime: 20_000,
-  });
-  const { data: purchaseOrders = [], isLoading: purchaseOrdersLoading } = purchaseOrdersQuery;
-
   const materialRequestsQuery = useQuery({
     queryKey: ["dashboard-material-requests"],
     queryFn: async () =>
@@ -200,17 +168,6 @@ function DashboardPage() {
         "Could not load material request actions",
       ) ?? [],
     enabled: isLive && (role === "ADMIN" || role === "PM" || role === "WAREHOUSE_MANAGER"),
-    staleTime: 20_000,
-  });
-
-  const transfersQuery = useQuery({
-    queryKey: ["dashboard-warehouse-transfers"],
-    queryFn: async () =>
-      requireApiResult(
-        await warehouseTransfersApi.getAll(),
-        "Could not load warehouse transfer actions",
-      ) ?? [],
-    enabled: isLive && (role === "ADMIN" || role === "WAREHOUSE_MANAGER"),
     staleTime: 20_000,
   });
 
@@ -251,7 +208,6 @@ function DashboardPage() {
     suppliersQuery,
     warehousesQuery,
     inventoryQuery,
-    purchaseOrdersQuery,
     userCountQuery,
   ].find((query) => query.isError);
 
@@ -260,25 +216,12 @@ function DashboardPage() {
     return projects.filter((project) => project.pmUserID === session.userId);
   }, [projects, role, session?.userId]);
 
-  const scopedProjectIds = useMemo(
-    () => new Set(scopedProjects.map((project) => project.projectId)),
-    [scopedProjects],
-  );
-
-  const scopedPurchaseOrders = useMemo(() => {
-    if (role !== "PM") return purchaseOrders;
-    return purchaseOrders.filter((po) => scopedProjectIds.has(po.projectId));
-  }, [purchaseOrders, role, scopedProjectIds]);
-
-  const pendingPOs = scopedPurchaseOrders.filter((po) => po.status === "PENDING");
-  const approvedPOs = scopedPurchaseOrders.filter((po) => po.status === "APPROVED");
-  const deliveredPOs = scopedPurchaseOrders.filter((po) => po.status === "DELIVERED");
-  const lowStockRows = inventory.filter((item) => item.isLowStock);
+  // Watchlist threshold: any on-hand stock value below 100 units.
+  const lowStockRows = inventory.filter((item) => item.quantity < 100);
 
   const nextActions = useMemo<NextAction[]>(() => {
     const actions: NextAction[] = [];
     const requests = materialRequestsQuery.data ?? [];
-    const transfers = transfersQuery.data ?? [];
     const adjustments = adjustmentsQuery.data ?? [];
     const physicalCounts = physicalCountsQuery.data ?? [];
 
@@ -301,39 +244,12 @@ function DashboardPage() {
         });
       }
 
-      const transferReviews = transfers.filter((item) => item.status === "REQUESTED").length;
-      if (transferReviews > 0) {
-        actions.push({
-          id: "admin-transfer-review",
-          title: "Review requested warehouse transfers",
-          description:
-            "Confirm the destination and requested quantities before stock is reserved for shipment.",
-          to: "/app/warehouse-transfers",
-          buttonLabel: "Review transfers",
-          count: transferReviews,
-          state: "attention",
-        });
-      }
-
-      if (pendingPOs.length > 0) {
-        actions.push({
-          id: "admin-po-review",
-          title: "Review pending purchase orders",
-          description:
-            "Check supplier, delivery date, quantities, and project budget before approval.",
-          to: "/app/procurement",
-          buttonLabel: "Review purchase orders",
-          count: pendingPOs.length,
-          state: "ready",
-        });
-      }
-
       if (lowStockRows.length > 0) {
         actions.push({
           id: "admin-low-stock",
           title: "Check low-stock warehouse records",
           description:
-            "Review available stock and decide whether procurement or a warehouse transfer is needed.",
+            "Review available stock against reorder levels in the warehouse inventory.",
           to: "/app/admin/warehouses",
           buttonLabel: "Open inventory",
           count: lowStockRows.length,
@@ -343,19 +259,6 @@ function DashboardPage() {
     }
 
     if (role === "PM") {
-      if (pendingPOs.length > 0) {
-        actions.push({
-          id: "pm-po-review",
-          title: "Review purchase orders for your projects",
-          description:
-            "Validate the supplier, quantities, delivery timing, and remaining project budget.",
-          to: "/app/procurement",
-          buttonLabel: "Review purchase orders",
-          count: pendingPOs.length,
-          state: "attention",
-        });
-      }
-
       const remainderRequests = requests.filter(
         (item) => item.requestedBy === session?.userId && item.status === "PARTIALLY_ISSUED",
       ).length;
@@ -405,17 +308,13 @@ function DashboardPage() {
 
     if (role === "WAREHOUSE_MANAGER") {
       const managedWarehouseIds = new Set(warehouses.map((item) => item.warehouseId));
-      const requestsToApprove = requests.filter(
-        (item) =>
-          item.status === "PENDING" &&
-          (!item.warehouseId || managedWarehouseIds.has(item.warehouseId)),
-      ).length;
+      const requestsToApprove = requests.filter((item) => item.status === "PENDING").length;
       if (requestsToApprove > 0) {
         actions.push({
           id: "wm-request-review",
           title: "Review pending material requests",
           description:
-            "Select a managed warehouse, compare requested quantities with available stock, and approve fully or partially.",
+            "Compare requested quantities with active-warehouse stock, and approve fully or partially.",
           to: "/app/material-requests",
           buttonLabel: "Review requests",
           count: requestsToApprove,
@@ -423,11 +322,8 @@ function DashboardPage() {
         });
       }
 
-      const requestsToIssue = requests.filter(
-        (item) =>
-          (item.status === "APPROVED" || item.status === "PARTIALLY_APPROVED") &&
-          !!item.warehouseId &&
-          managedWarehouseIds.has(item.warehouseId),
+      const requestsToIssue = requests.filter((item) =>
+        ["APPROVED", "PARTIALLY_APPROVED", "PARTIALLY_ISSUED"].includes(item.status),
       ).length;
       if (requestsToIssue > 0) {
         actions.push({
@@ -442,49 +338,8 @@ function DashboardPage() {
         });
       }
 
-      const transfersToReview = transfers.filter(
-        (item) =>
-          item.status === "REQUESTED" &&
-          managedWarehouseIds.has(item.destinationWarehouseId) &&
-          item.requestedByUserId !== session?.userId,
-      ).length;
-      const transfersToShip = transfers.filter(
-        (item) => item.status === "APPROVED" && managedWarehouseIds.has(item.sourceWarehouseId),
-      ).length;
-      const transfersToReceive = transfers.filter(
-        (item) =>
-          item.status === "IN_TRANSIT" && managedWarehouseIds.has(item.destinationWarehouseId),
-      ).length;
-      const actionableTransfers = transfersToReview + transfersToShip + transfersToReceive;
-      if (actionableTransfers > 0) {
-        actions.push({
-          id: "wm-transfers",
-          title: "Continue warehouse transfers",
-          description: `${transfersToReview} to review, ${transfersToShip} to ship, and ${transfersToReceive} to receive. Only the manager responsible for the current step can act.`,
-          to: "/app/warehouse-transfers",
-          buttonLabel: "Open transfers",
-          count: actionableTransfers,
-          state: "ready",
-        });
-      }
-
-      const poProcessing = scopedPurchaseOrders.filter(
-        (item) =>
-          managedWarehouseIds.has(item.warehouseId) &&
-          ["APPROVED", "PROCESSING", "SHIPPED", "PARTIALLY_RECEIVED"].includes(item.status),
-      ).length;
-      if (poProcessing > 0) {
-        actions.push({
-          id: "wm-procurement",
-          title: "Continue approved purchase orders",
-          description:
-            "Move approved orders through processing and shipping, then record actual receipt when materials arrive.",
-          to: "/app/procurement",
-          buttonLabel: "Open procurement",
-          count: poProcessing,
-          state: "ready",
-        });
-      }
+      // Transfer writes and PO writes are retired: history stays readable
+      // under /app/warehouse-transfers and /app/procurement, no action cards.
 
       const draftCounts = physicalCounts.filter((item) => item.status === "DRAFT").length;
       if (draftCounts > 0) {
@@ -503,11 +358,11 @@ function DashboardPage() {
       if (lowStockRows.length > 0) {
         actions.push({
           id: "wm-low-stock",
-          title: "Replenish low-stock materials",
+          title: "Review low-stock materials",
           description:
-            "Review shortages first, then create a purchase order or request a transfer from another warehouse.",
-          to: "/app/procurement",
-          buttonLabel: "Review shortages",
+            "Check available quantities against reorder levels in the warehouse inventory.",
+          to: "/app/admin/warehouses",
+          buttonLabel: "Open inventory",
           count: lowStockRows.length,
           state: "attention",
         });
@@ -528,21 +383,6 @@ function DashboardPage() {
         });
       }
 
-      const waitingTransferApprovals = transfers.filter(
-        (item) => item.status === "REQUESTED" && item.requestedByUserId === session?.userId,
-      ).length;
-      if (waitingTransferApprovals > 0) {
-        actions.push({
-          id: "wm-track-transfer-approvals",
-          title: "Track transfers awaiting another approver",
-          description:
-            "You created these transfers, so a different destination manager or Admin must review them.",
-          to: "/app/warehouse-transfers",
-          buttonLabel: "View transfers",
-          count: waitingTransferApprovals,
-          state: "waiting",
-        });
-      }
     }
 
     return actions.slice(0, 5);
@@ -550,19 +390,15 @@ function DashboardPage() {
     adjustmentsQuery.data,
     lowStockRows,
     materialRequestsQuery.data,
-    pendingPOs,
     physicalCountsQuery.data,
     role,
     scopedProjects,
-    scopedPurchaseOrders,
     session?.userId,
-    transfersQuery.data,
     warehouses,
   ]);
 
   const nextActionsLoading =
     materialRequestsQuery.isLoading ||
-    transfersQuery.isLoading ||
     adjustmentsQuery.isLoading ||
     physicalCountsQuery.isLoading;
 
@@ -601,7 +437,6 @@ function DashboardPage() {
               suppliersQuery.refetch();
               warehousesQuery.refetch();
               inventoryQuery.refetch();
-              purchaseOrdersQuery.refetch();
               userCountQuery.refetch();
             }}
           />
@@ -620,23 +455,15 @@ function DashboardPage() {
           warehouses={warehouses}
           inventory={inventory}
           lowStockRows={lowStockRows}
-          purchaseOrders={purchaseOrders}
-          pendingPOs={pendingPOs}
-          approvedPOs={approvedPOs}
-          deliveredPOs={deliveredPOs}
           userCount={userCount}
-          loading={projectsLoading || purchaseOrdersLoading || inventoryLoading}
+          loading={projectsLoading || inventoryLoading}
         />
       )}
 
       {!failedQuery && role === "PM" && (
         <ProjectManagerDashboard
           projects={scopedProjects}
-          purchaseOrders={scopedPurchaseOrders}
-          pendingPOs={pendingPOs}
-          approvedPOs={approvedPOs}
-          deliveredPOs={deliveredPOs}
-          loading={projectsLoading || purchaseOrdersLoading}
+          loading={projectsLoading}
         />
       )}
 
@@ -645,12 +472,8 @@ function DashboardPage() {
           warehouses={warehouses}
           inventory={inventory}
           lowStockRows={lowStockRows}
-          purchaseOrders={purchaseOrders}
-          pendingPOs={pendingPOs}
-          approvedPOs={approvedPOs}
-          deliveredPOs={deliveredPOs}
           materialsCount={materials.length}
-          loading={purchaseOrdersLoading || inventoryLoading}
+          loading={inventoryLoading}
         />
       )}
 
@@ -673,10 +496,6 @@ function AdminDashboard({
   warehouses,
   inventory,
   lowStockRows,
-  purchaseOrders,
-  pendingPOs,
-  approvedPOs,
-  deliveredPOs,
   userCount,
   loading,
 }: {
@@ -686,10 +505,6 @@ function AdminDashboard({
   warehouses: WarehouseResponse[];
   inventory: InventoryRow[];
   lowStockRows: InventoryRow[];
-  purchaseOrders: PurchaseOrderResponse[];
-  pendingPOs: PurchaseOrderResponse[];
-  approvedPOs: PurchaseOrderResponse[];
-  deliveredPOs: PurchaseOrderResponse[];
   userCount: number;
   loading: boolean;
 }) {
@@ -719,14 +534,6 @@ function AdminDashboard({
           to="/app/materials"
         />
         <MetricCard
-          icon={ShoppingCart}
-          label="Pending POs"
-          value={pendingPOs.length}
-          detail={formatMoney(sumPOs(pendingPOs))}
-          to="/app/procurement"
-          tone={pendingPOs.length ? "warning" : "default"}
-        />
-        <MetricCard
           icon={Warehouse}
           label="Warehouses"
           value={warehouses.length}
@@ -744,15 +551,8 @@ function AdminDashboard({
 
       <div className="grid gap-4 xl:grid-cols-2">
         <ProjectStatusChartPanel projects={projects} loading={loading} />
-        <ProcurementDonutPanel
-          pendingPOs={pendingPOs}
-          approvedPOs={approvedPOs}
-          deliveredPOs={deliveredPOs}
-        />
-        <PurchaseOrderValueChartPanel purchaseOrders={purchaseOrders} />
         <WarehouseStockChartPanel inventory={inventory} loading={loading} />
         <LowStockPanel rows={lowStockRows} />
-        <RecentPOPanel purchaseOrders={purchaseOrders} />
       </div>
     </>
   );
@@ -760,17 +560,9 @@ function AdminDashboard({
 
 function ProjectManagerDashboard({
   projects,
-  purchaseOrders,
-  pendingPOs,
-  approvedPOs,
-  deliveredPOs,
   loading,
 }: {
   projects: ProjectResponse[];
-  purchaseOrders: PurchaseOrderResponse[];
-  pendingPOs: PurchaseOrderResponse[];
-  approvedPOs: PurchaseOrderResponse[];
-  deliveredPOs: PurchaseOrderResponse[];
   loading: boolean;
 }) {
   const activeProjects = projects.filter((project) => project.status !== "COMPLETED").length;
@@ -794,44 +586,16 @@ function ProjectManagerDashboard({
           tone={delayedProjects ? "danger" : "default"}
         />
         <MetricCard
-          icon={Clock3}
-          label="POs awaiting approval"
-          value={pendingPOs.length}
-          detail="With warehouse"
-          to="/app/procurement"
-          tone={pendingPOs.length ? "warning" : "default"}
-        />
-        <MetricCard
-          icon={CheckCircle2}
-          label="Approved POs"
-          value={approvedPOs.length}
-          detail={`${deliveredPOs.length} delivered`}
-          to="/app/procurement"
-        />
-        <MetricCard
           icon={CircleDollarSign}
           label="Project budget"
           value={formatMoneyCompact(totalBudget)}
           detail={`${formatMoney(totalBudget)} recorded`}
         />
-        <MetricCard
-          icon={ShoppingCart}
-          label="PO value"
-          value={formatMoneyCompact(sumPOs(purchaseOrders))}
-          detail={`${purchaseOrders.length} orders`}
-          to="/app/procurement"
-        />
       </MetricGrid>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <ProjectBudgetChartPanel projects={projects} purchaseOrders={purchaseOrders} />
-        <ProcurementDonutPanel
-          pendingPOs={pendingPOs}
-          approvedPOs={approvedPOs}
-          deliveredPOs={deliveredPOs}
-        />
+        <ProjectBudgetChartPanel projects={projects} />
         <ProjectListPanel projects={projects} loading={loading} />
-        <POAttentionPanel pendingPOs={pendingPOs} approvedPOs={approvedPOs} />
       </div>
     </>
   );
@@ -841,20 +605,12 @@ function WarehouseManagerDashboard({
   warehouses,
   inventory,
   lowStockRows,
-  purchaseOrders,
-  pendingPOs,
-  approvedPOs,
-  deliveredPOs,
   materialsCount,
   loading,
 }: {
   warehouses: WarehouseResponse[];
   inventory: InventoryRow[];
   lowStockRows: InventoryRow[];
-  purchaseOrders: PurchaseOrderResponse[];
-  pendingPOs: PurchaseOrderResponse[];
-  approvedPOs: PurchaseOrderResponse[];
-  deliveredPOs: PurchaseOrderResponse[];
   materialsCount: number;
   loading: boolean;
 }) {
@@ -877,45 +633,17 @@ function WarehouseManagerDashboard({
           to="/app/admin/warehouses"
         />
         <MetricCard
-          icon={Clock3}
-          label="POs to approve"
-          value={pendingPOs.length}
-          detail={formatMoney(sumPOs(pendingPOs))}
-          tone={pendingPOs.length ? "warning" : "default"}
-          to="/app/procurement"
-        />
-        <MetricCard
-          icon={Boxes}
-          label="Ready to import"
-          value={approvedPOs.length}
-          detail="Approved POs"
-          tone={approvedPOs.length ? "warning" : "default"}
-          to="/app/procurement"
-        />
-        <MetricCard
           icon={Package}
           label="Material catalog"
           value={materialsCount}
           detail="Known materials"
           to="/app/materials"
         />
-        <MetricCard
-          icon={CheckCircle2}
-          label="Delivered POs"
-          value={deliveredPOs.length}
-          detail={`${purchaseOrders.length} total orders`}
-        />
       </MetricGrid>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <WarehouseStockChartPanel inventory={inventory} loading={loading} />
         <LowStockRiskChartPanel rows={lowStockRows} />
-        <POActionPanel pendingPOs={pendingPOs} approvedPOs={approvedPOs} />
-        <ProcurementDonutPanel
-          pendingPOs={pendingPOs}
-          approvedPOs={approvedPOs}
-          deliveredPOs={deliveredPOs}
-        />
         <WarehouseInventoryPanel warehouses={warehouses} inventory={inventory} loading={loading} />
       </div>
     </>
@@ -1034,191 +762,18 @@ function ProjectStatusChartPanel({
   );
 }
 
-function ProcurementDonutPanel({
-  pendingPOs,
-  approvedPOs,
-  deliveredPOs,
-}: {
-  pendingPOs: PurchaseOrderResponse[];
-  approvedPOs: PurchaseOrderResponse[];
-  deliveredPOs: PurchaseOrderResponse[];
-}) {
-  const data = [
-    {
-      status: "Pending",
-      count: pendingPOs.length,
-      value: sumPOs(pendingPOs),
-      fill: CHART_COLORS.warning,
-    },
-    {
-      status: "Approved",
-      count: approvedPOs.length,
-      value: sumPOs(approvedPOs),
-      fill: CHART_COLORS.primary,
-    },
-    {
-      status: "Delivered",
-      count: deliveredPOs.length,
-      value: sumPOs(deliveredPOs),
-      fill: CHART_COLORS.success,
-    },
-  ];
-  const total = data.reduce((sum, item) => sum + item.count, 0);
-
-  return (
-    <Panel
-      title="Procurement Mix"
-      action={
-        <Button asChild variant="outline" size="sm">
-          <Link to="/app/procurement">Open</Link>
-        </Button>
-      }
-    >
-      {total === 0 ? (
-        <EmptyLine>No purchase orders yet.</EmptyLine>
-      ) : (
-        <div className="grid items-center gap-4 lg:grid-cols-[minmax(0,1fr)_230px]">
-          <div className="relative min-w-0 rounded-lg border bg-muted/20 p-3">
-            <ChartContainer config={PO_CHART_CONFIG} className="h-[260px] w-full !aspect-auto">
-              <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
-                <ChartTooltip
-                  content={
-                    <ChartTooltipContent
-                      nameKey="status"
-                      hideLabel
-                      formatter={(value, name, item) => (
-                        <div className="flex min-w-[150px] items-center justify-between gap-4">
-                          <span className="text-muted-foreground">{name}</span>
-                          <span className="font-mono font-medium">
-                            {Number(value).toLocaleString()}
-                          </span>
-                          {"payload" in item &&
-                          typeof item.payload === "object" &&
-                          item.payload &&
-                          "value" in item.payload ? (
-                            <span className="text-muted-foreground">
-                              {formatMoney(Number(item.payload.value))}
-                            </span>
-                          ) : null}
-                        </div>
-                      )}
-                    />
-                  }
-                />
-                <Pie
-                  data={data}
-                  dataKey="count"
-                  nameKey="status"
-                  innerRadius={68}
-                  outerRadius={98}
-                  paddingAngle={4}
-                  cornerRadius={8}
-                  strokeWidth={2}
-                >
-                  {data.map((entry) => (
-                    <Cell key={entry.status} fill={entry.fill} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ChartContainer>
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <p className="text-3xl font-semibold tabular-nums">{total}</p>
-                <p className="text-xs text-muted-foreground">total POs</p>
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            {data.map((item) => (
-              <div key={item.status} className="rounded-md border bg-card px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.fill }} />
-                  <span className="text-sm font-medium">{item.status}</span>
-                  <span className="ml-auto font-mono text-sm font-semibold">{item.count}</span>
-                </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${(item.count / total) * 100}%`, backgroundColor: item.fill }}
-                  />
-                </div>
-                <p className="mt-1.5 text-xs text-muted-foreground">{formatMoney(item.value)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-function PurchaseOrderValueChartPanel({
-  purchaseOrders,
-}: {
-  purchaseOrders: PurchaseOrderResponse[];
-}) {
-  const data = [...purchaseOrders]
-    .sort((a, b) => new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime())
-    .slice(-8)
-    .map((po) => ({
-      label: `#${po.poId}`,
-      value: po.totalAmount,
-    }));
-
-  return (
-    <Panel title="PO Value Trend">
-      {data.length === 0 ? (
-        <EmptyLine>No purchase-order value to chart yet.</EmptyLine>
-      ) : (
-        <div className="rounded-lg border bg-muted/20 p-3">
-          <ChartContainer config={PO_CHART_CONFIG} className="h-[270px] w-full !aspect-auto">
-            <AreaChart data={data} margin={{ top: 10, right: 16, left: -8, bottom: 0 }}>
-              <defs>
-                <linearGradient id="poValue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--color-value)" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="var(--color-value)" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} strokeDasharray="4 4" />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
-              <YAxis
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-                tickFormatter={shortNumber}
-                width={42}
-              />
-              <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke="var(--color-value)"
-                fill="url(#poValue)"
-                strokeWidth={2.5}
-              />
-            </AreaChart>
-          </ChartContainer>
-        </div>
-      )}
-    </Panel>
-  );
-}
-
 function ProjectBudgetChartPanel({
   projects,
-  purchaseOrders,
 }: {
   projects: ProjectResponse[];
-  purchaseOrders: PurchaseOrderResponse[];
 }) {
   const data = projects.slice(0, 6).map((project) => ({
     name: compactLabel(project.projectName),
     budget: project.totalProjectBudget,
-    poValue: sumPOs(purchaseOrders.filter((po) => po.projectId === project.projectId)),
   }));
 
   return (
-    <Panel title="Budget vs PO Value">
+    <Panel title="Project Budgets">
       {data.length === 0 ? (
         <EmptyLine>No project budget data yet.</EmptyLine>
       ) : (
@@ -1238,12 +793,6 @@ function ProjectBudgetChartPanel({
               <Bar
                 dataKey="budget"
                 fill="var(--color-budget)"
-                radius={[8, 8, 0, 0]}
-                maxBarSize={58}
-              />
-              <Bar
-                dataKey="poValue"
-                fill="var(--color-poValue)"
                 radius={[8, 8, 0, 0]}
                 maxBarSize={58}
               />
@@ -1396,55 +945,6 @@ function ProjectStatusPanel({
   );
 }
 
-function ProcurementPanel({
-  pendingPOs,
-  approvedPOs,
-  deliveredPOs,
-  purchaseOrders,
-}: {
-  pendingPOs: PurchaseOrderResponse[];
-  approvedPOs: PurchaseOrderResponse[];
-  deliveredPOs: PurchaseOrderResponse[];
-  purchaseOrders: PurchaseOrderResponse[];
-}) {
-  const total = purchaseOrders.length;
-  return (
-    <Panel
-      title="Procurement Summary"
-      action={
-        <Button asChild variant="outline" size="sm">
-          <Link to="/app/procurement">Open</Link>
-        </Button>
-      }
-    >
-      {total === 0 ? (
-        <EmptyLine>No purchase orders yet.</EmptyLine>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <StatusBox
-            label="Pending"
-            count={pendingPOs.length}
-            value={sumPOs(pendingPOs)}
-            status="pending"
-          />
-          <StatusBox
-            label="Approved"
-            count={approvedPOs.length}
-            value={sumPOs(approvedPOs)}
-            status="approved"
-          />
-          <StatusBox
-            label="Delivered"
-            count={deliveredPOs.length}
-            value={sumPOs(deliveredPOs)}
-            status="delivered"
-          />
-        </div>
-      )}
-    </Panel>
-  );
-}
-
 function ProjectListPanel({
   projects,
   loading,
@@ -1494,66 +994,6 @@ function ProjectListPanel({
             ))}
           </TableBody>
         </Table>
-      )}
-    </Panel>
-  );
-}
-
-function POAttentionPanel({
-  pendingPOs,
-  approvedPOs,
-}: {
-  pendingPOs: PurchaseOrderResponse[];
-  approvedPOs: PurchaseOrderResponse[];
-}) {
-  const rows = [...pendingPOs, ...approvedPOs].slice(0, 5);
-  return (
-    <Panel title="PO Follow-up">
-      {rows.length === 0 ? (
-        <EmptyLine>No pending or approved POs for your projects.</EmptyLine>
-      ) : (
-        <PurchaseOrderTable rows={rows} />
-      )}
-    </Panel>
-  );
-}
-
-function POActionPanel({
-  pendingPOs,
-  approvedPOs,
-}: {
-  pendingPOs: PurchaseOrderResponse[];
-  approvedPOs: PurchaseOrderResponse[];
-}) {
-  const rows = [...pendingPOs, ...approvedPOs].slice(0, 6);
-  return (
-    <Panel
-      title="Warehouse PO Queue"
-      action={
-        <Button asChild variant="outline" size="sm">
-          <Link to="/app/procurement">Act</Link>
-        </Button>
-      }
-    >
-      {rows.length === 0 ? (
-        <EmptyLine>No POs awaiting warehouse action.</EmptyLine>
-      ) : (
-        <PurchaseOrderTable rows={rows} />
-      )}
-    </Panel>
-  );
-}
-
-function RecentPOPanel({ purchaseOrders }: { purchaseOrders: PurchaseOrderResponse[] }) {
-  const rows = [...purchaseOrders]
-    .sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())
-    .slice(0, 6);
-  return (
-    <Panel title="Recent Purchase Orders">
-      {rows.length === 0 ? (
-        <EmptyLine>No purchase orders yet.</EmptyLine>
-      ) : (
-        <PurchaseOrderTable rows={rows} />
       )}
     </Panel>
   );
@@ -1659,61 +1099,6 @@ function LowStockPanel({ rows }: { rows: InventoryRow[] }) {
   );
 }
 
-function PurchaseOrderTable({ rows }: { rows: PurchaseOrderResponse[] }) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>PO</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Date</TableHead>
-          <TableHead className="text-right">Total</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((po) => (
-          <TableRow key={po.poId}>
-            <TableCell className="font-mono text-xs">#{po.poId}</TableCell>
-            <TableCell>
-              <Badge variant="outline" className={cn(statusConfig[po.status.toLowerCase()]?.cls)}>
-                {po.status}
-              </Badge>
-            </TableCell>
-            <TableCell className="text-xs text-muted-foreground">
-              {formatDate(po.orderDate)}
-            </TableCell>
-            <TableCell className="text-right tabular-nums">{formatMoney(po.totalAmount)}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-function StatusBox({
-  label,
-  count,
-  value,
-  status,
-}: {
-  label: string;
-  count: number;
-  value: number;
-  status: "pending" | "approved" | "delivered";
-}) {
-  return (
-    <div className="rounded-md border p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <Badge variant="outline" className={cn(statusConfig[status].cls)}>
-          {count}
-        </Badge>
-      </div>
-      <p className="mt-3 text-sm font-semibold tabular-nums">{formatMoney(value)}</p>
-    </div>
-  );
-}
-
 function Panel({
   title,
   action,
@@ -1757,16 +1142,12 @@ function EmptyLine({ children }: { children: React.ReactNode }) {
 
 function dashboardDescription(role: Role): string {
   if (role === "ADMIN")
-    return "System-wide projects, procurement, users, warehouses, and stock signals.";
+    return "System-wide projects, users, warehouses, and stock signals.";
   if (role === "PM")
-    return "Project status, project budgets, and procurement follow-up for your work.";
+    return "Project status, budgets, and material-request follow-up for your work.";
   if (role === "WAREHOUSE_MANAGER")
-    return "Inventory health, purchase-order approvals, and warehouse import queue.";
+    return "Inventory health, material requests, and stock signals.";
   return "Role dashboard.";
-}
-
-function sumPOs(rows: PurchaseOrderResponse[]): number {
-  return rows.reduce((sum, po) => sum + po.totalAmount, 0);
 }
 
 function formatMoney(value: number): string {

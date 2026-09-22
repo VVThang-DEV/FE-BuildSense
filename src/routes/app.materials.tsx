@@ -156,9 +156,11 @@ function MaterialsPage() {
           });
 
       if (response.isSuccess) {
-        if (!editing && typeof response.result === "object" && response.result) {
+        const created: MaterialResponse | null =
+          typeof response.result === "object" && response.result ? response.result : null;
+        if (!editing && created) {
           const variantResponse = await materialsApi.createVariant({
-            materialId: response.result.materialId,
+            materialId: created.materialId,
             variantName: "Standard",
             unit: form.unit.trim(),
             isActive: true,
@@ -172,7 +174,7 @@ function MaterialsPage() {
               message: "Material and standard variant added",
               nextStep: "Add exact sizes, grades, or shapes as variants before purchasing stock.",
               actionLabel: "Manage variants",
-              onAction: () => openVariant(response.result),
+              onAction: () => openVariant(created),
             });
           }
         } else {

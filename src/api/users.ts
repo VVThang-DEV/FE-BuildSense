@@ -1,7 +1,7 @@
 import { apiClient } from "./client";
 
-export type BackendRole = "ADMIN" | "PM" | "WAREHOUSE_MANAGER" | "SUPPLIER" | "CUSTOMER";
-export type BackendRoleValue = 0 | 1 | 2 | 3 | 4;
+export type BackendRole = "ADMIN" | "PM" | "WAREHOUSE_MANAGER" | "CUSTOMER";
+export type BackendRoleValue = 0 | 1 | 2 | 4;
 
 export type AccountResponse = {
   id: number;
@@ -22,11 +22,28 @@ type RawUserIdResponse = {
   UserId?: number;
 };
 
+export type CustomerListItem = {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
+export type CreateUserAccountRequest = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber?: string;
+  /** SUPPLIER is rejected backend-side. */
+  role: BackendRole;
+  password: string;
+  confirmPassword: string;
+};
+
 export const BACKEND_ROLE_LABEL: Record<BackendRole, string> = {
   ADMIN: "Admin/Staff",
   PM: "Project Manager",
   WAREHOUSE_MANAGER: "Warehouse Manager",
-  SUPPLIER: "Supplier",
   CUSTOMER: "Customer",
 };
 
@@ -34,15 +51,15 @@ export const BACKEND_ROLE_VALUE: Record<BackendRole, BackendRoleValue> = {
   ADMIN: 0,
   PM: 1,
   WAREHOUSE_MANAGER: 2,
-  SUPPLIER: 3,
   CUSTOMER: 4,
 };
 
+// SUPPLIER (3) is retired: ADMIN can no longer assign it and supplier
+// accounts are locked out. Value 3 maps to CUSTOMER as a safe fallback.
 export const USER_MANAGEMENT_ROLES: BackendRole[] = [
   "ADMIN",
   "PM",
   "WAREHOUSE_MANAGER",
-  "SUPPLIER",
   "CUSTOMER",
 ];
 
@@ -50,7 +67,6 @@ const ROLE_BY_NUMBER: Record<number, BackendRole> = {
   0: "ADMIN",
   1: "PM",
   2: "WAREHOUSE_MANAGER",
-  3: "SUPPLIER",
   4: "CUSTOMER",
 };
 
@@ -91,6 +107,14 @@ export const usersApi = {
   },
   /** Admin only */
   countUsers: () => apiClient.get<number>("/api/useraccount/CountUser"),
+  /**
+   * Verified customers only (`id`, name, email). ADMIN and PM.
+   * Used for customer assignment pickers — PM cannot call getAll.
+   */
+  getCustomers: (search?: string) => {
+    const query = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+    return apiClient.get<CustomerListItem[]>(`/api/useraccount/customers${query}`);
+  },
   getUserId: async () => {
     const response = await apiClient.get<number | RawUserIdResponse>("/api/useraccount/GetUserId");
     return {
@@ -110,4 +134,15 @@ export const usersApi = {
   /** Admin only */
   updateRole: (id: number, body: { role: BackendRoleValue }) =>
     apiClient.put<string>(`/api/useraccount/UpdateUserRoleProfile/${id}`, body),
+  /**
+   * Admin only. Single-call account provisioning — replaces the retired
+   * register → update-role chain. The account is verified immediately;
+   * HTTP 201 carries the created user id. No verification email is sent;
+   * email is password-reset only now.
+   */
+  createAccount: (body: CreateUserAccountRequest) =>
+    apiClient.post<number>("/api/useraccount", {
+      ...body,
+      role: BACKEND_ROLE_VALUE[body.role],
+    }),
 };

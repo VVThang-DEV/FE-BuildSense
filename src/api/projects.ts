@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { AiProposedPhase, AiProposedTask } from "./aiPlanning";
 
 export type ProjectStatus =
   | "PLANNING"
@@ -52,6 +53,7 @@ export type CreateProjectRequest = {
   pmUserID: number;
   baselineStart: string;
   baselineEnd: string;
+  customerUserId?: number;
 };
 
 export type ProjectMaterialRequirement = {
@@ -106,6 +108,37 @@ export type AdjustProjectBudgetRequest = {
   projectId: number;
   amount: number;
   reason: string;
+};
+
+export type AiImportDraftProject = {
+  projectName?: string;
+  address?: string | null;
+  totalProjectBudget?: number;
+  startDate?: string;
+  baselineStart?: string;
+  baselineEnd?: string;
+  [key: string]: unknown;
+};
+
+/**
+ * AI-extracted project + phase/task draft preview from a Word file.
+ * Persists nothing. Flow: review → create the project normally →
+ * `confirm` the preview against the created project.
+ */
+export type AiImportPreviewResponse = {
+  project?: AiImportDraftProject | null;
+  /** Plan preview; also accepted at the top level for backend variants. */
+  plan?: unknown;
+  phases?: unknown;
+  tasks?: unknown;
+  warnings?: string[];
+  [key: string]: unknown;
+};
+
+export type AiImportPlanPreview = {
+  phases: AiProposedPhase[];
+  tasks?: AiProposedTask[];
+  warnings: string[];
 };
 
 export type ProjectBudgetHistoryResponse = {
@@ -207,6 +240,14 @@ export const projectsApi = {
           : response.result,
     };
   },
+  importFromWordAi: async (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return apiClient.postForm<AiImportPreviewResponse>(
+      "/api/projects/import-word-ai",
+      body,
+    );
+  },
   importFromWord: async (file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -221,18 +262,21 @@ export const projectsApi = {
   },
   getMaterialRequirements: (projectId: number) =>
     apiClient.get<ProjectMaterialRequirement[]>(`/api/Projects/${projectId}/material-requirements`),
-  runMrp: (projectId: number, warehouseId?: number) =>
-    apiClient.post<MRPCalculationResponse[]>(
-      `/api/Projects/${projectId}/mrp-runs${warehouseId ? `?warehouseId=${warehouseId}` : ""}`,
-    ),
-  getLatestMrp: (projectId: number, warehouseId: number) =>
-    apiClient.get<MRPCalculationResponse[]>(
-      `/api/Projects/${projectId}/mrp-runs/latest?warehouseId=${warehouseId}`,
-    ),
+  runMrp: (projectId: number, _warehouseId?: number) =>
+    apiClient.post<MRPCalculationResponse[]>(`/api/Projects/${projectId}/mrp-runs`),
+  getLatestMrp: (projectId: number, _warehouseId?: number) =>
+    apiClient.get<MRPCalculationResponse[]>(`/api/Projects/${projectId}/mrp-runs/latest`),
   adjustBudget: (body: AdjustProjectBudgetRequest) =>
     apiClient.post<ProjectBudgetHistoryResponse>("/api/Projects/adjust-budget", body),
   getBudgetHistories: (projectId: number) =>
     apiClient.get<ProjectBudgetHistoryResponse[]>(`/api/Projects/${projectId}/budget-histories`),
+  /**
+   * Download the role-specific .xlsx workbook built from live project data.
+   * Full view for ADMIN/owning PM/assigned CUSTOMER, inventory view for a
+   * linked WAREHOUSE_MANAGER. 403 when the caller cannot access the project.
+   */
+  exportProject: (projectId: number) =>
+    apiClient.download(`/api/Projects/${projectId}/export`),
   update: (projectId: number, body: UpdateProjectRequest) =>
     apiClient.put<ProjectResponse>(`/api/Projects/${projectId}`, body),
   changeStatus: (
@@ -250,7 +294,11 @@ export const projectsApi = {
       projectManagerUserId,
       rowVersion,
     }),
-  assignCustomer: async (projectId: number, customerUserId: number, rowVersion: string) => {
+  assignCustomer: async (
+    projectId: number,
+    customerUserId: number | null,
+    rowVersion: string,
+  ) => {
     const response = await apiClient.put<RawProjectResponse | string>(
       `/api/Projects/${projectId}/customer`,
       {

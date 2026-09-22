@@ -11,8 +11,9 @@ export type MaterialRequestItem = {
 export type CreateMaterialRequestRequest = {
   projectId: number;
   taskId?: number;
-  warehouseId?: number;
   requestNote?: string;
+  /** Planning-only estimate. Never debits the budget. */
+  estimatedCost?: number;
   items: MaterialRequestItem[];
 };
 
@@ -37,6 +38,7 @@ export type MaterialRequestDetail = {
   quantity: number;
   approvedQuantity: number;
   issuedQuantity: number;
+  unitActualCost?: number | null;
   returnedQuantity: number;
   netIssuedQuantity: number;
   remainingRequestQuantity: number;
@@ -59,25 +61,42 @@ export type MaterialRequestResponse = {
   approvedByUserId?: number | null;
   approvedAt?: string | null;
   decisionNote?: string | null;
+  estimatedCost: number;
+  actualCost: number;
+  budgetDebitedAmount: number;
+  actualCostUpdatedAt?: string | null;
+  actualCostUpdatedByUserId?: number | null;
   rowVersion: string;
   items: MaterialRequestDetail[];
 };
 
 export type ApproveMaterialRequest = {
-  warehouseId: number;
   decisionNote?: string;
-  items: { itemId: number; approvedQuantity: number }[];
+  items: { itemId: number; approvedQuantity: number; unitActualCost?: number }[];
 };
 
 export type UpdatePendingMaterialRequest = {
   rowVersion: string;
   requestNote?: string;
+  estimatedCost?: number;
   items: {
     itemId: number;
     quantity: number;
     neededByDate: string;
     note?: string;
   }[];
+};
+
+export type IssueMaterialRequest = {
+  rowVersion?: string;
+  /** Omit to issue everything reserved. Provide per-line quantities for partial issue. */
+  items?: { itemId: number; quantity: number }[];
+};
+
+export type AdjustActualCostRequest = {
+  rowVersion: string;
+  note?: string;
+  items: { itemId: number; unitActualCost: number }[];
 };
 
 export const materialRequestsApi = {
@@ -96,8 +115,16 @@ export const materialRequestsApi = {
     apiClient.put<MaterialRequestResponse>(`/api/MaterialRequest/${requestId}/reject`, {
       decisionNote,
     }),
-  issue: (requestId: number) =>
-    apiClient.put<MaterialRequestResponse>(`/api/MaterialRequest/${requestId}/issue`),
+  issue: (requestId: number, body?: IssueMaterialRequest) =>
+    apiClient.put<MaterialRequestResponse>(
+      `/api/MaterialRequest/${requestId}/issue`,
+      body ?? {},
+    ),
+  adjustActualCost: (requestId: number, body: AdjustActualCostRequest) =>
+    apiClient.put<MaterialRequestResponse>(
+      `/api/MaterialRequest/${requestId}/actual-cost`,
+      body,
+    ),
   release: (requestId: number) =>
     apiClient.put<MaterialRequestResponse>(`/api/MaterialRequest/${requestId}/release`),
   updatePending: (requestId: number, body: UpdatePendingMaterialRequest) =>

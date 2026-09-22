@@ -56,6 +56,8 @@ type Props = {
   canAdjustInventory: boolean;
   onAdjust: () => void;
   onReturn: () => void;
+  /** Account id → display name. Falls back to "User #id" when unknown. */
+  userNames?: Record<number, string>;
 };
 
 export function WarehouseInventoryWorkspace({
@@ -65,36 +67,42 @@ export function WarehouseInventoryWorkspace({
   canAdjustInventory,
   onAdjust,
   onReturn,
+  userNames,
 }: Props) {
   const [search, setSearch] = useState("");
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
 
+  const activeWarehouse =
+    warehouses.find((warehouse) => warehouse.isActive) ?? warehouses[0];
+  const effectiveId = activeWarehouse?.warehouseId ?? selectedId;
+
   useEffect(() => {
-    if (selectedId === null && warehouses.length) onSelectWarehouse(warehouses[0].warehouseId);
-  }, [onSelectWarehouse, selectedId, warehouses]);
+    if (activeWarehouse && selectedId !== activeWarehouse.warehouseId)
+      onSelectWarehouse(activeWarehouse.warehouseId);
+  }, [activeWarehouse, onSelectWarehouse, selectedId]);
 
   const inventoryQuery = useQuery({
-    queryKey: ["warehouse-inventory", selectedId],
+    queryKey: ["warehouse-inventory", effectiveId],
     queryFn: async () =>
       requireApiResult(
-        await warehousesApi.getInventory(selectedId!),
+        await warehousesApi.getInventory(effectiveId!),
         "Could not load warehouse inventory",
       ) ?? [],
-    enabled: selectedId !== null,
+    enabled: effectiveId !== null && effectiveId !== undefined,
     staleTime: 10_000,
   });
   const transactionsQuery = useQuery({
-    queryKey: ["warehouse-transactions", selectedId],
+    queryKey: ["warehouse-transactions", effectiveId],
     queryFn: async () =>
       requireApiResult(
-        await warehousesApi.getTransactions(selectedId!),
+        await warehousesApi.getTransactions(effectiveId!),
         "Could not load inventory transactions",
       ) ?? [],
-    enabled: selectedId !== null,
+    enabled: effectiveId !== null && effectiveId !== undefined,
     staleTime: 10_000,
   });
 
-  const selectedWarehouse = warehouses.find((warehouse) => warehouse.warehouseId === selectedId);
+  const selectedWarehouse = activeWarehouse;
   const inventory = useMemo(() => inventoryQuery.data ?? [], [inventoryQuery.data]);
   const summary = useMemo(
     () => ({
@@ -141,28 +149,15 @@ export function WarehouseInventoryWorkspace({
         <CardContent className="p-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 flex-1">
-              <Label htmlFor="warehouse-selector" className="text-xs text-muted-foreground">
-                Active warehouse
-              </Label>
-              <Select
-                value={selectedId ? String(selectedId) : ""}
-                onValueChange={(value) => {
-                  onSelectWarehouse(Number(value));
-                  setSearch("");
-                  setStockFilter("all");
-                }}
-              >
-                <SelectTrigger id="warehouse-selector" className="mt-1 max-w-xl">
-                  <SelectValue placeholder="Select warehouse" />
-                </SelectTrigger>
-                <SelectContent>
-                  {warehouses.map((warehouse) => (
-                    <SelectItem key={warehouse.warehouseId} value={String(warehouse.warehouseId)}>
-                      {warehouse.warehouseName} · {warehouse.location}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <p className="text-xs text-muted-foreground">Active warehouse</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <p className="text-base font-semibold">
+                  {selectedWarehouse
+                    ? `${selectedWarehouse.warehouseName} · ${selectedWarehouse.location}`
+                    : "No active warehouse"}
+                </p>
+                <Badge variant="outline">Single-warehouse mode</Badge>
+              </div>
               {selectedWarehouse && (
                 <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1.5">
@@ -186,7 +181,7 @@ export function WarehouseInventoryWorkspace({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!selectedId || inventoryQuery.isFetching || transactionsQuery.isFetching}
+                disabled={!effectiveId || inventoryQuery.isFetching || transactionsQuery.isFetching}
                 onClick={refresh}
               >
                 <RefreshCw
@@ -330,6 +325,7 @@ export function WarehouseInventoryWorkspace({
                 <TransactionTable
                   transactions={transactionsQuery.data ?? []}
                   inventory={inventory}
+                  userNames={userNames}
                 />
               )}
             </CardContent>
@@ -427,9 +423,11 @@ function InventoryTable({ rows, hasInventory }: { rows: InventoryItem[]; hasInve
 function TransactionTable({
   transactions,
   inventory,
+  userNames,
 }: {
   transactions: InventoryTransactionResponse[];
   inventory: InventoryItem[];
+  userNames?: Record<number, string>;
 }) {
   if (transactions.length === 0) {
     return (
@@ -506,7 +504,10 @@ function TransactionTable({
                     <p>Expires {new Date(transaction.expiryDate).toLocaleDateString()}</p>
                   )}
                 </TableCell>
-                <TableCell className="text-xs">User #{transaction.performedByUserId}</TableCell>
+                <TableCell className="text-xs">
+                  {userNames?.[transaction.performedByUserId] ??
+                    `User #${transaction.performedByUserId}`}
+                </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {transaction.totalValue != null ? formatNumber(transaction.totalValue) : "-"}
                 </TableCell>

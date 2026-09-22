@@ -38,19 +38,6 @@ export const authApi = {
   adminResetPassword: (userId: number) =>
     apiClient.post(`/api/auth/admin/reset-password/${userId}`),
 
-  /** POST /api/auth/register → returns new userId in result */
-  register: (body: {
-    email: string;
-    password: string;
-    confirmPassword: string;
-    firstName: string;
-    lastName: string;
-  }) => apiClient.post<number>("/api/auth/register", body),
-
-  /** POST /api/auth/Verification */
-  verify: (userId: number, verificationCode: string) =>
-    apiClient.post("/api/auth/Verification", { userId, verificationCode }),
-
-  /** POST /api/auth/resend-verification */
-  resendVerification: (email: string) => apiClient.post("/api/auth/resend-verification", { email }),
+  // Retired (HTTP 410): register, Verification, resend-verification.
+  // Account provisioning is ADMIN-only via POST /api/UserAccount.
 };

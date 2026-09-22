@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { Eye, EyeOff, MoreHorizontal, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { toast } from "sonner";
@@ -61,22 +61,18 @@ function UsersPage() {
   const isLive = !!session?.token;
   const [open, setOpen] = useState(false);
   const [invLoading, setInvLoading] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
-  const [inv, setInv] = useState<{
-    firstName: string;
-    lastName: string;
-    email: string;
-    password: string;
-    confirmPassword: string;
-    role: BackendRole;
-  }>({
+  const emptyInvite = () => ({
     firstName: "",
     lastName: "",
     email: "",
+    phoneNumber: "",
     password: "",
     confirmPassword: "",
-    role: "PM",
+    role: "PM" as BackendRole,
   });
+  const [inv, setInv] = useState(emptyInvite);
 
   const {
     data: liveUsers,
@@ -124,48 +120,30 @@ function UsersPage() {
     }
     setInvLoading(true);
     try {
-      const response = await authApi.register({
-        email: inv.email.trim(),
-        password: inv.password,
-        confirmPassword: inv.confirmPassword,
+      // Single-call provisioning: verified immediately, no email verification.
+      const response = await usersApi.createAccount({
         firstName: inv.firstName.trim(),
         lastName: inv.lastName.trim(),
+        email: inv.email.trim(),
+        phoneNumber: inv.phoneNumber.trim() || undefined,
+        role: inv.role,
+        password: inv.password,
+        confirmPassword: inv.confirmPassword,
       });
-      // Registration intentionally creates CUSTOMER accounts. Promote the new
-      // account through the admin-only role endpoint after it has an ID.
-      const createdUserId = typeof response.result === "number" ? response.result : 0;
-      if (createdUserId > 0) {
-        const roleResponse = await usersApi.updateRole(createdUserId, {
-          role: BACKEND_ROLE_VALUE[inv.role],
-        });
-        if (!roleResponse.isSuccess) {
-          toast.warning(
-            `Account #${createdUserId} was created, but its role is still CUSTOMER: ${roleResponse.errorMessage ?? "role update failed"}`,
-          );
-          await refetch();
-          return;
-        }
-
-        if (response.isSuccess) {
-          toast.success(`Account created for ${inv.email} as ${BACKEND_ROLE_LABEL[inv.role]}`);
-        } else {
-          toast.warning(
-            `Account and role were created, but the verification email was not sent. Use resend verification before sign-in.`,
-          );
-        }
-        setOpen(false);
-        setInv({
-          firstName: "",
-          lastName: "",
-          email: "",
-          password: "",
-          confirmPassword: "",
-          role: "PM",
-        });
-        await refetch();
-      } else {
-        toast.error(response.errorMessage ?? "Registration failed");
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Account creation failed");
+        return;
       }
+      const createdUserId = typeof response.result === "number" ? response.result : 0;
+      toast.success(
+        `Account created for ${inv.email.trim()} as ${BACKEND_ROLE_LABEL[inv.role]}` +
+          (createdUserId > 0 ? ` (#${createdUserId})` : "") +
+          " — verified and ready to sign in",
+      );
+      setOpen(false);
+      setInv(emptyInvite());
+      setShowPasswords(false);
+      await refetch();
     } catch {
       toast.error("Could not reach the backend");
     } finally {
@@ -194,7 +172,8 @@ function UsersPage() {
           <DialogHeader>
             <DialogTitle>Create Account</DialogTitle>
             <DialogDescription>
-              Add a backend user and send a verification email to activate their account.
+              Add a backend user with a role and password. The account is verified immediately
+              and ready to sign in — no verification email is sent.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
@@ -229,20 +208,41 @@ function UsersPage() {
               />
             </div>
             <div>
-              <Label htmlFor="account-password">Password</Label>
+              <Label htmlFor="account-phone">Phone (optional)</Label>
               <Input
-                id="account-password"
-                type="password"
-                value={inv.password}
-                onChange={(e) => setInv((f) => ({ ...f, password: e.target.value }))}
-                maxLength={128}
+                id="account-phone"
+                type="tel"
+                value={inv.phoneNumber}
+                onChange={(e) => setInv((f) => ({ ...f, phoneNumber: e.target.value }))}
+                maxLength={50}
               />
+            </div>
+            <div>
+              <Label htmlFor="account-password">Password</Label>
+              <div className="relative">
+                <Input
+                  id="account-password"
+                  type={showPasswords ? "text" : "password"}
+                  value={inv.password}
+                  onChange={(e) => setInv((f) => ({ ...f, password: e.target.value }))}
+                  maxLength={128}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswords((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showPasswords ? "Hide passwords" : "Show passwords"}
+                >
+                  {showPasswords ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <div>
               <Label htmlFor="account-confirm-password">Confirm password</Label>
               <Input
                 id="account-confirm-password"
-                type="password"
+                type={showPasswords ? "text" : "password"}
                 value={inv.confirmPassword}
                 onChange={(e) => setInv((f) => ({ ...f, confirmPassword: e.target.value }))}
               />
@@ -294,6 +294,7 @@ function UsersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>ID</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
@@ -303,7 +304,7 @@ function UsersPage() {
               <TableBody>
                 {(liveUsers ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                       No users yet
                     </TableCell>
                   </TableRow>
@@ -312,6 +313,9 @@ function UsersPage() {
                   const fullName = `${user.firstName} ${user.lastName}`.trim();
                   return (
                     <TableRow key={user.id}>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        #{user.id}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2.5">
                           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-[11px] font-bold">
@@ -392,6 +396,8 @@ function UsersPage() {
                                     toast.success(
                                       `Password reset instructions queued for ${user.email}`,
                                     );
+                                } catch {
+                                  toast.error("Could not reach the backend");
                                 } finally {
                                   setUpdatingUserId(null);
                                 }

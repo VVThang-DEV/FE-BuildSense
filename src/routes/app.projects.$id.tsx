@@ -30,13 +30,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn, healthConfig } from "@/lib/utils";
+import { cn, healthConfig, isClosedProjectStatus } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProjectTaskBoard } from "@/components/project-task-board";
 import { ProjectMaterialPlanning } from "@/components/project-material-planning";
 import { ProjectBudgetPanel } from "@/components/project-budget-panel";
+import { ProjectPhasesPanel } from "@/components/project-phases-panel";
+import { AiProjectPlan } from "@/components/ai-project-plan";
+import { ProjectExportButton } from "@/components/project-export-button";
 import { useSession } from "@/lib/session";
 import { projectsApi } from "@/api/projects";
 import { usersApi } from "@/api/users";
@@ -108,16 +111,23 @@ function ProjectDetail() {
     staleTime: 30_000,
   });
 
+  const canAssignCustomer = session?.role === "PM";
+  const [customerSearch, setCustomerSearch] = useState("");
   const customersQuery = useQuery({
-    queryKey: ["users", "customers"],
+    queryKey: ["users", "customers", customerSearch],
     queryFn: async () => {
-      const response = await usersApi.getAll();
+      const response = await usersApi.getCustomers(customerSearch || undefined);
       if (!response.isSuccess) throw new Error(response.errorMessage ?? "Could not load customers");
-      return (response.result ?? []).filter((account) => account.role === "CUSTOMER");
+      return response.result ?? [];
     },
-    enabled: isLive && session?.role === "ADMIN" && assignCustomerOpen,
+    enabled: isLive && (session?.role === "ADMIN" || canAssignCustomer) && assignCustomerOpen,
     staleTime: 30_000,
   });
+
+  // Closed (COMPLETED/CANCELLED) projects are read-only: mutations 409
+  // backend-side. Edit, customer, budget, AI-plan, and task UIs hide their
+  // actions; reads stay visible. Reopen from CANCELLED stays available.
+  const isClosedProject = isClosedProjectStatus(project?.status);
 
   const changeStatus = async (action: "start" | "pause" | "cancel" | "reopen" | "complete") => {
     if (!project) return;
@@ -223,13 +233,14 @@ function ProjectDetail() {
   const openCustomerDialog = () => {
     if (!project) return;
     setCustomerId(project.customerUserID ? String(project.customerUserID) : "");
+    setCustomerSearch("");
     setAssignCustomerOpen(true);
   };
 
-  const assignCustomer = async () => {
+  const assignCustomer = async (clear = false) => {
     if (!project) return;
-    const userId = Number(customerId);
-    if (!Number.isInteger(userId) || userId <= 0) {
+    const userId = clear ? null : Number(customerId);
+    if (!clear && (userId === null || !Number.isInteger(userId) || userId <= 0)) {
       toast.error("Select a customer");
       return;
     }
@@ -242,9 +253,10 @@ function ProjectDetail() {
       );
       if (!response.isSuccess) {
         toast.error(response.errorMessage ?? "Could not assign customer");
+        if (response.statusCode === 409) await refetch();
         return;
       }
-      toast.success("Customer assigned");
+      toast.success(clear ? "Customer assignment cleared" : "Customer assigned");
       setAssignCustomerOpen(false);
       await refetch();
     } finally {
@@ -289,23 +301,23 @@ function ProjectDetail() {
                 >
                   {project.status.replaceAll("_", " ")}
                 </Badge>
-                {(session?.role === "PM" || session?.role === "ADMIN") && (
+                <ProjectExportButton
+                  projectId={project.projectId}
+                  projectName={project.projectName}
+                />
+                {session?.role === "ADMIN" && (
+                  <Button size="sm" variant="outline" onClick={openManagerDialog}>
+                    Reassign PM
+                  </Button>
+                )}
+                {session?.role === "PM" && !isClosedProject && (
                   <>
-                    {session.role === "PM" && (
-                      <Button size="sm" variant="outline" onClick={openProjectEditor}>
-                        Edit
-                      </Button>
-                    )}
-                    {session.role === "ADMIN" && (
-                      <>
-                        <Button size="sm" variant="outline" onClick={openManagerDialog}>
-                          Reassign PM
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={openCustomerDialog}>
-                          Assign customer
-                        </Button>
-                      </>
-                    )}
+                    <Button size="sm" variant="outline" onClick={openProjectEditor}>
+                      Edit
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={openCustomerDialog}>
+                      Assign customer
+                    </Button>
                     {project.status === "PLANNING" && (
                       <Button
                         size="sm"
@@ -325,7 +337,7 @@ function ProjectDetail() {
                         Pause
                       </Button>
                     )}
-                    {(project.status === "PAUSED" || project.status === "CANCELLED") && (
+                    {project.status === "PAUSED" && (
                       <Button
                         size="sm"
                         disabled={!!changingStatus}
@@ -356,9 +368,25 @@ function ProjectDetail() {
                     )}
                   </>
                 )}
+                {session?.role === "PM" && project.status === "CANCELLED" && (
+                  <Button
+                    size="sm"
+                    disabled={!!changingStatus}
+                    onClick={() => changeStatus("reopen")}
+                  >
+                    Reopen
+                  </Button>
+                )}
               </div>
             }
           />
+
+          {isClosedProject && (
+            <p className="mt-3 rounded-lg border border-muted-foreground/25 bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground">
+              This project is {project.status.replaceAll("_", " ").toLowerCase()} and read-only.
+              All data stays visible; edits, planning, and fulfillment actions are disabled.
+            </p>
+          )}
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <SummaryCard
@@ -388,11 +416,17 @@ function ProjectDetail() {
           </div>
 
           <Tabs defaultValue="overview" className="mt-4">
-            <TabsList className="grid w-full max-w-2xl grid-cols-4">
+            <TabsList
+              className={`grid w-full ${session?.role === "PM" && !isClosedProject ? "max-w-4xl grid-cols-6" : "max-w-3xl grid-cols-5"}`}
+            >
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="phases">Phases</TabsTrigger>
               <TabsTrigger value="tasks">Tasks</TabsTrigger>
               <TabsTrigger value="materials">Materials</TabsTrigger>
               <TabsTrigger value="budget">Budget</TabsTrigger>
+              {session?.role === "PM" && !isClosedProject && (
+                <TabsTrigger value="ai-plan">AI Plan</TabsTrigger>
+              )}
             </TabsList>
             <TabsContent value="overview">
               <Card className="shadow-sm">
@@ -408,12 +442,28 @@ function ProjectDetail() {
                 </CardContent>
               </Card>
             </TabsContent>
+            <TabsContent value="phases">
+              <ProjectPhasesPanel
+                projectId={project.projectId}
+                projectStatus={project.status}
+                canManage={session?.role === "PM"}
+              />
+            </TabsContent>
             <TabsContent value="tasks">
-              <ProjectTaskBoard projectId={project.projectId} projectName={project.projectName} />
+              <ProjectTaskBoard
+                projectId={project.projectId}
+                projectName={project.projectName}
+                projectStatus={project.status}
+              />
             </TabsContent>
             <TabsContent value="materials">
-              <ProjectMaterialPlanning projectId={project.projectId} />
+              <ProjectMaterialPlanning projectId={project.projectId} projectStatus={project.status} />
             </TabsContent>
+            {session?.role === "PM" && !isClosedProject && (
+              <TabsContent value="ai-plan">
+                <AiProjectPlan projectId={project.projectId} project={project} />
+              </TabsContent>
+            )}
             <TabsContent value="budget">
               <ProjectBudgetPanel
                 projectId={project.projectId}
@@ -424,7 +474,7 @@ function ProjectDetail() {
                 purchaseOrderCommittedCost={project.purchaseOrderCommittedCost}
                 purchaseOrderReceivedCost={project.purchaseOrderReceivedCost}
                 remainingProcurementBudget={project.remainingProcurementBudget}
-                canAdjust={session?.role === "ADMIN"}
+                canAdjust={session?.role === "PM" && !isClosedProject}
                 canViewHistory={session?.role === "ADMIN" || session?.role === "PM"}
                 onUpdated={() => refetch()}
               />
@@ -563,38 +613,55 @@ function ProjectDetail() {
           <DialogHeader>
             <DialogTitle>Assign Customer</DialogTitle>
           </DialogHeader>
-          <div>
-            <Label>Customer</Label>
-            <Select
-              value={customerId}
-              onValueChange={setCustomerId}
-              disabled={saving || customersQuery.isLoading}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={customersQuery.isLoading ? "Loading customers..." : "Select customer"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {(customersQuery.data ?? []).map((customer) => (
-                  <SelectItem key={customer.id} value={String(customer.id)}>
-                    {customer.firstName} {customer.lastName} ({customer.email})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {customersQuery.isError && (
-              <p className="mt-2 text-sm text-destructive">
-                {customersQuery.error instanceof Error
-                  ? customersQuery.error.message
-                  : "Could not load customers"}
-              </p>
-            )}
-            {customersQuery.isSuccess && (customersQuery.data ?? []).length === 0 && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                No customer accounts are available. Create or promote an account to Customer first.
-              </p>
-            )}
+          <div className="space-y-3">
+            <p className="rounded-lg border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+              Reassigning revokes the previous customer&apos;s access to this project immediately.
+            </p>
+            <div>
+              <Label htmlFor="assign-customer-search">Search verified customers</Label>
+              <Input
+                id="assign-customer-search"
+                placeholder="Name or email..."
+                value={customerSearch}
+                onChange={(event) => setCustomerSearch(event.target.value)}
+                maxLength={100}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <Label>Customer</Label>
+              <Select
+                value={customerId}
+                onValueChange={setCustomerId}
+                disabled={saving || customersQuery.isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={customersQuery.isLoading ? "Loading customers..." : "Select customer"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(customersQuery.data ?? []).map((customer) => (
+                    <SelectItem key={customer.id} value={String(customer.id)}>
+                      {customer.firstName} {customer.lastName} ({customer.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {customersQuery.isError && (
+                <p className="mt-2 text-sm text-destructive">
+                  {customersQuery.error instanceof Error
+                    ? customersQuery.error.message
+                    : "Could not load customers"}
+                </p>
+              )}
+              {customersQuery.isSuccess && (customersQuery.data ?? []).length === 0 && (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  No verified customer accounts match. Create or promote an account to Customer
+                  first.
+                </p>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -604,7 +671,16 @@ function ProjectDetail() {
             >
               Cancel
             </Button>
-            <Button onClick={assignCustomer} disabled={saving || !customerId}>
+            {project?.customerUserID && (
+              <Button
+                variant="destructive"
+                onClick={() => assignCustomer(true)}
+                disabled={saving}
+              >
+                {saving ? "Clearing..." : "Clear"}
+              </Button>
+            )}
+            <Button onClick={() => assignCustomer(false)} disabled={saving || !customerId}>
               {saving ? "Assigning..." : "Assign"}
             </Button>
           </DialogFooter>

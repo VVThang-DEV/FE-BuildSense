@@ -1,5 +1,5 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { ChevronRight, LogOut, Menu, ChevronDown, MessageCircle, User } from "lucide-react";
+import { ChevronRight, LogOut, Menu, ChevronDown, User } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   DropdownMenu,
@@ -14,16 +14,12 @@ import { cn } from "@/lib/utils";
 import { getRefreshToken, ROLE_LABELS, logout, type Role, type Session } from "@/lib/session";
 import { navForRole } from "@/lib/nav";
 import { authApi } from "@/api/auth";
-import { ChatDrawer } from "@/components/chat-drawer";
-import { WorkflowChatPrompt } from "@/components/workflow-chat-prompt";
-import { toggleChatDrawer } from "@/hooks/use-chat-store";
 import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
 const ROLE_BADGE_STYLE: Record<Role, string> = {
   ADMIN: "bg-destructive/15 text-destructive border-destructive/30",
   PM: "bg-primary/15 text-primary border-primary/30",
   WAREHOUSE_MANAGER: "bg-success/15 text-success border-success/30",
-  SUPPLIER: "bg-warning/20 text-warning-foreground border-warning/35",
   CUSTOMER: "bg-ai/15 text-ai border-ai/30",
 };
 
@@ -186,16 +182,6 @@ export function AppShell({ session }: { session: Session }) {
           <Breadcrumbs pathname={pathname} />
 
           <div className="ml-auto flex items-center gap-2">
-            {/* Chat toggle */}
-            <button
-              type="button"
-              onClick={toggleChatDrawer}
-              className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Open team chat"
-              title="Team Chat"
-            >
-              <MessageCircle className="h-4 w-4" />
-            </button>
             {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -246,10 +232,6 @@ export function AppShell({ session }: { session: Session }) {
           <Outlet />
         </main>
       </div>
-
-      {/* Global chat components */}
-      <ChatDrawer />
-      <WorkflowChatPrompt />
     </div>
   );
 }
@@ -275,7 +257,6 @@ function Breadcrumbs({ pathname }: { pathname: string }) {
     notifications: "Notifications",
     portal: "My House",
     profile: "My Profile",
-    verify: "Verify Email",
     warehouses: "Warehouses",
     suppliers: "Suppliers",
     "material-requests": "Material Requests",

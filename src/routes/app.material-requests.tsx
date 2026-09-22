@@ -42,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { QueryError } from "@/components/query-error";
@@ -49,9 +50,11 @@ import { materialRequestsApi, type MaterialRequestResponse } from "@/api/materia
 import { materialsApi } from "@/api/materials";
 import { projectsApi } from "@/api/projects";
 import { warehousesApi } from "@/api/warehouses";
+import { phasesApi } from "@/api/phases";
 import { tasksApi } from "@/api/tasks";
 import { requireApiResult } from "@/api/client";
 import { useSession } from "@/lib/session";
+import { isClosedProjectStatus } from "@/lib/utils";
 import { useWorkflowSuggestion } from "@/hooks/use-workflow-suggestion";
 
 export const Route = createFileRoute("/app/material-requests")({
@@ -179,6 +182,7 @@ function MaterialRequestsPage() {
         ? "Request project materials and track the status of your submissions."
         : "Create material requests and oversee their approval workflow.";
   const [projectId, setProjectId] = useState("");
+  const [requestPhaseId, setRequestPhaseId] = useState("");
   const [taskId, setTaskId] = useState("");
   const [createRequestOpen, setCreateRequestOpen] = useState(false);
   const [lines, setLines] = useState<RequestLine[]>(() => [newLine()]);
@@ -191,9 +195,20 @@ function MaterialRequestsPage() {
     request: MaterialRequestResponse;
   } | null>(null);
   const [decisionNote, setDecisionNote] = useState("");
-  const [approvalWarehouseId, setApprovalWarehouseId] = useState("");
   const [approvedQuantities, setApprovedQuantities] = useState<Record<number, string>>({});
+  const [approvedUnitCosts, setApprovedUnitCosts] = useState<Record<number, string>>({});
+  const [issueQuantities, setIssueQuantities] = useState<Record<number, string>>({});
+  const [estimatedCost, setEstimatedCost] = useState("0");
+  const [adjustingCost, setAdjustingCost] = useState<{
+    request: MaterialRequestResponse;
+    unitCosts: Record<number, string>;
+    note: string;
+  } | null>(null);
+  const [adjustCostBusy, setAdjustCostBusy] = useState(false);
   const [statusFilter, setStatusFilter] = useState(canReview ? "PENDING" : "ALL");
+  // Review queue vs full history (reviewers only). History shows every
+  // request regardless of the status filter below.
+  const [historyView, setHistoryView] = useState(false);
   const [projectFilter, setProjectFilter] = useState("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
@@ -207,6 +222,7 @@ function MaterialRequestsPage() {
     requestId: number;
     rowVersion: string;
     requestNote: string;
+    estimatedCost: string;
     items: {
       itemId: number;
       materialName: string;
@@ -232,26 +248,28 @@ function MaterialRequestsPage() {
     staleTime: 30_000,
   });
 
-  const { data: warehouses = [], isLoading: warehousesLoading } = useQuery({
+  const { data: warehouses = [] } = useQuery({
     queryKey: ["warehouses", "managed"],
     queryFn: async () =>
       requireApiResult(await warehousesApi.getAll(), "Could not load managed warehouses") ?? [],
     enabled: !!session?.token && canDecide,
     staleTime: 30_000,
   });
+  const activeWarehouse = warehouses.find((w) => w.isActive) ?? warehouses[0];
+  const activeWarehouseId = activeWarehouse ? String(activeWarehouse.warehouseId) : "";
 
   const approvalInventoryQuery = useQuery({
-    queryKey: ["warehouse-inventory", "material-request-approval", approvalWarehouseId],
+    queryKey: ["warehouse-inventory", "material-request-approval", activeWarehouseId],
     queryFn: async () =>
       requireApiResult(
-        await warehousesApi.getInventory(Number(approvalWarehouseId)),
+        await warehousesApi.getInventory(Number(activeWarehouseId)),
         "Could not load warehouse stock",
       ) ?? [],
     enabled:
       (confirming?.action === "approve" ||
         confirming?.action === "issue" ||
         confirming?.action === "release") &&
-      !!approvalWarehouseId,
+      !!activeWarehouseId,
     staleTime: 5_000,
   });
 
@@ -267,6 +285,23 @@ function MaterialRequestsPage() {
       requireApiResult(
         await tasksApi.getByProject(Number(projectId)),
         "Could not load project tasks",
+      ) ?? [],
+    enabled: !!session?.token && canCreate && !!projectId,
+    staleTime: 10_000,
+  });
+
+  const {
+    data: requestPhases = [],
+    isLoading: requestPhasesLoading,
+    isError: requestPhasesError,
+    error: requestPhasesErrorValue,
+    refetch: refetchRequestPhases,
+  } = useQuery({
+    queryKey: ["phases", "material-request", projectId],
+    queryFn: async () =>
+      requireApiResult(
+        await phasesApi.listByProject(Number(projectId)),
+        "Could not load project phases",
       ) ?? [],
     enabled: !!session?.token && canCreate && !!projectId,
     staleTime: 10_000,
@@ -312,6 +347,17 @@ function MaterialRequestsPage() {
     session?.role === "PM"
       ? projects.filter((project) => project.pmUserID === session.userId)
       : projects;
+  // Closed (COMPLETED/CANCELLED) projects are read-only: mutations 409.
+  const closedProjectIds = new Set(
+    projects.filter((project) => isClosedProjectStatus(project.status)).map((p) => p.projectId),
+  );
+  const rejectIfProjectClosed = (projectId?: number | null) => {
+    if (projectId != null && closedProjectIds.has(projectId)) {
+      toast.error("This project is closed — it is read-only and cannot be changed");
+      return true;
+    }
+    return false;
+  };
   const accessibleProjectIds = new Set(accessibleProjects.map((project) => project.projectId));
   const roleScopedRequests = requests.filter(
     (request) =>
@@ -320,7 +366,10 @@ function MaterialRequestsPage() {
   );
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const visibleRequests = roleScopedRequests
-    .filter((request) => statusFilter === "ALL" || request.status === statusFilter)
+    .filter(
+      (request) =>
+        historyView || statusFilter === "ALL" || request.status === statusFilter,
+    )
     .filter((request) => {
       const urgency = requestUrgency(request);
       if (urgencyFilter === "URGENT" && urgency.rank > 1) return false;
@@ -353,6 +402,7 @@ function MaterialRequestsPage() {
   );
   const eligibleRequestTasks = projectTasks.filter(
     (task) =>
+      (!requestPhaseId || task.phaseId === Number(requestPhaseId)) &&
       task.materialRequirements.length > 0 &&
       !["COMPLETED", "CANCELLED", "REJECTED"].includes(task.status) &&
       !tasksWithActiveRequests.has(task.taskId),
@@ -450,10 +500,11 @@ function MaterialRequestsPage() {
   };
 
   const submitRequest = async () => {
-    if (!projectId || !taskId) {
-      toast.error("Select a project and task");
+    if (!projectId || !requestPhaseId || !taskId) {
+      toast.error("Select a project, phase, and task");
       return;
     }
+    if (rejectIfProjectClosed(Number(projectId))) return;
     if (
       lines.some((line) => !line.variantKey || !line.neededByDate || Number(line.quantity) <= 0)
     ) {
@@ -471,6 +522,7 @@ function MaterialRequestsPage() {
       const response = await materialRequestsApi.create({
         projectId: Number(projectId),
         taskId: Number(taskId),
+        estimatedCost: Number(estimatedCost) || 0,
         items: lines.map((line) => ({
           ...(() => {
             const option = variantOptions.find((variant) => variant.key === line.variantKey)!;
@@ -501,8 +553,10 @@ function MaterialRequestsPage() {
         });
         setCreateRequestOpen(false);
         setProjectId("");
+        setRequestPhaseId("");
         setTaskId("");
         setLines([newLine()]);
+        setEstimatedCost("0");
         refetchRequests();
       } else {
         toast.error(
@@ -522,21 +576,30 @@ function MaterialRequestsPage() {
     request: MaterialRequestResponse,
   ) => {
     setDecisionNote("");
-    setApprovalWarehouseId(request.warehouseId ? String(request.warehouseId) : "");
     setApprovedQuantities(
       Object.fromEntries(request.items.map((item) => [item.itemId, String(item.quantity)])),
+    );
+    setApprovedUnitCosts(
+      Object.fromEntries(
+        request.items.map((item) => [item.itemId, item.unitActualCost != null ? String(item.unitActualCost) : ""]),
+      ),
+    );
+    setIssueQuantities(
+      Object.fromEntries(
+        request.items.map((item) => [
+          item.itemId,
+          String(Math.max(0, item.approvedQuantity - item.issuedQuantity)),
+        ]),
+      ),
     );
     setConfirming({ action, request });
   };
 
   const processRequest = async (action: "approve" | "reject" | "issue" | "release") => {
     if (!confirming) return;
+    if (rejectIfProjectClosed(confirming.request.projectId)) return;
     const id = confirming.request.requestId;
     if (action === "approve") {
-      if (!approvalWarehouseId) {
-        toast.error("Select the warehouse that will reserve this stock");
-        return;
-      }
       const quantities = confirming.request.items.map((item) => ({
         itemId: item.itemId,
         approvedQuantity: Number(approvedQuantities[item.itemId] ?? 0),
@@ -619,17 +682,29 @@ function MaterialRequestsPage() {
       const response =
         action === "approve"
           ? await materialRequestsApi.approve(id, {
-              warehouseId: Number(approvalWarehouseId),
               decisionNote: decisionNote.trim() || undefined,
               items: confirming.request.items.map((item) => ({
                 itemId: item.itemId,
                 approvedQuantity: Number(approvedQuantities[item.itemId] ?? 0),
+                unitActualCost:
+                  approvedUnitCosts[item.itemId] === "" ||
+                  approvedUnitCosts[item.itemId] == null
+                    ? undefined
+                    : Number(approvedUnitCosts[item.itemId]),
               })),
             })
           : action === "reject"
             ? await materialRequestsApi.reject(id, decisionNote.trim() || undefined)
             : action === "issue"
-              ? await materialRequestsApi.issue(id)
+              ? await materialRequestsApi.issue(id, {
+                  rowVersion: confirming.request.rowVersion,
+                  items: confirming.request.items
+                    .map((item) => ({
+                      itemId: item.itemId,
+                      quantity: Number(issueQuantities[item.itemId] ?? 0),
+                    }))
+                    .filter((line) => line.quantity > 0),
+                })
               : await materialRequestsApi.release(id);
 
       if (response.isSuccess) {
@@ -681,7 +756,13 @@ function MaterialRequestsPage() {
         const message =
           response.errorMessage ??
           responseMessage(response.result, `Could not ${action} request #${id}`);
-        if (/inventory|stock|reservation/i.test(message)) {
+        if (response.statusCode === 409) {
+          toast.error(message, {
+            description: "Budget cap, already issued, or stale version. Reloading latest state.",
+          });
+          refetchRequests();
+          if (selectedRequestId === id) refetchSelectedRequest();
+        } else if (/inventory|stock|reservation/i.test(message)) {
           toast.error(message, {
             description:
               "Next: reload current stock. If it cannot satisfy the request, release the reservation and replenish or transfer inventory.",
@@ -702,6 +783,7 @@ function MaterialRequestsPage() {
 
   const submitPendingCancellation = async () => {
     if (!cancelRequest) return;
+    if (rejectIfProjectClosed(cancelRequest.request.projectId)) return;
     setRequestMutationBusy(true);
     try {
       const response = await materialRequestsApi.cancelPending(
@@ -732,6 +814,7 @@ function MaterialRequestsPage() {
       requestId: request.requestId,
       rowVersion: request.rowVersion,
       requestNote: request.requestNote ?? "",
+      estimatedCost: String(request.estimatedCost ?? 0),
       items: request.items.map((item) => ({
         itemId: item.itemId,
         materialName: item.materialName,
@@ -744,6 +827,8 @@ function MaterialRequestsPage() {
 
   const submitPendingEdit = async () => {
     if (!editingRequest) return;
+    const editingProjectId = requests.find((r) => r.requestId === editingRequest.requestId)?.projectId;
+    if (rejectIfProjectClosed(editingProjectId)) return;
     if (
       editingRequest.items.some(
         (item) =>
@@ -760,6 +845,7 @@ function MaterialRequestsPage() {
       const response = await materialRequestsApi.updatePending(editingRequest.requestId, {
         rowVersion: editingRequest.rowVersion,
         requestNote: editingRequest.requestNote.trim() || undefined,
+        estimatedCost: Number(editingRequest.estimatedCost) || 0,
         items: editingRequest.items.map((item) => ({
           itemId: item.itemId,
           quantity: Number(item.quantity),
@@ -767,7 +853,10 @@ function MaterialRequestsPage() {
           note: item.note ?? undefined,
         })),
       });
-      if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not update request");
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Could not update request");
+        if (response.statusCode === 409) refetchRequests();
+      }
       else {
         suggestNext({
           message: `Request #${editingRequest.requestId} updated`,
@@ -783,9 +872,62 @@ function MaterialRequestsPage() {
     }
   };
 
+  const openAdjustCost = (request: MaterialRequestResponse) => {
+    setAdjustingCost({
+      request,
+      unitCosts: Object.fromEntries(
+        request.items.map((item) => [
+          item.itemId,
+          item.unitActualCost != null ? String(item.unitActualCost) : "",
+        ]),
+      ),
+      note: "",
+    });
+  };
+
+  const submitAdjustCost = async () => {
+    if (!adjustingCost) return;
+    if (rejectIfProjectClosed(adjustingCost.request.projectId)) return;
+    const items = adjustingCost.request.items.map((item) => ({
+      itemId: item.itemId,
+      unitActualCost: Number(adjustingCost.unitCosts[item.itemId] ?? NaN),
+    }));
+    if (items.some((line) => !Number.isFinite(line.unitActualCost) || line.unitActualCost < 0)) {
+      toast.error("Every unit actual cost must be 0 or greater");
+      return;
+    }
+    setAdjustCostBusy(true);
+    try {
+      const response = await materialRequestsApi.adjustActualCost(
+        adjustingCost.request.requestId,
+        {
+          rowVersion: adjustingCost.request.rowVersion,
+          note: adjustingCost.note.trim() || undefined,
+          items,
+        },
+      );
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Could not adjust actual cost");
+        if (response.statusCode === 409) {
+          refetchRequests();
+          if (selectedRequestId === adjustingCost.request.requestId)
+            refetchSelectedRequest();
+        }
+        return;
+      }
+      toast.success(`Actual cost adjusted for request #${adjustingCost.request.requestId}`);
+      setAdjustingCost(null);
+      refetchRequests();
+      if (selectedRequestId === adjustingCost.request.requestId) refetchSelectedRequest();
+    } finally {
+      setAdjustCostBusy(false);
+    }
+  };
+
   const createRemainderRequest = async () => {
     const taskId = remainderRequest?.taskId;
     if (!taskId) return;
+    if (rejectIfProjectClosed(remainderRequest?.projectId)) return;
     const request = remainderRequest;
     setRemainderBusy(true);
     try {
@@ -850,7 +992,7 @@ function MaterialRequestsPage() {
                 <DialogTitle>New material request</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                {(projectsError || materialsError || tasksError) && (
+                {(projectsError || materialsError || tasksError || requestPhasesError) && (
                   <QueryError
                     message={
                       projectsErrorValue instanceof Error
@@ -859,12 +1001,17 @@ function MaterialRequestsPage() {
                           ? materialsErrorValue.message
                           : tasksErrorValue instanceof Error
                             ? tasksErrorValue.message
-                            : undefined
+                            : requestPhasesErrorValue instanceof Error
+                              ? requestPhasesErrorValue.message
+                              : undefined
                     }
                     onRetry={() => {
                       refetchProjects();
                       refetchMaterials();
-                      if (projectId) refetchTasks();
+                      if (projectId) {
+                        refetchTasks();
+                        refetchRequestPhases();
+                      }
                     }}
                   />
                 )}
@@ -874,6 +1021,7 @@ function MaterialRequestsPage() {
                     value={projectId}
                     onValueChange={(value) => {
                       setProjectId(value);
+                      setRequestPhaseId("");
                       setTaskId("");
                       setLines([newLine()]);
                     }}
@@ -888,10 +1036,53 @@ function MaterialRequestsPage() {
                       {accessibleProjects.map((project) => (
                         <SelectItem key={project.projectId} value={String(project.projectId)}>
                           {project.projectName}
+                          {isClosedProjectStatus(project.status) ? " · Closed (read-only)" : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {projectId && closedProjectIds.has(Number(projectId)) && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      This project is closed and read-only — new requests cannot be created.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label id="request-phase-label">Phase</Label>
+                  <Select
+                    value={requestPhaseId}
+                    onValueChange={(value) => {
+                      setRequestPhaseId(value);
+                      setTaskId("");
+                      setLines([newLine()]);
+                    }}
+                    disabled={!projectId || requestPhasesLoading || submitting}
+                  >
+                    <SelectTrigger aria-labelledby="request-phase-label">
+                      <SelectValue
+                        placeholder={
+                          !projectId
+                            ? "Select a project first"
+                            : requestPhasesLoading
+                              ? "Loading phases..."
+                              : "Select phase"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {requestPhases.map((phase) => (
+                        <SelectItem key={phase.phaseId} value={String(phase.phaseId)}>
+                          {phase.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {projectId && !requestPhasesLoading && requestPhases.length === 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      This project has no phases yet.
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -899,13 +1090,13 @@ function MaterialRequestsPage() {
                   <Select
                     value={taskId}
                     onValueChange={selectTaskForRequest}
-                    disabled={!projectId || tasksLoading || submitting}
+                    disabled={!requestPhaseId || tasksLoading || submitting}
                   >
                     <SelectTrigger aria-labelledby="request-task-label">
                       <SelectValue
                         placeholder={
-                          !projectId
-                            ? "Select a project first"
+                          !requestPhaseId
+                            ? "Select a phase first"
                             : tasksLoading
                               ? "Loading tasks..."
                               : "Select task"
@@ -915,16 +1106,32 @@ function MaterialRequestsPage() {
                     <SelectContent>
                       {eligibleRequestTasks.map((task) => (
                         <SelectItem key={task.taskId} value={String(task.taskId)}>
-                          {task.taskName} ({task.phaseName})
+                          {task.taskName}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {projectId && !tasksLoading && eligibleRequestTasks.length === 0 && (
+                  {requestPhaseId && !tasksLoading && eligibleRequestTasks.length === 0 && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      No task with an available material plan can accept a new request.
+                      No task in this phase has an available material plan that can accept a new
+                      request.
                     </p>
                   )}
+                </div>
+
+                <div>
+                  <Label htmlFor="request-estimated-cost">
+                    Estimated cost (planning only — never debits budget)
+                  </Label>
+                  <Input
+                    id="request-estimated-cost"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={estimatedCost}
+                    onChange={(event) => setEstimatedCost(event.target.value)}
+                    disabled={submitting}
+                  />
                 </div>
 
                 <div className="space-y-3">
@@ -1083,6 +1290,22 @@ function MaterialRequestsPage() {
                     maxLength={1000}
                   />
                 </div>
+                <div>
+                  <Label htmlFor="edit-request-estimated-cost">Estimated cost</Label>
+                  <Input
+                    id="edit-request-estimated-cost"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editingRequest.estimatedCost}
+                    onChange={(event) =>
+                      setEditingRequest((current) =>
+                        current ? { ...current, estimatedCost: event.target.value } : current,
+                      )
+                    }
+                    disabled={requestMutationBusy}
+                  />
+                </div>
                 <div className="space-y-2">
                   {editingRequest.items.map((item, index) => (
                     <div
@@ -1206,15 +1429,33 @@ function MaterialRequestsPage() {
           </DialogContent>
         </Dialog>
 
+        {canReview && (
+          <Tabs
+            value={historyView ? "history" : "queue"}
+            onValueChange={(value) => setHistoryView(value === "history")}
+          >
+            <TabsList>
+              <TabsTrigger value="queue">Review queue ({pendingCount})</TabsTrigger>
+              <TabsTrigger value="history">All history ({roleScopedRequests.length})</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
+
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <div>
               <CardTitle className="text-base">
-                {canReview ? "Material request queue" : "My material requests"}
+                {canReview
+                  ? historyView
+                    ? "All material requests"
+                    : "Material request queue"
+                  : "My material requests"}
               </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
                 {canReview
-                  ? "Review pending requests and track processed requests."
+                  ? historyView
+                    ? "Full history across every status, including issued, released, and cancelled requests."
+                    : "Review pending requests and track processed requests."
                   : "Track the status of requests you submitted."}
               </p>
             </div>
@@ -1305,7 +1546,9 @@ function MaterialRequestsPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {visibleRequests.map((request) => (
+                  {visibleRequests.map((request) => {
+                    const requestClosed = closedProjectIds.has(request.projectId);
+                    return (
                     <TableRow key={request.requestId}>
                       <TableCell className="font-mono text-xs">
                         <p>#{request.requestId}</p>
@@ -1314,6 +1557,10 @@ function MaterialRequestsPage() {
                             Task #{request.taskId}
                           </p>
                         )}
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          Est {request.estimatedCost ?? 0} · Act {request.actualCost ?? 0} ·
+                          Debited {request.budgetDebitedAmount ?? 0}
+                        </p>
                       </TableCell>
                       <TableCell className="font-medium">
                         {projects.find((project) => project.projectId === request.projectId)
@@ -1349,9 +1596,12 @@ function MaterialRequestsPage() {
                       </TableCell>
                       <TableCell className="text-xs">{formatDate(request.requestDate)}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={statusClass(request.status)}>
-                          {request.status}
-                        </Badge>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="outline" className={statusClass(request.status)}>
+                            {request.status}
+                          </Badge>
+                          {requestClosed && <Badge variant="outline">Project closed</Badge>}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -1364,7 +1614,7 @@ function MaterialRequestsPage() {
                             <Eye className="mr-1 h-3.5 w-3.5" />
                             Details
                           </Button>
-                          {canDecide && request.status === "PENDING" && (
+                          {canDecide && request.status === "PENDING" && !requestClosed && (
                             <>
                               <Button
                                 size="sm"
@@ -1390,7 +1640,8 @@ function MaterialRequestsPage() {
                           )}
                           {canCreate &&
                             request.requestedBy === session?.userId &&
-                            request.status === "PENDING" && (
+                            request.status === "PENDING" &&
+                            !requestClosed && (
                               <>
                                 <Button
                                   size="sm"
@@ -1416,6 +1667,7 @@ function MaterialRequestsPage() {
                             request.requestedBy === session?.userId &&
                             request.status === "PARTIALLY_ISSUED" &&
                             request.taskId &&
+                            !requestClosed &&
                             !roleScopedRequests.some(
                               (other) =>
                                 other.requestId !== request.requestId &&
@@ -1436,8 +1688,10 @@ function MaterialRequestsPage() {
                               </Button>
                             )}
                           {canDecide &&
+                            !requestClosed &&
                             (request.status === "APPROVED" ||
-                              request.status === "PARTIALLY_APPROVED") && (
+                              request.status === "PARTIALLY_APPROVED" ||
+                              request.status === "PARTIALLY_ISSUED") && (
                               <>
                                 <Button
                                   size="sm"
@@ -1446,23 +1700,48 @@ function MaterialRequestsPage() {
                                   onClick={() => openDecision("issue", request)}
                                   disabled={processing !== null}
                                 >
-                                  Issue
+                                  {request.status === "PARTIALLY_ISSUED"
+                                    ? "Issue remainder"
+                                    : "Issue"}
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="h-8 text-xs text-destructive"
-                                  onClick={() => openDecision("release", request)}
+                                  className="h-8 text-xs"
+                                  onClick={() => openAdjustCost(request)}
                                   disabled={processing !== null}
                                 >
-                                  Release
+                                  Adjust cost
                                 </Button>
+                                {request.status !== "PARTIALLY_ISSUED" && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 text-xs text-destructive"
+                                    onClick={() => openDecision("release", request)}
+                                    disabled={processing !== null}
+                                  >
+                                    Release
+                                  </Button>
+                                )}
                               </>
                             )}
+                          {canDecide && request.status === "ISSUED" && !requestClosed && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 text-xs"
+                              onClick={() => openAdjustCost(request)}
+                              disabled={processing !== null}
+                            >
+                              Adjust cost
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}
@@ -1535,10 +1814,26 @@ function MaterialRequestsPage() {
                 <div>
                   <p className="text-xs text-muted-foreground">Warehouse</p>
                   <p className="font-medium">
-                    {selectedRequest.warehouseName ??
-                      (selectedRequest.warehouseId
-                        ? `Warehouse #${selectedRequest.warehouseId}`
-                        : "Unassigned")}
+                    {activeWarehouse
+                      ? `${activeWarehouse.warehouseName} (active)`
+                      : (selectedRequest.warehouseName ??
+                        (selectedRequest.warehouseId
+                          ? `Warehouse #${selectedRequest.warehouseId}`
+                          : "Unassigned"))}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Estimated cost</p>
+                  <p className="font-medium tabular-nums">{selectedRequest.estimatedCost ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Actual cost</p>
+                  <p className="font-medium tabular-nums">{selectedRequest.actualCost ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Budget debited</p>
+                  <p className="font-medium tabular-nums">
+                    {selectedRequest.budgetDebitedAmount ?? 0}
                   </p>
                 </div>
                 {selectedRequest.decisionNote && (
@@ -1555,6 +1850,7 @@ function MaterialRequestsPage() {
                       <TableHead>Material</TableHead>
                       <TableHead className="text-right">Quantity</TableHead>
                       <TableHead className="text-right">Approved</TableHead>
+                      <TableHead className="text-right">Unit actual</TableHead>
                       <TableHead className="text-right">Net issued</TableHead>
                       <TableHead className="text-right">Still required</TableHead>
                       <TableHead>Needed by</TableHead>
@@ -1579,6 +1875,9 @@ function MaterialRequestsPage() {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {item.approvedQuantity} {item.unit ?? ""}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {item.unitActualCost ?? "-"}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {item.netIssuedQuantity} {item.unit ?? ""}
@@ -1613,39 +1912,10 @@ function MaterialRequestsPage() {
           </DialogHeader>
           {confirming?.action === "approve" && (
             <div className="space-y-3">
-              <div>
-                <Label>Managed warehouse</Label>
-                <Select
-                  value={approvalWarehouseId}
-                  onValueChange={setApprovalWarehouseId}
-                  disabled={warehousesLoading || !!confirming.request.warehouseId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select warehouse" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouses
-                      .filter(
-                        (warehouse) =>
-                          !confirming.request.warehouseId ||
-                          warehouse.warehouseId === confirming.request.warehouseId,
-                      )
-                      .map((warehouse) => (
-                        <SelectItem
-                          key={warehouse.warehouseId}
-                          value={String(warehouse.warehouseId)}
-                        >
-                          {warehouse.warehouseName}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-                {confirming.request.warehouseId && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    This request is already assigned; its warehouse cannot be changed in the UI.
-                  </p>
-                )}
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Approving reserves stock at the active warehouse
+                {activeWarehouse ? ` · ${activeWarehouse.warehouseName}` : ""}.
+              </p>
               <div className="space-y-2">
                 {confirming.request.items.map((item) => {
                   const inventoryItem = approvalInventoryQuery.data?.find(
@@ -1660,7 +1930,7 @@ function MaterialRequestsPage() {
                       key={item.itemId}
                       className={`rounded-lg border p-3 ${exceedsAvailable ? "border-destructive/50 bg-destructive/5" : ""}`}
                     >
-                      <div className="grid gap-3 sm:grid-cols-[1fr_140px] sm:items-end">
+                      <div className="grid gap-3 sm:grid-cols-[1fr_140px_140px] sm:items-end">
                         <div>
                           <p className="text-sm font-medium">{item.materialName}</p>
                           <p className="text-xs text-muted-foreground">
@@ -1684,8 +1954,25 @@ function MaterialRequestsPage() {
                             }
                           />
                         </div>
+                        <div>
+                          <Label htmlFor={`unit-cost-${item.itemId}`}>Unit actual cost</Label>
+                          <Input
+                            id={`unit-cost-${item.itemId}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Optional"
+                            value={approvedUnitCosts[item.itemId] ?? ""}
+                            onChange={(event) =>
+                              setApprovedUnitCosts((current) => ({
+                                ...current,
+                                [item.itemId]: event.target.value,
+                              }))
+                            }
+                          />
+                        </div>
                       </div>
-                      {approvalWarehouseId && (
+                      {activeWarehouseId && (
                         <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-muted/50 p-2 text-xs sm:grid-cols-4">
                           <div>
                             <p className="text-muted-foreground">On hand</p>
@@ -1740,13 +2027,16 @@ function MaterialRequestsPage() {
           {confirming?.action === "issue" && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Reserved stock will leave the assigned warehouse. Availability normally stays the
-                same because on-hand and reserved quantities decrease together.
+                Reserved stock will leave the active warehouse. Enter a smaller quantity for a
+                partial issue — a partially issued request can be re-issued for the remainder.
+                Issuing posts budget debits; a 409 means budget cap, already issued, or stale
+                version.
               </p>
               {confirming.request.items
                 .filter((item) => item.approvedQuantity - item.issuedQuantity > 0)
                 .map((item) => {
-                  const issueQuantity = item.approvedQuantity - item.issuedQuantity;
+                  const maxIssue = item.approvedQuantity - item.issuedQuantity;
+                  const issueQuantity = Number(issueQuantities[item.itemId] ?? maxIssue);
                   const inventoryItem = approvalInventoryQuery.data?.find(
                     (record) => record.variantId === item.variantId,
                   );
@@ -1761,13 +2051,33 @@ function MaterialRequestsPage() {
                       key={item.itemId}
                       className={`rounded-lg border p-3 ${unavailable ? "border-destructive/50 bg-destructive/5" : ""}`}
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="grid gap-3 sm:grid-cols-[1fr_140px] sm:items-end">
                         <div>
                           <p className="text-sm font-medium">{item.materialName}</p>
                           <p className="text-xs text-muted-foreground">
-                            Issue {issueQuantity} {item.unit ?? ""}
+                            Reservable {maxIssue} {item.unit ?? ""} · already issued{" "}
+                            {item.issuedQuantity}
                           </p>
                         </div>
+                        <div>
+                          <Label htmlFor={`issue-${item.itemId}`}>Issue quantity</Label>
+                          <Input
+                            id={`issue-${item.itemId}`}
+                            type="number"
+                            min="0"
+                            max={maxIssue}
+                            step="0.01"
+                            value={issueQuantities[item.itemId] ?? String(maxIssue)}
+                            onChange={(event) =>
+                              setIssueQuantities((current) => ({
+                                ...current,
+                                [item.itemId]: event.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-start justify-between gap-3">
                         <Badge variant={unavailable ? "destructive" : "secondary"}>
                           {unavailable ? "Unavailable" : "Reserved"}
                         </Badge>
@@ -1891,6 +2201,89 @@ function MaterialRequestsPage() {
               {processing ? "Processing..." : `${confirming?.action ?? "Confirm"} request`}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={adjustingCost !== null}
+        onOpenChange={(open) => !open && !adjustCostBusy && setAdjustingCost(null)}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              Adjust actual cost · request #{adjustingCost?.request.requestId}
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground">
+              Only the delta on outstanding (issued but not returned) quantity posts as a
+              correction. Negative unit costs are rejected with 409.
+            </p>
+          </DialogHeader>
+          <div className="space-y-2">
+            {(adjustingCost?.request.items ?? []).map((item) => (
+              <div
+                key={item.itemId}
+                className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_160px] sm:items-end"
+              >
+                <div>
+                  <p className="text-sm font-medium">{item.materialName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Current unit actual {item.unitActualCost ?? "-"} · issued {item.issuedQuantity} ·
+                    returned {item.returnedQuantity}
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor={`adjust-cost-${item.itemId}`}>Unit actual cost</Label>
+                  <Input
+                    id={`adjust-cost-${item.itemId}`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={adjustingCost?.unitCosts[item.itemId] ?? ""}
+                    onChange={(event) =>
+                      setAdjustingCost((current) =>
+                        current
+                          ? {
+                              ...current,
+                              unitCosts: {
+                                ...current.unitCosts,
+                                [item.itemId]: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    disabled={adjustCostBusy}
+                  />
+                </div>
+              </div>
+            ))}
+            <div>
+              <Label htmlFor="adjust-cost-note">Note (optional)</Label>
+              <Textarea
+                id="adjust-cost-note"
+                value={adjustingCost?.note ?? ""}
+                onChange={(event) =>
+                  setAdjustingCost((current) =>
+                    current ? { ...current, note: event.target.value } : current,
+                  )
+                }
+                maxLength={1000}
+                disabled={adjustCostBusy}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAdjustingCost(null)}
+              disabled={adjustCostBusy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitAdjustCost} disabled={adjustCostBusy}>
+              {adjustCostBusy ? "Saving..." : "Post correction"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

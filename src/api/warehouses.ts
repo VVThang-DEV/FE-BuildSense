@@ -6,6 +6,7 @@ export type WarehouseResponse = {
   location: string;
   managerId?: number;
   managerName?: string | null;
+  isActive?: boolean;
   inventoryRecords?: InventoryRecord[];
   createdDate?: string;
   modifiedDate?: string | null;
@@ -91,7 +92,6 @@ export type InventoryAdjustmentReason =
   | "OPENING_BALANCE";
 
 export type InventoryAdjustmentRequest = {
-  warehouseId: number;
   variantId: number;
   quantityDelta: number;
   reasonCode: InventoryAdjustmentReason;
@@ -100,7 +100,6 @@ export type InventoryAdjustmentRequest = {
 };
 
 export type InventoryReturnRequest = {
-  warehouseId: number;
   variantId: number;
   quantity: number;
   materialRequestId: number;
@@ -108,6 +107,11 @@ export type InventoryReturnRequest = {
   condition: "USABLE" | "QUARANTINED";
   note?: string;
   rowVersion?: string;
+};
+
+export type StartPhysicalCountRequest = {
+  variantIds: number[];
+  note?: string;
 };
 
 export type InventoryAdjustmentResponse = {
@@ -197,10 +201,21 @@ function normalizeInventoryItem(item: RawInventoryItem, index: number): Inventor
 export const warehousesApi = {
   getAll: () => apiClient.get<WarehouseResponse[]>("/api/warehouses"),
   getById: (id: number) => apiClient.get<WarehouseResponse>(`/api/warehouses/${id}`),
-  create: (body: { managerId: number; warehouseName: string; location: string }) =>
-    apiClient.post<string>("/api/warehouses", body),
-  update: (id: number, body: { managerId: number; warehouseName: string; location: string }) =>
-    apiClient.put<WarehouseResponse>(`/api/warehouses/${id}`, body),
+  getActive: async () => {
+    const response = await apiClient.get<WarehouseResponse[]>("/api/warehouses");
+    return {
+      ...response,
+      result: (response.result ?? []).find((w) => w.isActive) ?? response.result?.[0] ?? null,
+    };
+  },
+  /** Retired backend: POST /api/Warehouses returns 410. Kept to surface a clear error. */
+  create: (_body: { managerId: number; warehouseName: string; location: string }) =>
+    apiClient.post<string>("/api/warehouses", _body),
+  /** Retired backend: PUT /api/Warehouses/{id} returns 410. */
+  update: (
+    id: number,
+    _body: { managerId: number; warehouseName: string; location: string },
+  ) => apiClient.put<WarehouseResponse>(`/api/warehouses/${id}`, _body),
   getInventoryItem: async (warehouseId: number, variantId: number) => {
     const response = await apiClient.get<RawInventoryItem>(
       `/api/warehouses/${warehouseId}/inventory/${variantId}`,
@@ -252,9 +267,8 @@ export const warehousesApi = {
       `/api/warehouses/inventory/adjustments/${adjustmentId}/${approve ? "approve" : "reject"}`,
       { rowVersion, reviewNote },
     ),
-  startPhysicalCount: (warehouseId: number, variantIds: number[], note?: string) =>
+  startPhysicalCount: (variantIds: number[], note?: string) =>
     apiClient.post<PhysicalCountMutationResponse>("/api/warehouses/physical-counts", {
-      warehouseId,
       variantIds,
       note,
     }),

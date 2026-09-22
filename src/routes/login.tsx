@@ -261,13 +261,7 @@ function LoginPage() {
                 "Sign in"
               )}
             </Button>
-            <p className="pt-1 text-center text-xs text-muted-foreground">
-              Just registered?{" "}
-              <Link to="/verify" className="font-medium text-primary hover:underline">
-                Verify your email
-              </Link>
-            </p>
-            <p className="text-center text-xs">
+            <p className="pt-1 text-center text-xs">
               <Link to="/forgot-password" className="font-medium text-primary hover:underline">
                 Forgot your password?
               </Link>

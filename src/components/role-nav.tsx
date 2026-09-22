@@ -1,12 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Package, User, Warehouse } from "lucide-react";
+import { LayoutDashboard, User, Warehouse } from "lucide-react";
 import { cn } from "@/lib/utils";
 import buildSenseLogo from "@/assets/buildsense-logo.svg";
 
 const roles = [
   { to: "/", label: "Project Manager", icon: LayoutDashboard },
   { to: "/app/admin/warehouses", label: "Warehouse Manager", icon: Warehouse },
-  { to: "/app/supplier/dashboard", label: "Supplier", icon: Package },
   { to: "/customer", label: "Customer", icon: User },
 ] as const;
 

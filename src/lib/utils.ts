@@ -12,6 +12,15 @@ export const healthConfig = {
   delayed: { label: "Delayed", cls: "bg-destructive/12 text-destructive border-destructive/30" },
 } as const;
 
+/**
+ * Closed project statuses. A COMPLETED or CANCELLED project is read-only for
+ * everyone: the backend rejects mutations with 409, so the UI must hide edit
+ * actions and show friendly read-only states instead of errors.
+ */
+export function isClosedProjectStatus(status?: string | null): boolean {
+  return status === "COMPLETED" || status === "CANCELLED";
+}
+
 /** Shared PO status badge config */
 export const statusConfig: Record<string, { label: string; cls: string }> = {
   pending: { label: "Pending", cls: "bg-warning/15 text-warning-foreground border-warning/35" },

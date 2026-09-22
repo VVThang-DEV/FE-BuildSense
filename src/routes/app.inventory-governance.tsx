@@ -19,13 +19,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -60,9 +53,7 @@ export const Route = createFileRoute("/app/inventory-governance")({
 function InventoryGovernancePage() {
   const session = useSession();
   const suggestNext = useWorkflowSuggestion();
-  const isAdmin = session?.role === "ADMIN";
   const isManager = session?.role === "WAREHOUSE_MANAGER";
-  const [warehouseId, setWarehouseId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [countValues, setCountValues] = useState<Record<number, string>>({});
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
@@ -73,14 +64,17 @@ function InventoryGovernancePage() {
       requireApiResult(await warehousesApi.getAll(), "Could not load warehouses") ?? [],
     enabled: !!session?.token,
   });
+  const activeWarehouse =
+    (warehousesQuery.data ?? []).find((w) => w.isActive) ?? warehousesQuery.data?.[0];
+  const activeWarehouseId = activeWarehouse ? String(activeWarehouse.warehouseId) : "";
   const inventoryQuery = useQuery({
-    queryKey: ["warehouse-inventory", "count", warehouseId],
+    queryKey: ["warehouse-inventory", "count", activeWarehouseId],
     queryFn: async () =>
       requireApiResult(
-        await warehousesApi.getInventory(Number(warehouseId)),
+        await warehousesApi.getInventory(Number(activeWarehouseId)),
         "Could not load inventory",
       ) ?? [],
-    enabled: !!warehouseId && isManager,
+    enabled: !!activeWarehouseId && isManager,
   });
   const adjustmentsQuery = useQuery({
     queryKey: ["inventory-adjustments"],
@@ -194,13 +188,13 @@ function InventoryGovernancePage() {
 
   const startCount = async () => {
     const variantIds = (inventoryQuery.data ?? []).map((item) => item.variantId);
-    if (!warehouseId || variantIds.length === 0) {
-      toast.error("Select a warehouse with inventory to count");
+    if (!activeWarehouseId || variantIds.length === 0) {
+      toast.error("The active warehouse has no inventory to count");
       return;
     }
     setBusy("start-count");
     try {
-      const response = await warehousesApi.startPhysicalCount(Number(warehouseId), variantIds);
+      const response = await warehousesApi.startPhysicalCount(variantIds);
       if (!response.isSuccess) toast.error(response.errorMessage ?? "Could not start count");
       else {
         suggestNext({
@@ -244,7 +238,7 @@ function InventoryGovernancePage() {
       else {
         suggestNext({
           message: "Physical count submitted for approval",
-          nextStep: "An Admin must independently approve the variance before stock changes.",
+          nextStep: "A Warehouse Manager must approve the variance before stock changes.",
           to: "/app/inventory-governance",
           actionLabel: "Track approval",
         });
@@ -297,52 +291,43 @@ function InventoryGovernancePage() {
                         <Badge variant="outline">{item.status}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        {isAdmin &&
-                          item.status === "PENDING" &&
-                          item.requestedByUserId !== session?.userId && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={!!busy}
-                                onClick={() =>
-                                  setReviewTarget({
-                                    kind: "adjustment",
-                                    id: item.adjustmentId,
-                                    rowVersion: item.rowVersion,
-                                    approve: true,
-                                    note: "",
-                                  })
-                                }
-                              >
-                                Approve
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-destructive"
-                                disabled={!!busy}
-                                onClick={() =>
-                                  setReviewTarget({
-                                    kind: "adjustment",
-                                    id: item.adjustmentId,
-                                    rowVersion: item.rowVersion,
-                                    approve: false,
-                                    note: "",
-                                  })
-                                }
-                              >
-                                Reject
-                              </Button>
-                            </>
-                          )}
-                        {isAdmin &&
-                          item.status === "PENDING" &&
-                          item.requestedByUserId === session?.userId && (
-                            <span className="text-xs text-muted-foreground">
-                              Awaiting another administrator
-                            </span>
-                          )}
+                        {isManager && item.status === "PENDING" && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={!!busy}
+                              onClick={() =>
+                                setReviewTarget({
+                                  kind: "adjustment",
+                                  id: item.adjustmentId,
+                                  rowVersion: item.rowVersion,
+                                  approve: true,
+                                  note: "",
+                                })
+                              }
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive"
+                              disabled={!!busy}
+                              onClick={() =>
+                                setReviewTarget({
+                                  kind: "adjustment",
+                                  id: item.adjustmentId,
+                                  rowVersion: item.rowVersion,
+                                  approve: false,
+                                  note: "",
+                                })
+                              }
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -359,22 +344,12 @@ function InventoryGovernancePage() {
               </CardHeader>
               <CardContent className="flex items-end gap-3">
                 <div className="flex-1">
-                  <Label>Managed warehouse</Label>
-                  <Select value={warehouseId} onValueChange={setWarehouseId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select warehouse" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(warehousesQuery.data ?? []).map((warehouse) => (
-                        <SelectItem
-                          key={warehouse.warehouseId}
-                          value={String(warehouse.warehouseId)}
-                        >
-                          {warehouse.warehouseName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Active warehouse</Label>
+                  <p className="text-sm font-medium">
+                    {activeWarehouse
+                      ? `${activeWarehouse.warehouseName} · ${activeWarehouse.location}`
+                      : "No active warehouse"}
+                  </p>
                 </div>
                 <Button
                   disabled={busy === "start-count" || inventoryQuery.isLoading}
@@ -482,7 +457,7 @@ function InventoryGovernancePage() {
                       Submit count
                     </Button>
                   )}
-                  {isAdmin && count.status === "PENDING_APPROVAL" && (
+                  {isManager && count.status === "PENDING_APPROVAL" && (
                     <>
                       <Button
                         disabled={

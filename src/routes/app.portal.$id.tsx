@@ -22,9 +22,11 @@ import {
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/page-header";
 import { ProjectBudgetPanel } from "@/components/project-budget-panel";
+import { ProjectExportButton } from "@/components/project-export-button";
 import { QueryError } from "@/components/query-error";
 import { requireApiResult } from "@/api/client";
 import { projectsApi, type ProjectResponse } from "@/api/projects";
+import { phasesApi } from "@/api/phases";
 import { tasksApi, type TaskResponse } from "@/api/tasks";
 import { useSession } from "@/lib/session";
 import { cn, healthConfig } from "@/lib/utils";
@@ -63,6 +65,22 @@ function CustomerProjectDetail() {
   });
 
   const hasProjectAccess = project ? isAssignedCustomerProject(project, session?.userId) : false;
+
+  const {
+    data: phases = [],
+    isLoading: phasesLoading,
+    isError: phasesError,
+    error: phasesErrorValue,
+    refetch: refetchPhases,
+  } = useQuery({
+    queryKey: ["customer-project-phases", id],
+    queryFn: async () =>
+      requireApiResult(await phasesApi.listByProject(Number(id)), "Could not load phases") ?? [],
+    enabled: isLive && hasProjectAccess,
+    staleTime: 10_000,
+  });
+  const phasesForbidden =
+    phasesErrorValue instanceof Error && /forbidden|403|not have access/i.test(phasesErrorValue.message);
 
   const {
     data: tasks = [],
@@ -123,12 +141,18 @@ function CustomerProjectDetail() {
             title={project.projectName}
             description={project.address ?? "No address recorded"}
             actions={
-              <Badge
-                variant="outline"
-                className={cn(healthConfig[STATUS_HEALTH[project.status] ?? "on-track"].cls)}
-              >
-                {project.status.replaceAll("_", " ")}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn(healthConfig[STATUS_HEALTH[project.status] ?? "on-track"].cls)}
+                >
+                  {project.status.replaceAll("_", " ")}
+                </Badge>
+                <ProjectExportButton
+                  projectId={project.projectId}
+                  projectName={project.projectName}
+                />
+              </div>
             }
           />
 
@@ -194,6 +218,50 @@ function CustomerProjectDetail() {
                   </CardContent>
                 </Card>
               </div>
+              <Card className="mt-4 shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Phases</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {phasesLoading ? (
+                    <p className="py-4 text-center text-sm text-muted-foreground">
+                      Loading phases...
+                    </p>
+                  ) : phasesForbidden ? (
+                    <p className="py-4 text-center text-sm text-muted-foreground">
+                      Phase details aren&apos;t shared for this project yet.
+                    </p>
+                  ) : phasesError ? (
+                    <QueryError
+                      message={
+                        phasesErrorValue instanceof Error ? phasesErrorValue.message : undefined
+                      }
+                      onRetry={() => refetchPhases()}
+                    />
+                  ) : phases.length === 0 ? (
+                    <p className="py-4 text-center text-sm text-muted-foreground">
+                      No phases published for this project yet.
+                    </p>
+                  ) : (
+                    <ul className="divide-y">
+                      {phases.map((phase) => (
+                        <li key={phase.phaseId} className="flex flex-wrap items-center gap-2 py-2.5">
+                          <Badge variant="outline" className="tabular-nums">
+                            #{phase.sequenceOrder}
+                          </Badge>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{phase.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatDate(phase.baselineStart)} → {formatDate(phase.baselineEnd)}
+                            </p>
+                          </div>
+                          <Badge variant="outline">{phase.status}</Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
             <TabsContent value="tasks">
               <CustomerTasksTable
@@ -241,6 +309,19 @@ function CustomerTasksTable({
   }
 
   if (error) {
+    const raw = error instanceof Error ? error.message : "";
+    // Customer phase/task reads are a backend follow-up: the phase routes still
+    // authorize ADMIN/PM/WM only, so an assigned customer may get 403 here.
+    if (/forbidden|403|access/i.test(raw)) {
+      return (
+        <Card className="shadow-sm">
+          <CardContent className="p-8 text-center text-sm text-muted-foreground">
+            Task details aren&apos;t shared for this project yet. Your project workbook export
+            above still contains the full task list.
+          </CardContent>
+        </Card>
+      );
+    }
     return (
       <Card className="shadow-sm">
         <QueryError message={error instanceof Error ? error.message : undefined} onRetry={onRetry} />

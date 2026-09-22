@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Plus, Warehouse } from "lucide-react";
+import { Warehouse } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
@@ -42,7 +42,6 @@ function WarehousesPage() {
   const session = useSession();
   const suggestNext = useWorkflowSuggestion();
   const isLive = !!session?.token;
-  const canCreateWarehouse = session?.role === "ADMIN";
   const canAdjustInventory = session?.role === "WAREHOUSE_MANAGER";
 
   const {
@@ -59,10 +58,11 @@ function WarehousesPage() {
     staleTime: 30_000,
   });
 
-  const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ managerId: "", warehouseName: "", location: "" });
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const activeWarehouseId =
+    (warehouses ?? []).find((w) => w.isActive)?.warehouseId ?? warehouses?.[0]?.warehouseId ?? null;
+  const effectiveSelectedId = activeWarehouseId ?? selectedId;
   const [adjusting, setAdjusting] = useState(false);
   const [adjustment, setAdjustment] = useState<{
     variantId: string;
@@ -92,25 +92,29 @@ function WarehousesPage() {
     note: "",
   });
 
-  const managersQuery = useQuery({
-    queryKey: ["users", "warehouse-managers"],
-    queryFn: async () =>
-      (requireApiResult(await usersApi.getAll(), "Could not load warehouse managers") ?? []).filter(
-        (account) => account.role === "WAREHOUSE_MANAGER",
-      ),
-    enabled: isLive && canCreateWarehouse && creating,
-    staleTime: 30_000,
-  });
-
   const { data: inventory, refetch: refetchInventory } = useQuery({
-    queryKey: ["warehouse-inventory", selectedId],
+    queryKey: ["warehouse-inventory", effectiveSelectedId],
     queryFn: async () => {
-      const r = await warehousesApi.getInventory(selectedId!);
+      const r = await warehousesApi.getInventory(effectiveSelectedId!);
       return requireApiResult(r, "Could not load warehouse inventory") ?? [];
     },
-    enabled: selectedId !== null,
+    enabled: effectiveSelectedId !== null,
     staleTime: 10_000,
   });
+
+  const usersQuery = useQuery({
+    queryKey: ["users", "warehouse-actor-names"],
+    queryFn: async () =>
+      requireApiResult(await usersApi.getAll(), "Could not load account names") ?? [],
+    enabled: isLive && session?.role === "ADMIN",
+    staleTime: 60_000,
+  });
+  const userNames = Object.fromEntries(
+    (usersQuery.data ?? []).map((account) => [
+      account.id,
+      `${account.firstName} ${account.lastName}`.trim() || account.email,
+    ]),
+  );
 
   const materialsQuery = useQuery({
     queryKey: ["materials", "warehouse-adjustment"],
@@ -129,30 +133,28 @@ function WarehousesPage() {
   );
 
   const transactionsQuery = useQuery({
-    queryKey: ["warehouse-transactions", selectedId],
+    queryKey: ["warehouse-transactions", effectiveSelectedId],
     queryFn: async () =>
       requireApiResult(
-        await warehousesApi.getTransactions(selectedId!),
+        await warehousesApi.getTransactions(effectiveSelectedId!),
         "Could not load inventory transactions",
       ) ?? [],
-    enabled: selectedId !== null,
+    enabled: effectiveSelectedId !== null,
     staleTime: 10_000,
   });
 
   const returnRequestsQuery = useQuery({
-    queryKey: ["material-requests", "return-eligible", selectedId],
+    queryKey: ["material-requests", "return-eligible", effectiveSelectedId],
     queryFn: async () =>
       requireApiResult(
         await materialRequestsApi.getAll(),
         "Could not load issued material requests",
       ) ?? [],
-    enabled: isLive && canAdjustInventory && returning && selectedId !== null,
+    enabled: isLive && canAdjustInventory && returning && effectiveSelectedId !== null,
     staleTime: 10_000,
   });
   const eligibleReturnRequests = (returnRequestsQuery.data ?? []).filter(
-    (request) =>
-      (request.status === "ISSUED" || request.status === "PARTIALLY_ISSUED") &&
-      request.warehouseId === selectedId,
+    (request) => request.status === "ISSUED" || request.status === "PARTIALLY_ISSUED",
   );
   const selectedReturnRequest = eligibleReturnRequests.find(
     (request) => request.requestId === Number(inventoryReturn.materialRequestId),
@@ -196,41 +198,15 @@ function WarehousesPage() {
     adjustmentDelta !== 0 &&
     adjustmentAfter < adjustmentMinimum;
 
-  const submitCreate = async () => {
-    if (!form.warehouseName.trim() || !form.location.trim() || !form.managerId) {
-      toast.error("Warehouse name, location, and manager are required");
-      return;
-    }
-    setSaving(true);
-    try {
-      const r = await warehousesApi.create({
-        managerId: Number(form.managerId),
-        warehouseName: form.warehouseName.trim(),
-        location: form.location.trim(),
-      });
-      if (r.isSuccess) {
-        suggestNext({
-          message: "Warehouse created",
-          nextStep:
-            "The assigned Warehouse Manager can add opening stock using an approved inventory adjustment.",
-          to: "/app/admin/warehouses",
-          actionLabel: "Open warehouses",
-        });
-        setCreating(false);
-        setForm({ managerId: "", warehouseName: "", location: "" });
-        refetch();
-      } else toast.error(r.errorMessage ?? "Create failed");
-    } catch {
-      toast.error("Could not reach the backend");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const submitAdjustment = async () => {
     const variantId = Number(adjustment.variantId);
     const quantityDelta = Number(adjustment.quantityDelta);
-    if (!selectedId || !variantId || !Number.isFinite(quantityDelta) || quantityDelta === 0) {
+    if (
+      !effectiveSelectedId ||
+      !variantId ||
+      !Number.isFinite(quantityDelta) ||
+      quantityDelta === 0
+    ) {
       toast.error("Select a variant and enter a non-zero quantity change");
       return;
     }
@@ -244,7 +220,6 @@ function WarehousesPage() {
     setSaving(true);
     try {
       const response = await warehousesApi.adjustInventory({
-        warehouseId: selectedId,
         variantId,
         quantityDelta,
         reasonCode: adjustment.reasonCode,
@@ -261,7 +236,7 @@ function WarehousesPage() {
       }
       suggestNext({
         message: "Inventory adjustment submitted",
-        nextStep: "An Admin must approve it before the warehouse balance changes.",
+        nextStep: "A Warehouse Manager must approve it before the warehouse balance changes.",
         to: "/app/inventory-governance",
         actionLabel: "Track approval",
       });
@@ -278,7 +253,7 @@ function WarehousesPage() {
     const variantId = Number(inventoryReturn.variantId);
     const quantity = Number(inventoryReturn.quantity);
     const materialRequestId = Number(inventoryReturn.materialRequestId);
-    if (!selectedId || !variantId || !Number.isFinite(quantity) || quantity <= 0) {
+    if (!effectiveSelectedId || !variantId || !Number.isFinite(quantity) || quantity <= 0) {
       toast.error("Select a variant and enter a return quantity greater than 0");
       return;
     }
@@ -298,7 +273,6 @@ function WarehousesPage() {
     setSaving(true);
     try {
       const response = await warehousesApi.returnInventory({
-        warehouseId: selectedId,
         variantId,
         quantity,
         materialRequestId,
@@ -346,81 +320,8 @@ function WarehousesPage() {
       <PageHeader
         section="Inventory"
         title="Warehouse Inventory"
-        description="Monitor current stock, availability, reservations, replenishment, and inventory movement by warehouse."
-        actions={
-          isLive && canCreateWarehouse ? (
-            <Button size="sm" className="h-8 text-xs" onClick={() => setCreating(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> New warehouse
-            </Button>
-          ) : undefined
-        }
+        description="Monitor current stock, availability, reservations, replenishment, and inventory movement at the active warehouse."
       />
-
-      <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Warehouse</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="warehouse-name">Name</Label>
-              <Input
-                id="warehouse-name"
-                value={form.warehouseName}
-                onChange={(e) => setForm((f) => ({ ...f, warehouseName: e.target.value }))}
-                maxLength={250}
-                placeholder="Main Site Warehouse"
-                disabled={saving}
-              />
-            </div>
-            <div>
-              <Label>Warehouse manager</Label>
-              <Select
-                value={form.managerId}
-                onValueChange={(managerId) => setForm((current) => ({ ...current, managerId }))}
-                disabled={saving || managersQuery.isLoading}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={managersQuery.isLoading ? "Loading managers..." : "Select manager"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {(managersQuery.data ?? []).map((manager) => (
-                    <SelectItem key={manager.id} value={String(manager.id)}>
-                      {manager.firstName} {manager.lastName} ({manager.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {managersQuery.isSuccess && managersQuery.data.length === 0 && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Create a warehouse-manager account before creating a warehouse.
-                </p>
-              )}
-            </div>
-            <div>
-              <Label htmlFor="warehouse-location">Location</Label>
-              <Input
-                id="warehouse-location"
-                value={form.location}
-                onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
-                maxLength={500}
-                placeholder="Block A, Ground Floor"
-                disabled={saving}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreating(false)} disabled={saving}>
-              Cancel
-            </Button>
-            <Button onClick={submitCreate} disabled={saving}>
-              {saving ? "Creating..." : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={adjusting} onOpenChange={setAdjusting}>
         <DialogContent>
@@ -762,25 +663,22 @@ function WarehousesPage() {
         <Card className="shadow-sm">
           <CardContent className="flex flex-col items-center p-10 text-center">
             <Warehouse className="mb-3 h-9 w-9 text-muted-foreground" />
-            <p className="font-medium">No warehouses configured</p>
+            <p className="font-medium">No active warehouse</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Create a warehouse and assign a Warehouse Manager to begin tracking stock.
+              The backend exposes a single active warehouse. Contact an administrator if none is
+              configured.
             </p>
-            {canCreateWarehouse && (
-              <Button className="mt-4" onClick={() => setCreating(true)}>
-                <Plus className="mr-1.5 h-4 w-4" /> New warehouse
-              </Button>
-            )}
           </CardContent>
         </Card>
       ) : (
         <WarehouseInventoryWorkspace
           warehouses={warehouses ?? []}
-          selectedId={selectedId}
+          selectedId={effectiveSelectedId}
           onSelectWarehouse={setSelectedId}
           canAdjustInventory={canAdjustInventory}
           onAdjust={() => setAdjusting(true)}
           onReturn={() => setReturning(true)}
+          userNames={userNames}
         />
       )}
     </div>

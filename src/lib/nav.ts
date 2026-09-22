@@ -4,13 +4,11 @@ import {
   FolderKanban,
   Package,
   PackageCheck,
-  ShoppingCart,
   ClipboardList,
   Users,
   Warehouse,
   Truck,
   Tags,
-  MessageCircle,
 } from "lucide-react";
 import type { Role } from "./session";
 
@@ -53,20 +51,6 @@ export const NAV: NavItem[] = [
     group: "Operations",
   },
   {
-    to: "/app/procurement",
-    label: "Procurement",
-    icon: ShoppingCart,
-    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
-    group: "Operations",
-  },
-  {
-    to: "/app/warehouse-transfers",
-    label: "Warehouse Transfers",
-    icon: Truck,
-    roles: ["ADMIN", "WAREHOUSE_MANAGER"],
-    group: "Operations",
-  },
-  {
     to: "/app/inventory-governance",
     label: "Inventory Governance",
     icon: ClipboardList,
@@ -79,14 +63,6 @@ export const NAV: NavItem[] = [
     icon: ClipboardList,
     roles: ["ADMIN", "PM"],
     group: "Field",
-  },
-
-  {
-    to: "/app/ai",
-    label: "Team Chat",
-    icon: MessageCircle,
-    roles: ["ADMIN", "PM", "WAREHOUSE_MANAGER"],
-    group: "Communication",
   },
 
   {
@@ -123,20 +99,6 @@ export const NAV: NavItem[] = [
     icon: Users,
     roles: ["CUSTOMER"],
     group: "Portal",
-  },
-  {
-    to: "/app/supplier/dashboard",
-    label: "Supplier Dashboard",
-    icon: LayoutDashboard,
-    roles: ["SUPPLIER"],
-    group: "Overview",
-  },
-  {
-    to: "/app/supplier/orders",
-    label: "Supplier Orders",
-    icon: ShoppingCart,
-    roles: ["SUPPLIER"],
-    group: "Operations",
   },
 ];
 

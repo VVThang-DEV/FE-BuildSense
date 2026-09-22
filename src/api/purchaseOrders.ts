@@ -249,26 +249,6 @@ export const purchaseOrdersApi = {
     };
   },
   getShortages: () => apiClient.get<ProcurementShortageResponse[]>("/api/purchaseorders/shortages"),
-  create: (body: CreatePurchaseOrderRequest) =>
-    apiClient.post<PurchaseOrderResponse | PurchaseOrderBudgetError | string>(
-      "/api/purchaseorders",
-      body,
-    ),
-  createFromShortages: (body: CreatePurchaseOrderRequest) =>
-    apiClient.post<PurchaseOrderResponse | PurchaseOrderBudgetError | string>(
-      "/api/purchaseorders/from-shortages",
-      body,
-    ),
-  approve: (id: number, body?: PurchaseOrderActionRequest) =>
-    apiClient.put<PurchaseOrderResponse>(`/api/purchaseorders/${id}/approve`, body),
-  reject: (id: number, body?: PurchaseOrderActionRequest) =>
-    apiClient.put<PurchaseOrderResponse>(`/api/purchaseorders/${id}/reject`, body),
-  receive: (poId: number, body: ReceivePurchaseOrderRequest) =>
-    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/receive`, body),
-  markProcessing: (poId: number, body?: PurchaseOrderActionRequest) =>
-    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/processing`, body),
-  ship: (poId: number, body?: PurchaseOrderActionRequest) =>
-    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/ship`, body),
-  cancel: (poId: number, body?: PurchaseOrderActionRequest) =>
-    apiClient.post<PurchaseOrderResponse>(`/api/purchaseorders/${poId}/cancel`, body),
+  // Procurement writes retired (HTTP 410): create/from-shortages/approve/reject/
+  // receive/processing/ship/cancel were removed. Reads above remain for history.
 };

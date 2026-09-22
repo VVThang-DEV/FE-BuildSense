@@ -77,10 +77,5 @@ export const suppliersApi = {
   create: (body: { companyName: string; contactEmail?: string; contactPhone?: string }) =>
     apiClient.post<string>("/api/suppliers", body),
 
-  /** AI-powered balanced supplier recommendation (Gemini + optional web search) */
-  recommendBalanced: (body: BalancedSupplierRecommendationRequest) =>
-    apiClient.post<BalancedSupplierRecommendationResponse>(
-      "/api/suppliers/recommendations/balanced",
-      body,
-    ),
+  // Supplier recommendations retired (HTTP 410). Do not build UI for them.
 };

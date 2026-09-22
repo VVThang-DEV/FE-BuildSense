@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as VerifyRouteImport } from './routes/verify'
 import { Route as SiteRouteImport } from './routes/site'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
@@ -45,11 +44,6 @@ import { Route as AppAdminThresholdsRouteImport } from './routes/app.admin.thres
 import { Route as AppAdminSuppliersRouteImport } from './routes/app.admin.suppliers'
 import { Route as AppAdminCategoriesRouteImport } from './routes/app.admin.categories'
 
-const VerifyRoute = VerifyRouteImport.update({
-  id: '/verify',
-  path: '/verify',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SiteRoute = SiteRouteImport.update({
   id: '/site',
   path: '/site',
@@ -228,7 +222,6 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
-  '/verify': typeof VerifyRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -264,7 +257,6 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
-  '/verify': typeof VerifyRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -301,7 +293,6 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/site': typeof SiteRoute
-  '/verify': typeof VerifyRoute
   '/app/ai': typeof AppAiRoute
   '/app/check': typeof AppCheckRoute
   '/app/dashboard': typeof AppDashboardRoute
@@ -340,7 +331,6 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/site'
-    | '/verify'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
@@ -376,7 +366,6 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/site'
-    | '/verify'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
@@ -412,7 +401,6 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/site'
-    | '/verify'
     | '/app/ai'
     | '/app/check'
     | '/app/dashboard'
@@ -450,18 +438,10 @@ export interface RootRouteChildren {
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   SiteRoute: typeof SiteRoute
-  VerifyRoute: typeof VerifyRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/verify': {
-      id: '/verify'
-      path: '/verify'
-      fullPath: '/verify'
-      preLoaderRoute: typeof VerifyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/site': {
       id: '/site'
       path: '/site'
@@ -803,7 +783,6 @@ const rootRouteChildren: RootRouteChildren = {
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   SiteRoute: SiteRoute,
-  VerifyRoute: VerifyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, Boxes, Calculator, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { projectsApi } from "@/api/projects";
@@ -18,18 +18,22 @@ import {
 import { QueryError } from "@/components/query-error";
 import { warehousesApi } from "@/api/warehouses";
 import { useSession } from "@/lib/session";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { isClosedProjectStatus } from "@/lib/utils";
 
-export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
+// Thrown from queryFns when the backend 409s on a closed project so the UI
+// can render a friendly read-only state instead of an error panel.
+const CLOSED_PROJECT_MARKER = "CLOSED_PROJECT_READ_ONLY";
+
+export function ProjectMaterialPlanning({
+  projectId,
+  projectStatus,
+}: {
+  projectId: number;
+  projectStatus?: string;
+}) {
+  const isClosedProject = isClosedProjectStatus(projectStatus);
   const queryClient = useQueryClient();
   const session = useSession();
-  const [warehouseId, setWarehouseId] = useState("");
   const [runningMrp, setRunningMrp] = useState(false);
   const warehousesQuery = useQuery({
     queryKey: ["warehouses", "mrp-scope"],
@@ -37,45 +41,43 @@ export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
       requireApiResult(await warehousesApi.getAll(), "Could not load warehouses") ?? [],
     enabled: projectId > 0 && (session?.role === "WAREHOUSE_MANAGER" || session?.role === "ADMIN"),
   });
-  useEffect(() => {
-    if (session?.role === "WAREHOUSE_MANAGER" && !warehouseId && warehousesQuery.data?.[0]) {
-      setWarehouseId(String(warehousesQuery.data[0].warehouseId));
-    }
-  }, [session?.role, warehouseId, warehousesQuery.data]);
+  const activeWarehouse =
+    (warehousesQuery.data ?? []).find((w) => w.isActive) ?? warehousesQuery.data?.[0];
   const requirementsQuery = useQuery({
     queryKey: ["project-material-requirements", projectId],
-    queryFn: async () =>
-      requireApiResult(
-        await projectsApi.getMaterialRequirements(projectId),
-        "Could not load material requirements",
-      ) ?? [],
+    queryFn: async () => {
+      const response = await projectsApi.getMaterialRequirements(projectId);
+      if (response.statusCode === 409 && isClosedProject) throw new Error(CLOSED_PROJECT_MARKER);
+      return requireApiResult(response, "Could not load material requirements") ?? [];
+    },
     enabled: projectId > 0,
     staleTime: 10_000,
+    retry: (count, error) =>
+      error instanceof Error && error.message === CLOSED_PROJECT_MARKER ? false : count < 2,
   });
   const mrpQuery = useQuery({
-    queryKey: ["project-mrp", projectId, warehouseId],
+    queryKey: ["project-mrp", projectId],
     queryFn: async () => {
-      const response = await projectsApi.getLatestMrp(projectId, Number(warehouseId));
+      const response = await projectsApi.getLatestMrp(projectId);
       if (response.statusCode === 404) return [];
+      if (response.statusCode === 409 && isClosedProject) throw new Error(CLOSED_PROJECT_MARKER);
       return requireApiResult(response, "Could not load the latest MRP run") ?? [];
     },
-    enabled: projectId > 0 && !!warehouseId,
+    enabled: projectId > 0,
     staleTime: 10_000,
+    retry: (count, error) =>
+      error instanceof Error && error.message === CLOSED_PROJECT_MARKER ? false : count < 2,
   });
 
   const runMrp = async () => {
-    if (session?.role === "WAREHOUSE_MANAGER" && !warehouseId) {
-      toast.error("Select a managed warehouse before running MRP");
+    if (isClosedProject) {
+      toast.error("This project is closed — MRP cannot be recalculated on closed projects");
       return;
     }
     setRunningMrp(true);
     try {
-      const result =
-        requireApiResult(
-          await projectsApi.runMrp(projectId, warehouseId ? Number(warehouseId) : undefined),
-          "Could not run MRP",
-        ) ?? [];
-      queryClient.setQueryData(["project-mrp", projectId, warehouseId], result);
+      const result = requireApiResult(await projectsApi.runMrp(projectId), "Could not run MRP") ?? [];
+      queryClient.setQueryData(["project-mrp", projectId], result);
       toast.success(
         result[0]
           ? `MRP planning run version ${result[0].planningVersion} created`
@@ -107,14 +109,18 @@ export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
           {requirementsQuery.isLoading ? (
             <LoadingLine label="Loading material plan..." />
           ) : requirementsQuery.isError ? (
-            <QueryError
-              message={
-                requirementsQuery.error instanceof Error
-                  ? requirementsQuery.error.message
-                  : undefined
-              }
-              onRetry={() => requirementsQuery.refetch()}
-            />
+            isClosedMarker(requirementsQuery.error) ? (
+              <ClosedProjectNote label="Material requirements can't be recalculated for a closed project. The task plan above stays visible for reference." />
+            ) : (
+              <QueryError
+                message={
+                  requirementsQuery.error instanceof Error
+                    ? requirementsQuery.error.message
+                    : undefined
+                }
+                onRetry={() => requirementsQuery.refetch()}
+              />
+            )
           ) : (
             <Table>
               <TableHeader>
@@ -159,63 +165,41 @@ export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
                 variant="outline"
                 className="border-warning/40 bg-warning/10 text-warning-foreground"
               >
-                {warehouseId ? "Warehouse scoped" : "All warehouses"}
+                {activeWarehouse
+                  ? `Active warehouse · ${activeWarehouse.warehouseName}`
+                  : "Active warehouse"}
               </Badge>
               {mrp[0] && (
                 <Badge variant="secondary">
                   Run v{mrp[0].planningVersion} · #{mrp[0].planningRunId}
                 </Badge>
               )}
-              {(session?.role === "WAREHOUSE_MANAGER" || session?.role === "ADMIN") && (
-                <Select
-                  value={warehouseId || "ALL"}
-                  onValueChange={(value) => setWarehouseId(value === "ALL" ? "" : value)}
-                >
-                  <SelectTrigger className="w-48" aria-label="MRP warehouse scope">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {session?.role === "ADMIN" && (
-                      <SelectItem value="ALL">All warehouses</SelectItem>
-                    )}
-                    {(warehousesQuery.data ?? []).map((warehouse) => (
-                      <SelectItem key={warehouse.warehouseId} value={String(warehouse.warehouseId)}>
-                        {warehouse.warehouseName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={runMrp}
-                disabled={
-                  runningMrp ||
-                  projectId <= 0 ||
-                  (session?.role === "WAREHOUSE_MANAGER" && !warehouseId)
-                }
-              >
+              {(session?.role === "PM" || session?.role === "WAREHOUSE_MANAGER") && !isClosedProject && (
+                <Button size="sm" variant="outline" onClick={runMrp} disabled={runningMrp || projectId <= 0}>
                 <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${runningMrp ? "animate-spin" : ""}`} />
                 {runningMrp ? "Running..." : "Run MRP"}
               </Button>
+              )}
             </div>
           </div>
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-foreground" />
             MRP now deducts issued quantities and counts only this project&apos;s active
-            reservations and open orders. Warehouse managers are restricted to warehouses they
-            manage.
+            reservations and open orders. MRP always runs against the single active warehouse.
           </p>
         </CardHeader>
         <CardContent className="p-0">
           {mrpQuery.isLoading ? (
             <LoadingLine label="Loading latest MRP run..." />
           ) : mrpQuery.isError ? (
-            <QueryError
-              message={mrpQuery.error instanceof Error ? mrpQuery.error.message : undefined}
-              onRetry={() => mrpQuery.refetch()}
-            />
+            isClosedMarker(mrpQuery.error) ? (
+              <ClosedProjectNote label="MRP can't be recalculated for a closed project. The last saved run is no longer served — the task plan stays visible for reference." />
+            ) : (
+              <QueryError
+                message={mrpQuery.error instanceof Error ? mrpQuery.error.message : undefined}
+                onRetry={() => mrpQuery.refetch()}
+              />
+            )
           ) : (
             <Table>
               <TableHeader>
@@ -289,6 +273,19 @@ export function ProjectMaterialPlanning({ projectId }: { projectId: number }) {
 function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString();
+}
+
+function isClosedMarker(error: unknown): boolean {
+  return error instanceof Error && error.message === CLOSED_PROJECT_MARKER;
+}
+
+function ClosedProjectNote({ label }: { label: string }) {
+  return (
+    <div className="flex items-start gap-1.5 p-8 text-center text-xs text-muted-foreground">
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-foreground" />
+      <p className="text-left">{label}</p>
+    </div>
+  );
 }
 
 function LoadingLine({ label }: { label: string }) {

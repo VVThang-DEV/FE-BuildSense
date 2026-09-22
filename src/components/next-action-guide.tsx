@@ -1,11 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, CheckCircle2, ListChecks, MessageCircle } from "lucide-react";
+import { ArrowRight, CheckCircle2, ListChecks } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useSession, type Role } from "@/lib/session";
-import { openChatDrawer } from "@/hooks/use-chat-store";
 
 export type NextAction = {
   id: string;
@@ -104,20 +103,9 @@ export function NextActionGuide({
                       </Link>
                     </Button>
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="max-w-56 text-right text-xs text-muted-foreground">
-                        {action.waitingNote ?? "Waiting for another role to continue"}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0 text-xs h-7 gap-1"
-                        onClick={() => openChatDrawer()}
-                      >
-                        <MessageCircle className="h-3 w-3" />
-                        Notify
-                      </Button>
-                    </div>
+                    <span className="max-w-56 text-right text-xs text-muted-foreground">
+                      {action.waitingNote ?? "Waiting for another role to continue"}
+                    </span>
                   )}
                 </li>
               );

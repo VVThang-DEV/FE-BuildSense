@@ -55,27 +55,6 @@ export const warehouseTransfersApi = {
   getAll: () => apiClient.get<WarehouseTransferResponse[]>("/api/WarehouseTransfers"),
   getById: (id: number) =>
     apiClient.get<WarehouseTransferResponse>(`/api/WarehouseTransfers/${id}`),
-  create: (body: CreateWarehouseTransferRequest) =>
-    apiClient.post<WarehouseTransferResponse>("/api/WarehouseTransfers", body),
-  approve: (id: number) =>
-    apiClient.put<WarehouseTransferResponse>(`/api/WarehouseTransfers/${id}/approve`),
-  reject: (id: number) =>
-    apiClient.put<WarehouseTransferResponse>(`/api/WarehouseTransfers/${id}/reject`),
-  ship: (id: number) =>
-    apiClient.post<WarehouseTransferResponse>(`/api/WarehouseTransfers/${id}/ship`),
-  receive: (
-    id: number,
-    items?: {
-      transferItemId: number;
-      quantity: number;
-      damagedQuantity: number;
-      lostQuantity: number;
-    }[],
-  ) =>
-    apiClient.post<WarehouseTransferResponse>(
-      `/api/WarehouseTransfers/${id}/receive`,
-      items ? { items } : undefined,
-    ),
-  cancel: (id: number) =>
-    apiClient.put<WarehouseTransferResponse>(`/api/WarehouseTransfers/${id}/cancel`),
+  // Transfer writes retired (HTTP 410) under the single-warehouse model:
+  // create/approve/reject/ship/receive/cancel were removed. Reads remain for history.
 };

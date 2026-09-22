@@ -1,8 +1,7 @@
 import { apiClient } from "./client";
+import type { PhaseResponse } from "./phases";
 
 export type CreateTaskRequest = {
-  projectId: number;
-  phaseName: string;
   taskName: string;
   assignedToUserID: number;
   plannedBudget: number;
@@ -33,10 +32,17 @@ export type TaskStatus =
   | "REJECTED"
   | "CANCELLED";
 
+export type TaskPhaseSummary = Pick<
+  PhaseResponse,
+  "phaseId" | "name" | "sequenceOrder" | "status" | "baselineStart" | "baselineEnd"
+>;
+
 export type TaskResponse = {
   taskId: number;
   projectId: number;
+  phaseId: number;
   phaseName: string;
+  phase?: TaskPhaseSummary | null;
   taskName: string;
   assignedToUserID: number;
   assignedToUserName: string;
@@ -50,22 +56,33 @@ export type TaskResponse = {
   materialRequirements: TaskMaterialResponse[];
 };
 
-export type UpdateTaskRequest = Omit<CreateTaskRequest, "projectId" | "materials"> & {
+export type UpdateTaskRequest = {
+  phaseId: number;
+  taskName: string;
+  assignedToUserID: number;
+  plannedBudget: number;
+  baselineStart: string;
+  baselineEnd: string;
   rowVersion: string;
 };
 
 export const tasksApi = {
-  create: (body: CreateTaskRequest) => apiClient.post<string>("/api/Task", body),
+  /** Create a task under a phase. Project is derived server-side from the phase. */
+  create: (phaseId: number, body: CreateTaskRequest) =>
+    apiClient.post<TaskResponse>(`/api/Phases/${phaseId}/tasks`, body),
   getByProject: (projectId: number) =>
-    apiClient.get<TaskResponse[]>(`/api/Task/project/${projectId}`),
-  getById: (taskId: number) => apiClient.get<TaskResponse>(`/api/Task/${taskId}`),
-  getAssigned: () => apiClient.get<TaskResponse[]>("/api/Task/assigned"),
+    apiClient.get<TaskResponse[]>(`/api/Projects/${projectId}/tasks`),
+  getById: (taskId: number) => apiClient.get<TaskResponse>(`/api/Tasks/${taskId}`),
+  getAssigned: () => apiClient.get<TaskResponse[]>("/api/Tasks/assigned"),
   update: (taskId: number, body: UpdateTaskRequest) =>
-    apiClient.put<TaskResponse>(`/api/Task/${taskId}`, body),
+    apiClient.put<TaskResponse>(`/api/Tasks/${taskId}`, body),
   changeStatus: (taskId: number, action: "cancel" | "reject" | "reopen", rowVersion: string) =>
-    apiClient.post<{ taskId: number; status: TaskStatus }>(`/api/Task/${taskId}/${action}`, {
-      rowVersion,
-    }),
+    apiClient.post<{ taskId: number; status: TaskStatus; rowVersion: string }>(
+      `/api/Tasks/${taskId}/${action}`,
+      {
+        rowVersion,
+      },
+    ),
   assignMaterial: (taskId: number, body: TaskMaterialRequest) =>
     apiClient.post<TaskMaterialResponse>(`/api/Projects/tasks/${taskId}/materials`, body),
 };

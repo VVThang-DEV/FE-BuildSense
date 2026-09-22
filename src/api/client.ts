@@ -40,6 +40,7 @@ function fallbackMessage(status: number): string {
   if (status === 403) return "Forbidden - your account does not have access";
   if (status === 404) return "Not found";
   if (status === 409) return "This record changed. Reload it and try again";
+  if (status === 410) return "This feature has been retired and is no longer available";
   if (status === 429) return "Too many requests. Wait a moment and try again";
   if (status >= 500) return "Server error";
   return "Request failed";
@@ -197,10 +198,109 @@ async function callForm<T>(method: string, path: string, body: FormData): Promis
   return parseResponse<T>(res);
 }
 
+export type FileDownload = {
+  status: number;
+  blob: Blob | null;
+  filename: string | null;
+  errorMessage: string | null;
+};
+
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header)?.[1];
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8);
+    } catch {
+      return utf8;
+    }
+  }
+  return /filename="?([^";]+)"?/i.exec(header)?.[1] ?? null;
+}
+
+async function download(path: string): Promise<FileDownload> {
+  const token = await authorizedToken(path);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let res = await fetch(`${BASE}${path}`, { headers });
+  if (res.status === 401 && canRefresh(path) && getRefreshToken()) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      headers.Authorization = `Bearer ${refreshed}`;
+      res = await fetch(`${BASE}${path}`, { headers });
+    }
+  }
+  if (res.status === 401) logout();
+  if (!res.ok) {
+    let message: string | null = null;
+    try {
+      const payload = await res.clone().json();
+      if (isApiEnvelope(payload)) message = payload.errorMessage;
+    } catch {
+      // non-JSON error body — fall back to status text
+    }
+    return {
+      status: res.status,
+      blob: null,
+      filename: null,
+      errorMessage: message ?? fallbackMessage(res.status),
+    };
+  }
+  return {
+    status: res.status,
+    blob: await res.blob(),
+    filename: filenameFromDisposition(res.headers.get("content-disposition")),
+    errorMessage: null,
+  };
+}
+
+async function downloadPost(path: string, body?: unknown): Promise<FileDownload> {
+  const token = await authorizedToken(path);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const init = (auth: string | null): RequestInit => ({
+    method: "POST",
+    headers: auth ? { ...headers, Authorization: `Bearer ${auth}` } : headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  let res = await fetch(`${BASE}${path}`, init(token));
+  if (res.status === 401 && canRefresh(path) && getRefreshToken()) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) res = await fetch(`${BASE}${path}`, init(refreshed));
+  }
+  if (res.status === 401) logout();
+  if (!res.ok) {
+    let message: string | null = null;
+    try {
+      const payload = await res.clone().json();
+      if (isApiEnvelope(payload)) message = payload.errorMessage;
+    } catch {
+      // non-JSON error body — fall back to status text
+    }
+    return {
+      status: res.status,
+      blob: null,
+      filename: null,
+      errorMessage: message ?? fallbackMessage(res.status),
+    };
+  }
+  return {
+    status: res.status,
+    blob: await res.blob(),
+    filename: filenameFromDisposition(res.headers.get("content-disposition")),
+    errorMessage: null,
+  };
+}
+
 export const apiClient = {
   get: <T>(path: string) => call<T>("GET", path),
   post: <T>(path: string, body?: unknown) => call<T>("POST", path, body),
   postForm: <T>(path: string, body: FormData) => callForm<T>("POST", path, body),
   put: <T>(path: string, body?: unknown) => call<T>("PUT", path, body),
   delete: <T>(path: string) => call<T>("DELETE", path),
+  download: (path: string) => download(path),
+  downloadPost: (path: string, body?: unknown) => downloadPost(path, body),
 };
