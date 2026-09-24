@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-export type Role = "ADMIN" | "PM" | "WAREHOUSE_MANAGER" | "CUSTOMER";
+export type Role = "ADMIN" | "PM" | "WAREHOUSE_MANAGER" | "CUSTOMER" | "WORKER";
 
 export type Session = {
   role: Role;
@@ -29,6 +29,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   PM: "Project Manager",
   WAREHOUSE_MANAGER: "Warehouse Manager",
   CUSTOMER: "Customer",
+  WORKER: "Site Worker",
 };
 
 export const ROLE_HOME: Record<Role, string> = {
@@ -36,12 +37,13 @@ export const ROLE_HOME: Record<Role, string> = {
   PM: "/app/dashboard",
   WAREHOUSE_MANAGER: "/app/dashboard",
   CUSTOMER: "/app/portal",
+  WORKER: "/app/worker",
 };
 
 const KEY = "bs.session.v1";
 // SUPPLIER is retired: locked out backend-side and unassignable by ADMIN.
 // Legacy SUPPLIER tokens fall back to CUSTOMER in roleFromClaims.
-const VALID_ROLES = new Set<Role>(["ADMIN", "PM", "WAREHOUSE_MANAGER", "CUSTOMER"]);
+const VALID_ROLES = new Set<Role>(["ADMIN", "PM", "WAREHOUSE_MANAGER", "CUSTOMER", "WORKER"]);
 
 type JwtClaims = Record<string, string | number | undefined>;
 

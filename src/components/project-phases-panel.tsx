@@ -4,6 +4,7 @@ import { Pencil, Plus, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { requireApiResult } from "@/api/client";
 import { phasesApi, type PhaseResponse } from "@/api/phases";
+import { workCategoriesApi } from "@/api/workCategories";
 import { isClosedProjectStatus } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
@@ -35,6 +43,7 @@ type PhaseForm = {
   sequenceOrder: string;
   baselineStart: string;
   baselineEnd: string;
+  workCategoryId: string;
 };
 
 function emptyForm(nextOrder: number): PhaseForm {
@@ -44,6 +53,7 @@ function emptyForm(nextOrder: number): PhaseForm {
     sequenceOrder: String(nextOrder),
     baselineStart: "",
     baselineEnd: "",
+    workCategoryId: "",
   };
 }
 
@@ -99,9 +109,20 @@ export function ProjectPhasesPanel({
       queryClient.invalidateQueries({ queryKey: ["tasks", projectId] }),
     ]);
 
+  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
+    queryKey: ["work-categories"],
+    queryFn: async () =>
+      requireApiResult(await workCategoriesApi.getAll(), "Could not load work categories") ?? [],
+    staleTime: 60_000,
+  });
+
   const validate = (values: PhaseForm) => {
     if (!values.name.trim()) {
       toast.error("Phase name is required");
+      return false;
+    }
+    if (!values.workCategoryId) {
+      toast.error("Work category is required");
       return false;
     }
     const order = Number(values.sequenceOrder);
@@ -130,6 +151,7 @@ export function ProjectPhasesPanel({
         sequenceOrder: Number(form.sequenceOrder),
         baselineStart: form.baselineStart,
         baselineEnd: form.baselineEnd,
+        workCategoryId: Number(form.workCategoryId),
       });
       if (!response.isSuccess) {
         toast.error(response.errorMessage ?? "Could not create phase");
@@ -154,6 +176,7 @@ export function ProjectPhasesPanel({
         sequenceOrder: String(phase.sequenceOrder),
         baselineStart: phase.baselineStart.slice(0, 10),
         baselineEnd: phase.baselineEnd.slice(0, 10),
+        workCategoryId: String(phase.workCategoryId),
       },
     });
   };
@@ -168,6 +191,7 @@ export function ProjectPhasesPanel({
         sequenceOrder: Number(editing.form.sequenceOrder),
         baselineStart: editing.form.baselineStart,
         baselineEnd: editing.form.baselineEnd,
+        workCategoryId: Number(editing.form.workCategoryId),
         rowVersion: editing.phase.rowVersion,
       });
       if (!response.isSuccess) {
@@ -258,6 +282,9 @@ export function ProjectPhasesPanel({
                     <TableCell className="tabular-nums">{phase.sequenceOrder}</TableCell>
                     <TableCell>
                       <p className="font-medium">{phase.name}</p>
+                      {phase.workCategoryName && (
+                        <p className="text-xs text-muted-foreground">{phase.workCategoryName}</p>
+                      )}
                       {phase.description && (
                         <p className="text-xs text-muted-foreground">{phase.description}</p>
                       )}
@@ -309,7 +336,13 @@ export function ProjectPhasesPanel({
           <DialogHeader>
             <DialogTitle>New phase</DialogTitle>
           </DialogHeader>
-          <PhaseFormFields form={form} onChange={setForm} disabled={busy} />
+          <PhaseFormFields
+            form={form}
+            onChange={setForm}
+            disabled={busy}
+            categories={categories}
+            categoriesLoading={categoriesLoading}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={busy}>
               Cancel
@@ -331,6 +364,8 @@ export function ProjectPhasesPanel({
               form={editing.form}
               onChange={(form) => setEditing((current) => (current ? { ...current, form } : current))}
               disabled={busy}
+              categories={categories}
+              categoriesLoading={categoriesLoading}
             />
           )}
           <DialogFooter>
@@ -362,13 +397,36 @@ function PhaseFormFields({
   form,
   onChange,
   disabled,
+  categories,
+  categoriesLoading,
 }: {
   form: PhaseForm;
   onChange: (form: PhaseForm) => void;
   disabled: boolean;
+  categories: { workCategoryId: number; name: string }[];
+  categoriesLoading: boolean;
 }) {
   return (
     <div className="space-y-3">
+      <div>
+        <Label>Work category *</Label>
+        <Select
+          value={form.workCategoryId || undefined}
+          onValueChange={(workCategoryId) => onChange({ ...form, workCategoryId })}
+          disabled={disabled || categoriesLoading}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={categoriesLoading ? "Loading..." : "Select category"} />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((category) => (
+              <SelectItem key={category.workCategoryId} value={String(category.workCategoryId)}>
+                {category.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
         <div>
           <Label htmlFor="phase-name">Name *</Label>

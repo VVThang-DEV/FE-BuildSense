@@ -1,7 +1,7 @@
 import { apiClient } from "./client";
 
-export type BackendRole = "ADMIN" | "PM" | "WAREHOUSE_MANAGER" | "CUSTOMER";
-export type BackendRoleValue = 0 | 1 | 2 | 4;
+export type BackendRole = "ADMIN" | "PM" | "WAREHOUSE_MANAGER" | "CUSTOMER" | "WORKER";
+export type BackendRoleValue = 0 | 1 | 2 | 4 | 5;
 
 export type AccountResponse = {
   id: number;
@@ -45,6 +45,7 @@ export const BACKEND_ROLE_LABEL: Record<BackendRole, string> = {
   PM: "Project Manager",
   WAREHOUSE_MANAGER: "Warehouse Manager",
   CUSTOMER: "Customer",
+  WORKER: "Site Worker",
 };
 
 export const BACKEND_ROLE_VALUE: Record<BackendRole, BackendRoleValue> = {
@@ -52,6 +53,7 @@ export const BACKEND_ROLE_VALUE: Record<BackendRole, BackendRoleValue> = {
   PM: 1,
   WAREHOUSE_MANAGER: 2,
   CUSTOMER: 4,
+  WORKER: 5,
 };
 
 // SUPPLIER (3) is retired: ADMIN can no longer assign it and supplier
@@ -61,6 +63,7 @@ export const USER_MANAGEMENT_ROLES: BackendRole[] = [
   "PM",
   "WAREHOUSE_MANAGER",
   "CUSTOMER",
+  "WORKER",
 ];
 
 const ROLE_BY_NUMBER: Record<number, BackendRole> = {
@@ -68,6 +71,7 @@ const ROLE_BY_NUMBER: Record<number, BackendRole> = {
   1: "PM",
   2: "WAREHOUSE_MANAGER",
   4: "CUSTOMER",
+  5: "WORKER",
 };
 
 function normalizeRole(role: RawAccountResponse["role"]): BackendRole {
@@ -114,6 +118,14 @@ export const usersApi = {
   getCustomers: (search?: string) => {
     const query = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
     return apiClient.get<CustomerListItem[]>(`/api/useraccount/customers${query}`);
+  },
+  /**
+   * Site workers only (`id`, name, email). ADMIN and PM.
+   * Feeds the task-assignment picker.
+   */
+  getWorkers: (search?: string) => {
+    const query = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+    return apiClient.get<CustomerListItem[]>(`/api/useraccount/workers${query}`);
   },
   getUserId: async () => {
     const response = await apiClient.get<number | RawUserIdResponse>("/api/useraccount/GetUserId");

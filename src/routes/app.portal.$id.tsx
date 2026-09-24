@@ -252,6 +252,7 @@ function CustomerProjectDetail() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{phase.name}</p>
                             <p className="text-xs text-muted-foreground">
+                              {phase.workCategoryName ? `${phase.workCategoryName} · ` : ""}
                               {formatDate(phase.baselineStart)} → {formatDate(phase.baselineEnd)}
                             </p>
                           </div>
@@ -363,7 +364,12 @@ function CustomerTasksTable({
                     </p>
                   )}
                 </TableCell>
-                <TableCell className="text-sm">{task.phaseName}</TableCell>
+                <TableCell className="text-sm">
+                  {task.phaseName}
+                  {task.phase?.workCategoryName && (
+                    <p className="text-xs text-muted-foreground">{task.phase.workCategoryName}</p>
+                  )}
+                </TableCell>
                 <TableCell>
                   <Badge variant="outline" className={taskStatusClass(task.status)}>
                     {task.status.replaceAll("_", " ")}

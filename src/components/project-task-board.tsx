@@ -45,6 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { requireApiResult } from "@/api/client";
+import { usersApi } from "@/api/users";
 import { progressReportsApi, type ProgressReportResponse } from "@/api/progressReports";
 import { type TaskResponse, tasksApi } from "@/api/tasks";
 import { phasesApi } from "@/api/phases";
@@ -55,6 +56,7 @@ import { cn, isClosedProjectStatus } from "@/lib/utils";
 import { isCloudinaryConfigured, uploadSitePhoto } from "@/lib/cloudinary";
 import { QueryError } from "./query-error";
 import { ConfirmDialog } from "./confirm-dialog";
+import { TaskIssues } from "./task-issues";
 
 const MINIMUM_REPORTING_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -62,11 +64,15 @@ type ProjectTaskBoardProps = {
   projectId: number;
   projectName?: string;
   projectStatus?: string;
+  /** Deep-link from the risk panel: opens the task detail. */
+  focusedTaskId?: number | null;
 };
 
 type TaskForm = {
   phaseId: string;
   taskName: string;
+  /** "self" for the PM themself, otherwise a WORKER user id. */
+  assignee: string;
   plannedBudget: string;
   baselineStart: string;
   baselineEnd: string;
@@ -96,6 +102,7 @@ function newTaskForm(): TaskForm {
   return {
     phaseId: "",
     taskName: "",
+    assignee: "self",
     plannedBudget: "0",
     baselineStart: todayInput(),
     baselineEnd: plusDaysInput(7),
@@ -145,7 +152,7 @@ function validHttpsUrl(value: string): boolean {
   }
 }
 
-export function ProjectTaskBoard({ projectId, projectName, projectStatus }: ProjectTaskBoardProps) {
+export function ProjectTaskBoard({ projectId, projectName, projectStatus, focusedTaskId }: ProjectTaskBoardProps) {
   const queryClient = useQueryClient();
   const session = useSession();
   // A closed (COMPLETED/CANCELLED) project is read-only: every task/phase
@@ -163,6 +170,9 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  useEffect(() => {
+    if (focusedTaskId != null) setSelectedTaskId(focusedTaskId);
+  }, [focusedTaskId]);
   const [materialAction, setMaterialAction] = useState<string | null>(null);
   const [assignVariantId, setAssignVariantId] = useState("");
   const [assignMaterialQuantity, setAssignMaterialQuantity] = useState("1");
@@ -187,10 +197,12 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
     rowVersion: string;
     phaseId: string;
     taskName: string;
+    assignee: string;
     plannedBudget: string;
     baselineStart: string;
     baselineEnd: string;
   } | null>(null);
+  const [workerSearch, setWorkerSearch] = useState("");
   const [correctionDialog, setCorrectionDialog] = useState<{
     report: ProgressReportResponse;
     progressIncrement: string;
@@ -219,6 +231,25 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
     enabled: !!session?.token,
     staleTime: 30_000,
   });
+
+  // Site workers for the task-assignment picker. Tasks may only target the
+  // owning PM ("self") or a WORKER — anything else returns 400.
+  const workersQuery = useQuery({
+    queryKey: ["users", "workers", workerSearch],
+    queryFn: async () =>
+      requireApiResult(
+        await usersApi.getWorkers(workerSearch || undefined),
+        "Could not load site workers",
+      ) ?? [],
+    enabled: !!session?.token && canManageTasks && (createTaskOpen || editTaskDialog !== null),
+    staleTime: 30_000,
+  });
+
+  const resolveAssigneeId = (assignee: string): number | null => {
+    if (assignee === "self") return session?.userId ?? null;
+    const id = Number(assignee);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  };
 
   const variants = useMemo(
     () =>
@@ -410,11 +441,16 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
       return;
     }
 
+    const assigneeId = resolveAssigneeId(taskForm.assignee);
+    if (!assigneeId) {
+      toast.error("Select the PM or a site worker to assign");
+      return;
+    }
     setCreatingTask(true);
     try {
       const response = await tasksApi.create(Number(taskForm.phaseId), {
         taskName: taskForm.taskName.trim(),
-        assignedToUserID: session.userId,
+        assignedToUserID: assigneeId,
         plannedBudget,
         baselineStart: `${taskForm.baselineStart}T00:00:00.000Z`,
         baselineEnd: `${taskForm.baselineEnd}T00:00:00.000Z`,
@@ -513,35 +549,37 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
     }
   };
 
-  const submitReport = async () => {
-    if (rejectIfClosed()) return;
+  const createReport = async (
+    quiet = false,
+  ): Promise<{ reportId: number; rowVersion: string } | null> => {
+    if (rejectIfClosed()) return null;
     if (reports.some((report) => report.status === "PENDING")) {
       toast.error("A pending progress report already exists — approve or reject it first");
       await refetchReports();
-      return;
+      return null;
     }
-    if (!selectedTask) return;
+    if (!selectedTask) return null;
     const progressIncrement = Number(reportForm.progressIncrement);
     const actualCostIncrement = Number(reportForm.actualCostIncrement);
     if (!Number.isFinite(progressIncrement) || progressIncrement <= 0) {
       toast.error("Progress increment must be greater than 0");
-      return;
+      return null;
     }
     if (progressIncrement > selectedRemaining) {
       toast.error(`Only ${selectedRemaining}% progress remains for this task`);
-      return;
+      return null;
     }
     if (!Number.isFinite(actualCostIncrement) || actualCostIncrement < 0) {
       toast.error("Actual cost increment must be 0 or greater");
-      return;
+      return null;
     }
     if (reportForm.notes.length > 1000) {
       toast.error("Notes must be 1,000 characters or fewer");
-      return;
+      return null;
     }
     if (!validHttpsUrl(reportForm.sitePhotoUrl)) {
       toast.error("The site photo must use a valid HTTPS URL");
-      return;
+      return null;
     }
 
     setSubmittingReport(true);
@@ -554,21 +592,68 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
         sitePhotoUrl: reportForm.sitePhotoUrl.trim() || undefined,
       });
 
-      if (response.isSuccess) {
-        toast.success("Progress report submitted for Project Manager approval");
-        setReportForm(initialReportForm);
-        setPhotoPreviewUrl("");
-        await refetchTasks();
-        await refetchReports();
-      } else {
+      if (!response.isSuccess) {
         toast.error(
           response.errorMessage ?? responseMessage(response.result, "Could not submit report"),
         );
+        return null;
       }
+      const createdId = response.result?.reportId ?? 0;
+      if (!quiet) toast.success("Progress report submitted for Project Manager approval");
+      setReportForm(initialReportForm);
+      setPhotoPreviewUrl("");
+      await refetchTasks();
+      const fresh = await progressReportsApi.getByTask(selectedTask.taskId);
+      const created = (fresh.isSuccess ? (fresh.result ?? []) : []).find(
+        (report) => report.reportId === createdId,
+      );
+      await refetchReports();
+      if (!created) {
+        toast.error("Report created but could not be reloaded for approval");
+        return null;
+      }
+      return { reportId: created.reportId, rowVersion: created.rowVersion };
     } catch {
       toast.error("Could not reach the backend. Check the API server and try again.");
+      return null;
     } finally {
       setSubmittingReport(false);
+    }
+  };
+
+  const submitReport = async () => {
+    await createReport(false);
+  };
+
+  /** Submit then immediately self-approve (allowed): skips the review queue. */
+  const submitAndApproveReport = async () => {
+    const costIncrement = Number(reportForm.actualCostIncrement);
+    const created = await createReport(true);
+    if (!created || !selectedTask) return;
+    if (
+      Number.isFinite(costIncrement) &&
+      selectedTask.actualCost + costIncrement > selectedTask.plannedBudget
+    ) {
+      toast.error(
+        "Report submitted but not approved: it would exceed the task budget — approve manually with overrun allowed",
+      );
+      return;
+    }
+    setReviewingReport(created.reportId);
+    try {
+      const response = await progressReportsApi.approve(created.reportId, {
+        rowVersion: created.rowVersion,
+        allowCostOverrun: false,
+      });
+      if (!response.isSuccess) {
+        toast.error(response.errorMessage ?? "Report submitted but could not be approved");
+        if (response.statusCode === 409) await refetchReports();
+        return;
+      }
+      toast.success("Progress report submitted and approved");
+      await Promise.all([refetchReports(), refetchTasks()]);
+    } finally {
+      setReviewingReport(null);
     }
   };
 
@@ -644,6 +729,10 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
       rowVersion: task.rowVersion,
       phaseId: String(task.phaseId ?? ""),
       taskName: task.taskName,
+      assignee:
+        session?.userId && task.assignedToUserID === session.userId
+          ? "self"
+          : String(task.assignedToUserID),
       plannedBudget: String(task.plannedBudget),
       baselineStart: task.baselineStart.slice(0, 10),
       baselineEnd: task.baselineEnd.slice(0, 10),
@@ -673,10 +762,15 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
       toast.error("Baseline end cannot be before baseline start");
       return;
     }
+    const assigneeId = resolveAssigneeId(editTaskDialog.assignee);
+    if (!assigneeId) {
+      toast.error("Select the PM or a site worker to assign");
+      return;
+    }
     const response = await tasksApi.update(editTaskDialog.taskId, {
       phaseId: Number(editTaskDialog.phaseId),
       taskName: editTaskDialog.taskName.trim(),
-      assignedToUserID: session.userId,
+      assignedToUserID: assigneeId,
       plannedBudget,
       baselineStart: editTaskDialog.baselineStart,
       baselineEnd: editTaskDialog.baselineEnd,
@@ -805,6 +899,44 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
                         }))
                       }
                       maxLength={200}
+                      disabled={creatingTask}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="task-assignee">Assignee</Label>
+                    <Select
+                      value={taskForm.assignee}
+                      onValueChange={(value) =>
+                        setTaskForm((current) => ({ ...current, assignee: value }))
+                      }
+                      disabled={creatingTask}
+                    >
+                      <SelectTrigger id="task-assignee">
+                        <SelectValue placeholder="Select assignee" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="self">Me (Project Manager)</SelectItem>
+                        {(workersQuery.data ?? []).map((worker) => (
+                          <SelectItem key={worker.id} value={String(worker.id)}>
+                            {worker.firstName} {worker.lastName} ({worker.email})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Tasks may only be assigned to you or a site worker.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="task-worker-search">Find site worker</Label>
+                    <Input
+                      id="task-worker-search"
+                      placeholder="Name or email..."
+                      value={workerSearch}
+                      onChange={(event) => setWorkerSearch(event.target.value)}
+                      maxLength={100}
                       disabled={creatingTask}
                     />
                   </div>
@@ -1022,7 +1154,10 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
                   <TableRow key={task.taskId}>
                     <TableCell>
                       <p className="font-medium">{task.taskName}</p>
-                      <p className="text-xs text-muted-foreground">{task.phaseName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {task.phaseName}
+                        {task.phase?.workCategoryName ? ` · ${task.phase.workCategoryName}` : ""}
+                      </p>
                     </TableCell>
                     <TableCell className="text-xs">
                       {formatDate(task.baselineStart)} → {formatDate(task.baselineEnd)}
@@ -1102,7 +1237,10 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
           {selectedTask && (
             <div className="space-y-4">
               <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2">
-                <InfoBlock label="Phase" value={selectedTask.phaseName} />
+                <InfoBlock
+                  label="Phase"
+                  value={`${selectedTask.phaseName}${selectedTask.phase?.workCategoryName ? ` · ${selectedTask.phase.workCategoryName}` : ""}`}
+                />
                 <InfoBlock label="Remaining" value={`${selectedRemaining}%`} />
               </div>
 
@@ -1341,11 +1479,19 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
                   </div>
                   <DialogFooter>
                     <Button
+                      variant="outline"
                       onClick={submitReport}
                       disabled={submittingReport || uploadingPhoto || !reportFormValid}
                     >
                       <Send className="mr-1.5 h-4 w-4" />
-                      {submittingReport ? "Submitting..." : "Submit report"}
+                      {submittingReport ? "Submitting..." : "Submit for review"}
+                    </Button>
+                    <Button
+                      onClick={submitAndApproveReport}
+                      disabled={submittingReport || uploadingPhoto || !reportFormValid}
+                    >
+                      <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                      {submittingReport ? "Submitting..." : "Submit & approve"}
                     </Button>
                   </DialogFooter>
                 </div>
@@ -1497,6 +1643,14 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
                   </Table>
                 )}
               </div>
+
+              {(canManageTasks || session?.role === "ADMIN") && selectedTask && (
+                <TaskIssues
+                  taskId={selectedTask.taskId}
+                  canReport={canManageTasks}
+                  canResolve={canManageTasks}
+                />
+              )}
             </div>
           )}
         </DialogContent>
@@ -1547,6 +1701,32 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus }: Proj
                     }
                   />
                 </div>
+              </div>
+              <div>
+                <Label htmlFor="edit-task-assignee">Assignee</Label>
+                <Select
+                  value={editTaskDialog.assignee}
+                  onValueChange={(value) =>
+                    setEditTaskDialog((current) =>
+                      current ? { ...current, assignee: value } : current,
+                    )
+                  }
+                >
+                  <SelectTrigger id="edit-task-assignee">
+                    <SelectValue placeholder="Select assignee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="self">Me (Project Manager)</SelectItem>
+                    {(workersQuery.data ?? []).map((worker) => (
+                      <SelectItem key={worker.id} value={String(worker.id)}>
+                        {worker.firstName} {worker.lastName} ({worker.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Tasks may only be assigned to you or a site worker.
+                </p>
               </div>
               <div>
                 <Label htmlFor="edit-task-budget">Planned budget</Label>

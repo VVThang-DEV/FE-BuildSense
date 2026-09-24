@@ -16,6 +16,7 @@ import { Route as CustomerRouteImport } from './routes/customer'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppWorkerRouteImport } from './routes/app.worker'
 import { Route as AppWarehouseTransfersRouteImport } from './routes/app.warehouse-transfers'
 import { Route as AppSiteRouteImport } from './routes/app.site'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
@@ -38,6 +39,7 @@ import { Route as AppSiteReportRouteImport } from './routes/app.site.report'
 import { Route as AppSiteAttendanceRouteImport } from './routes/app.site.attendance'
 import { Route as AppProjectsIdRouteImport } from './routes/app.projects.$id'
 import { Route as AppPortalIdRouteImport } from './routes/app.portal.$id'
+import { Route as AppAdminWorkCategoriesRouteImport } from './routes/app.admin.work-categories'
 import { Route as AppAdminWbsRouteImport } from './routes/app.admin.wbs'
 import { Route as AppAdminWarehousesRouteImport } from './routes/app.admin.warehouses'
 import { Route as AppAdminThresholdsRouteImport } from './routes/app.admin.thresholds'
@@ -77,6 +79,11 @@ const IndexRoute = IndexRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWorkerRoute = AppWorkerRouteImport.update({
+  id: '/worker',
+  path: '/worker',
   getParentRoute: () => AppRoute,
 } as any)
 const AppWarehouseTransfersRoute = AppWarehouseTransfersRouteImport.update({
@@ -189,6 +196,11 @@ const AppPortalIdRoute = AppPortalIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => AppPortalRoute,
 } as any)
+const AppAdminWorkCategoriesRoute = AppAdminWorkCategoriesRouteImport.update({
+  id: '/admin/work-categories',
+  path: '/admin/work-categories',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAdminWbsRoute = AppAdminWbsRouteImport.update({
   id: '/admin/wbs',
   path: '/admin/wbs',
@@ -235,12 +247,14 @@ export interface FileRoutesByFullPath {
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
   '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
+  '/app/worker': typeof AppWorkerRoute
   '/app/': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/admin/work-categories': typeof AppAdminWorkCategoriesRoute
   '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
@@ -269,12 +283,14 @@ export interface FileRoutesByTo {
   '/app/projects': typeof AppProjectsRouteWithChildren
   '/app/reports': typeof AppReportsRoute
   '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
+  '/app/worker': typeof AppWorkerRoute
   '/app': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/admin/work-categories': typeof AppAdminWorkCategoriesRoute
   '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
@@ -306,12 +322,14 @@ export interface FileRoutesById {
   '/app/reports': typeof AppReportsRoute
   '/app/site': typeof AppSiteRouteWithChildren
   '/app/warehouse-transfers': typeof AppWarehouseTransfersRoute
+  '/app/worker': typeof AppWorkerRoute
   '/app/': typeof AppIndexRoute
   '/app/admin/categories': typeof AppAdminCategoriesRoute
   '/app/admin/suppliers': typeof AppAdminSuppliersRoute
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
+  '/app/admin/work-categories': typeof AppAdminWorkCategoriesRoute
   '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
@@ -344,12 +362,14 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/site'
     | '/app/warehouse-transfers'
+    | '/app/worker'
     | '/app/'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
+    | '/app/admin/work-categories'
     | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
@@ -378,12 +398,14 @@ export interface FileRouteTypes {
     | '/app/projects'
     | '/app/reports'
     | '/app/warehouse-transfers'
+    | '/app/worker'
     | '/app'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
+    | '/app/admin/work-categories'
     | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
@@ -414,12 +436,14 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/site'
     | '/app/warehouse-transfers'
+    | '/app/worker'
     | '/app/'
     | '/app/admin/categories'
     | '/app/admin/suppliers'
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
+    | '/app/admin/work-categories'
     | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
@@ -489,6 +513,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/worker': {
+      id: '/app/worker'
+      path: '/worker'
+      fullPath: '/app/worker'
+      preLoaderRoute: typeof AppWorkerRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/warehouse-transfers': {
@@ -645,6 +676,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPortalIdRouteImport
       parentRoute: typeof AppPortalRoute
     }
+    '/app/admin/work-categories': {
+      id: '/app/admin/work-categories'
+      path: '/admin/work-categories'
+      fullPath: '/app/admin/work-categories'
+      preLoaderRoute: typeof AppAdminWorkCategoriesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/admin/wbs': {
       id: '/app/admin/wbs'
       path: '/admin/wbs'
@@ -736,12 +774,14 @@ interface AppRouteChildren {
   AppReportsRoute: typeof AppReportsRoute
   AppSiteRoute: typeof AppSiteRouteWithChildren
   AppWarehouseTransfersRoute: typeof AppWarehouseTransfersRoute
+  AppWorkerRoute: typeof AppWorkerRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAdminCategoriesRoute: typeof AppAdminCategoriesRoute
   AppAdminSuppliersRoute: typeof AppAdminSuppliersRoute
   AppAdminThresholdsRoute: typeof AppAdminThresholdsRoute
   AppAdminWarehousesRoute: typeof AppAdminWarehousesRoute
   AppAdminWbsRoute: typeof AppAdminWbsRoute
+  AppAdminWorkCategoriesRoute: typeof AppAdminWorkCategoriesRoute
   AppStaffNotificationsRoute: typeof AppStaffNotificationsRoute
   AppStaffUsersRoute: typeof AppStaffUsersRoute
   AppSupplierDashboardRoute: typeof AppSupplierDashboardRoute
@@ -762,12 +802,14 @@ const AppRouteChildren: AppRouteChildren = {
   AppReportsRoute: AppReportsRoute,
   AppSiteRoute: AppSiteRouteWithChildren,
   AppWarehouseTransfersRoute: AppWarehouseTransfersRoute,
+  AppWorkerRoute: AppWorkerRoute,
   AppIndexRoute: AppIndexRoute,
   AppAdminCategoriesRoute: AppAdminCategoriesRoute,
   AppAdminSuppliersRoute: AppAdminSuppliersRoute,
   AppAdminThresholdsRoute: AppAdminThresholdsRoute,
   AppAdminWarehousesRoute: AppAdminWarehousesRoute,
   AppAdminWbsRoute: AppAdminWbsRoute,
+  AppAdminWorkCategoriesRoute: AppAdminWorkCategoriesRoute,
   AppStaffNotificationsRoute: AppStaffNotificationsRoute,
   AppStaffUsersRoute: AppStaffUsersRoute,
   AppSupplierDashboardRoute: AppSupplierDashboardRoute,

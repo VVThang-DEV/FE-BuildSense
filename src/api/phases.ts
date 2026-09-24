@@ -8,6 +8,8 @@ export type CreatePhaseRequest = {
   sequenceOrder: number;
   baselineStart: string;
   baselineEnd: string;
+  /** Required — must reference an existing work category. */
+  workCategoryId: number;
 };
 
 export type UpdatePhaseRequest = CreatePhaseRequest & {
@@ -21,6 +23,8 @@ export type PhaseLifecycleRequest = {
 export type PhaseResponse = {
   phaseId: number;
   projectId: number;
+  workCategoryId: number;
+  workCategoryName?: string | null;
   name: string;
   description?: string | null;
   sequenceOrder: number;

@@ -1,5 +1,4 @@
 import { apiClient } from "./client";
-import type { AiProposedPhase, AiProposedTask } from "./aiPlanning";
 
 export type ProjectStatus =
   | "PLANNING"
@@ -110,35 +109,44 @@ export type AdjustProjectBudgetRequest = {
   reason: string;
 };
 
-export type AiImportDraftProject = {
-  projectName?: string;
-  address?: string | null;
-  totalProjectBudget?: number;
-  startDate?: string;
-  baselineStart?: string;
-  baselineEnd?: string;
-  [key: string]: unknown;
-};
-
 /**
- * AI-extracted project + phase/task draft preview from a Word file.
- * Persists nothing. Flow: review → create the project normally →
- * `confirm` the preview against the created project.
+ * Minimal project header for assigned WORKERs. No budget, no other tasks.
  */
-export type AiImportPreviewResponse = {
-  project?: AiImportDraftProject | null;
-  /** Plan preview; also accepted at the top level for backend variants. */
-  plan?: unknown;
-  phases?: unknown;
-  tasks?: unknown;
-  warnings?: string[];
-  [key: string]: unknown;
+export type ProjectContextResponse = {
+  projectId: number;
+  projectName: string;
+  address?: string | null;
+  startDate: string;
+  baselineStart: string;
+  baselineEnd: string;
 };
 
-export type AiImportPlanPreview = {
-  phases: AiProposedPhase[];
-  tasks?: AiProposedTask[];
-  warnings: string[];
+export type RiskSeverity = "WARNING" | "CRITICAL";
+
+export type ProjectRisk = {
+  riskType: string;
+  severity: RiskSeverity;
+  taskId?: number | null;
+  variantId?: number | null;
+  message: string;
+  metrics?: Record<string, unknown> | null;
+};
+
+export type ProjectRiskResponse = {
+  generatedAt: string;
+  risks: ProjectRisk[];
+};
+
+export type RiskRecommendedAction = {
+  priority: number;
+  title: string;
+  detail: string;
+  ownerRole: "PM" | "WAREHOUSE_MANAGER" | string;
+  relatedRiskTypes?: string[];
+};
+
+export type RecommendRiskActionsResponse = {
+  actions: RiskRecommendedAction[];
 };
 
 export type ProjectBudgetHistoryResponse = {
@@ -223,6 +231,8 @@ export const projectsApi = {
       result: (response.result ?? []).map(normalizeProject),
     };
   },
+  getContext: (id: number) =>
+    apiClient.get<ProjectContextResponse>(`/api/Projects/${id}/context`),
   getById: async (id: number) => {
     const response = await apiClient.get<RawProjectResponse>(`/api/projects/${id}`);
     return {
@@ -240,26 +250,7 @@ export const projectsApi = {
           : response.result,
     };
   },
-  importFromWordAi: async (file: File) => {
-    const body = new FormData();
-    body.append("file", file);
-    return apiClient.postForm<AiImportPreviewResponse>(
-      "/api/projects/import-word-ai",
-      body,
-    );
-  },
-  importFromWord: async (file: File) => {
-    const body = new FormData();
-    body.append("file", file);
-    const response = await apiClient.postForm<RawProjectResponse>(
-      "/api/projects/import-word",
-      body,
-    );
-    return {
-      ...response,
-      result: response.result ? normalizeProject(response.result) : response.result,
-    };
-  },
+  // Word import endpoints retired (HTTP 410) — screens deleted.
   getMaterialRequirements: (projectId: number) =>
     apiClient.get<ProjectMaterialRequirement[]>(`/api/Projects/${projectId}/material-requirements`),
   runMrp: (projectId: number, _warehouseId?: number) =>
@@ -270,6 +261,21 @@ export const projectsApi = {
     apiClient.post<ProjectBudgetHistoryResponse>("/api/Projects/adjust-budget", body),
   getBudgetHistories: (projectId: number) =>
     apiClient.get<ProjectBudgetHistoryResponse[]>(`/api/Projects/${projectId}/budget-histories`),
+  /**
+   * Computed, never-persisted risk scan (ADMIN, owning PM).
+   * Empty risks[] means all clear. Poll on project views — no push.
+   */
+  getRisks: (projectId: number) =>
+    apiClient.get<ProjectRiskResponse>(`/api/Projects/${projectId}/risks`),
+  /**
+   * AI-recommended corrective actions (owning PM). Preview only —
+   * nothing is ever applied automatically. Empty when no risks.
+   * 400 means malformed AI output — offer retry.
+   */
+  recommendActions: (projectId: number) =>
+    apiClient.post<RecommendRiskActionsResponse>(
+      `/api/Projects/${projectId}/risks/recommend-actions`,
+    ),
   /**
    * Download the role-specific .xlsx workbook built from live project data.
    * Full view for ADMIN/owning PM/assigned CUSTOMER, inventory view for a

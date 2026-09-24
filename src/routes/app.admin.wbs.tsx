@@ -187,6 +187,11 @@ function WbsPage() {
                       #{phase.sequenceOrder}
                     </Badge>
                     <CardTitle className="text-base">{phase.name}</CardTitle>
+                    {phase.workCategoryName && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {phase.workCategoryName}
+                      </Badge>
+                    )}
                     <Badge variant="outline" className={statusClass(phase.status)}>
                       {phase.status}
                     </Badge>
@@ -216,13 +221,16 @@ function WbsPage() {
                       </TableHeader>
                       <TableBody>
                         {phaseTasks.map((task) => (
-                          <TableRow key={task.taskId}>
-                            <TableCell className="font-medium">
-                              {task.taskName}
-                              <p className="text-xs font-normal text-muted-foreground">
-                                {task.assignedToUserName || `User #${task.assignedToUserID}`}
-                              </p>
-                            </TableCell>
+                      <TableRow key={task.taskId}>
+                        <TableCell className="font-medium">
+                          {task.taskName}
+                          <p className="text-xs font-normal text-muted-foreground">
+                            {task.assignedToUserName || `User #${task.assignedToUserID}`}
+                            {task.phase?.workCategoryName
+                              ? ` · ${task.phase.workCategoryName}`
+                              : ""}
+                          </p>
+                        </TableCell>
                             <TableCell className="whitespace-nowrap text-xs">
                               {formatDate(task.baselineStart)} → {formatDate(task.baselineEnd)}
                             </TableCell>

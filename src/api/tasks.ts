@@ -34,7 +34,14 @@ export type TaskStatus =
 
 export type TaskPhaseSummary = Pick<
   PhaseResponse,
-  "phaseId" | "name" | "sequenceOrder" | "status" | "baselineStart" | "baselineEnd"
+  | "phaseId"
+  | "name"
+  | "sequenceOrder"
+  | "status"
+  | "baselineStart"
+  | "baselineEnd"
+  | "workCategoryId"
+  | "workCategoryName"
 >;
 
 export type TaskResponse = {
@@ -64,6 +71,44 @@ export type UpdateTaskRequest = {
   baselineStart: string;
   baselineEnd: string;
   rowVersion: string;
+};
+
+export type TaskIssueStatus = "OPEN" | "RESOLVED";
+
+export type TaskIssueResponse = {
+  issueId: number;
+  taskId: number;
+  reportedByUserId: number;
+  reportedByName?: string | null;
+  description: string;
+  photoUrl?: string | null;
+  status: TaskIssueStatus;
+  resolutionNote?: string | null;
+  createdAt: string;
+  resolvedAt?: string | null;
+  rowVersion: string;
+};
+
+export type CreateTaskIssueRequest = {
+  description: string;
+  photoUrl?: string;
+};
+
+export type ResolveTaskIssueRequest = {
+  resolutionNote?: string;
+  rowVersion: string;
+};
+
+export const taskIssuesApi = {
+  /** Owning PM or assigned WORKER. Returns 201. */
+  report: (taskId: number, body: CreateTaskIssueRequest) =>
+    apiClient.post<TaskIssueResponse>(`/api/Tasks/${taskId}/issues`, body),
+  /** Owning PM, assigned WORKER, or ADMIN. Newest first. */
+  listByTask: (taskId: number) =>
+    apiClient.get<TaskIssueResponse[]>(`/api/Tasks/${taskId}/issues`),
+  /** Owning PM only; open issues only. */
+  resolve: (issueId: number, body: ResolveTaskIssueRequest) =>
+    apiClient.put<TaskIssueResponse>(`/api/Tasks/issues/${issueId}/resolve`, body),
 };
 
 export const tasksApi = {

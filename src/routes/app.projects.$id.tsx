@@ -38,6 +38,7 @@ import { ProjectTaskBoard } from "@/components/project-task-board";
 import { ProjectMaterialPlanning } from "@/components/project-material-planning";
 import { ProjectBudgetPanel } from "@/components/project-budget-panel";
 import { ProjectPhasesPanel } from "@/components/project-phases-panel";
+import { ProjectRisksPanel } from "@/components/project-risks-panel";
 import { AiProjectPlan } from "@/components/ai-project-plan";
 import { ProjectExportButton } from "@/components/project-export-button";
 import { useSession } from "@/lib/session";
@@ -76,6 +77,8 @@ function ProjectDetail() {
   const [confirmStatus, setConfirmStatus] = useState<"cancel" | "complete" | null>(null);
   const [managerId, setManagerId] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [projectTab, setProjectTab] = useState("overview");
+  const [focusedTaskId, setFocusedTaskId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({
     projectName: "",
     address: "",
@@ -128,6 +131,11 @@ function ProjectDetail() {
   // backend-side. Edit, customer, budget, AI-plan, and task UIs hide their
   // actions; reads stay visible. Reopen from CANCELLED stays available.
   const isClosedProject = isClosedProjectStatus(project?.status);
+  const isOwningPm =
+    session?.role === "PM" && !!session?.userId && project?.pmUserID === session.userId;
+  const canViewRisks = session?.role === "ADMIN" || isOwningPm;
+  const tabCount =
+    5 + (session?.role === "PM" && !isClosedProject ? 1 : 0) + (canViewRisks ? 1 : 0);
 
   const changeStatus = async (action: "start" | "pause" | "cancel" | "reopen" | "complete") => {
     if (!project) return;
@@ -415,9 +423,16 @@ function ProjectDetail() {
             />
           </div>
 
-          <Tabs defaultValue="overview" className="mt-4">
+          <Tabs
+            value={projectTab}
+            onValueChange={(value) => {
+              setProjectTab(value);
+              if (value !== "tasks") setFocusedTaskId(null);
+            }}
+            className="mt-4"
+          >
             <TabsList
-              className={`grid w-full ${session?.role === "PM" && !isClosedProject ? "max-w-4xl grid-cols-6" : "max-w-3xl grid-cols-5"}`}
+              className={`grid w-full ${tabCount >= 7 ? "max-w-5xl grid-cols-7" : tabCount === 6 ? "max-w-4xl grid-cols-6" : "max-w-3xl grid-cols-5"}`}
             >
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="phases">Phases</TabsTrigger>
@@ -427,6 +442,7 @@ function ProjectDetail() {
               {session?.role === "PM" && !isClosedProject && (
                 <TabsTrigger value="ai-plan">AI Plan</TabsTrigger>
               )}
+              {canViewRisks && <TabsTrigger value="risks">Risks</TabsTrigger>}
             </TabsList>
             <TabsContent value="overview">
               <Card className="shadow-sm">
@@ -454,6 +470,7 @@ function ProjectDetail() {
                 projectId={project.projectId}
                 projectName={project.projectName}
                 projectStatus={project.status}
+                focusedTaskId={focusedTaskId}
               />
             </TabsContent>
             <TabsContent value="materials">
@@ -462,6 +479,18 @@ function ProjectDetail() {
             {session?.role === "PM" && !isClosedProject && (
               <TabsContent value="ai-plan">
                 <AiProjectPlan projectId={project.projectId} project={project} />
+              </TabsContent>
+            )}
+            {canViewRisks && (
+              <TabsContent value="risks">
+                <ProjectRisksPanel
+                  projectId={project.projectId}
+                  canRecommend={!!isOwningPm && !isClosedProject}
+                  onOpenTask={(taskId) => {
+                    setFocusedTaskId(taskId);
+                    setProjectTab("tasks");
+                  }}
+                />
               </TabsContent>
             )}
             <TabsContent value="budget">

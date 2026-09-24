@@ -1074,6 +1074,7 @@ function MaterialRequestsPage() {
                       {requestPhases.map((phase) => (
                         <SelectItem key={phase.phaseId} value={String(phase.phaseId)}>
                           {phase.name}
+                          {phase.workCategoryName ? ` (${phase.workCategoryName})` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>

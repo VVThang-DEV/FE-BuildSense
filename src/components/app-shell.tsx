@@ -21,6 +21,7 @@ const ROLE_BADGE_STYLE: Record<Role, string> = {
   PM: "bg-primary/15 text-primary border-primary/30",
   WAREHOUSE_MANAGER: "bg-success/15 text-success border-success/30",
   CUSTOMER: "bg-ai/15 text-ai border-ai/30",
+  WORKER: "bg-warning/20 text-warning-foreground border-warning/35",
 };
 
 export function AppShell({ session }: { session: Session }) {

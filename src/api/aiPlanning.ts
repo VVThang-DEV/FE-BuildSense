@@ -16,6 +16,8 @@ export type AiProposedPhase = {
   sequenceOrder?: number;
   baselineStart: string;
   baselineEnd?: string;
+  /** Required at confirm — must reference an existing work category. */
+  workCategoryId?: number;
   [key: string]: unknown;
 };
 
@@ -98,6 +100,7 @@ function normalizePhase(raw: Record<string, unknown>, index: number): AiProposed
     sequenceOrder: readField<number>(raw, "sequenceOrder", "order") ?? index + 1,
     baselineStart: String(readField<string>(raw, "baselineStart", "startDate") ?? ""),
     baselineEnd: readField<string>(raw, "baselineEnd", "endDate"),
+    workCategoryId: readField<number>(raw, "workCategoryId", "categoryId"),
   };
 }
 
