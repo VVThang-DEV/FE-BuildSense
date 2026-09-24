@@ -1154,10 +1154,7 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus, focuse
                   <TableRow key={task.taskId}>
                     <TableCell>
                       <p className="font-medium">{task.taskName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {task.phaseName}
-                        {task.phase?.workCategoryName ? ` · ${task.phase.workCategoryName}` : ""}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{task.phaseName}</p>
                     </TableCell>
                     <TableCell className="text-xs">
                       {formatDate(task.baselineStart)} → {formatDate(task.baselineEnd)}
@@ -1237,10 +1234,7 @@ export function ProjectTaskBoard({ projectId, projectName, projectStatus, focuse
           {selectedTask && (
             <div className="space-y-4">
               <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2">
-                <InfoBlock
-                  label="Phase"
-                  value={`${selectedTask.phaseName}${selectedTask.phase?.workCategoryName ? ` · ${selectedTask.phase.workCategoryName}` : ""}`}
-                />
+                <InfoBlock label="Phase" value={selectedTask.phaseName} />
                 <InfoBlock label="Remaining" value={`${selectedRemaining}%`} />
               </div>
 

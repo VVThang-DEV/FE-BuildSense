@@ -9,7 +9,6 @@ import {
   Warehouse,
   Truck,
   Tags,
-  Layers,
 } from "lucide-react";
 import type { Role } from "./session";
 
@@ -70,13 +69,6 @@ export const NAV: NavItem[] = [
     to: "/app/admin/categories",
     label: "Categories",
     icon: Tags,
-    roles: ["ADMIN"],
-    group: "Setup",
-  },
-  {
-    to: "/app/admin/work-categories",
-    label: "Work Categories",
-    icon: Layers,
     roles: ["ADMIN"],
     group: "Setup",
   },

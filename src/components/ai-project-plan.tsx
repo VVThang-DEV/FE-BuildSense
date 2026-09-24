@@ -12,7 +12,6 @@ import {
   type AiProposedTask,
 } from "@/api/aiPlanning";
 import { phasesApi } from "@/api/phases";
-import { workCategoriesApi } from "@/api/workCategories";
 import type { ProjectResponse } from "@/api/projects";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -116,12 +115,6 @@ export function AiProjectPlan({
     enabled: projectId > 0,
     staleTime: 10_000,
   });
-  const { data: categories = [] } = useQuery({
-    queryKey: ["work-categories"],
-    queryFn: async () =>
-      requireApiResult(await workCategoriesApi.getAll(), "Could not load work categories") ?? [],
-    staleTime: 60_000,
-  });
 
   const buildInput = (): AiPlanInput | null => {
     const result = buildBrief(brief, project);
@@ -216,13 +209,6 @@ export function AiProjectPlan({
     const newPhases = phases.filter((phase) => phase.tempId);
     if (newPhases.length === 0 && !(tasks ?? []).some((task) => task.phaseId)) {
       toast.error("Nothing new to confirm — the preview only contains existing phases");
-      return;
-    }
-    const uncategorized = newPhases.filter((phase) => !phase.workCategoryId);
-    if (uncategorized.length > 0) {
-      toast.error(
-        `${uncategorized.length} proposed phase(s) need a work category before confirm`,
-      );
       return;
     }
     const finalTasks = tasks ?? [];
@@ -454,7 +440,7 @@ export function AiProjectPlan({
               return (
                 <div
                   key={key}
-                  className={`grid gap-3 rounded-lg border p-3 md:grid-cols-[100px_minmax(0,1fr)_170px_150px_150px_36px] ${!isReference && !phase.workCategoryId ? "border-warning/50" : ""}`}
+                  className="grid gap-3 rounded-lg border p-3 md:grid-cols-[100px_minmax(0,1fr)_150px_150px_36px]"
                 >
                   <div>
                     <Label className="text-xs">Temp ID</Label>
@@ -484,30 +470,6 @@ export function AiProjectPlan({
                       }
                       disabled={busy !== null || isReference}
                     />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Category *</Label>
-                    <Select
-                      value={phase.workCategoryId ? String(phase.workCategoryId) : undefined}
-                      onValueChange={(value) =>
-                        updatePhase(key, { workCategoryId: Number(value) })
-                      }
-                      disabled={busy !== null || isReference}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((category) => (
-                          <SelectItem
-                            key={category.workCategoryId}
-                            value={String(category.workCategoryId)}
-                          >
-                            {category.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                   </div>
                   <div>
                     <Label className="text-xs">Baseline end</Label>

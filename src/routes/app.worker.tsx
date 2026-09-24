@@ -227,14 +227,7 @@ function WorkerWorkspace() {
                         {task.assignedToUserName || ""}
                       </p>
                     </TableCell>
-                    <TableCell className="text-sm">
-                      {task.phaseName}
-                      {task.phase?.workCategoryName && (
-                        <p className="text-xs text-muted-foreground">
-                          {task.phase.workCategoryName}
-                        </p>
-                      )}
-                    </TableCell>
+                    <TableCell className="text-sm">{task.phaseName}</TableCell>
                     <TableCell className="whitespace-nowrap text-xs">
                       {formatDate(task.baselineStart)} → {formatDate(task.baselineEnd)}
                     </TableCell>
@@ -301,12 +294,7 @@ function WorkerWorkspace() {
               <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2">
                 <div>
                   <p className="text-xs text-muted-foreground">Phase</p>
-                  <p className="font-medium">
-                    {selectedTask.phaseName}
-                    {selectedTask.phase?.workCategoryName
-                      ? ` · ${selectedTask.phase.workCategoryName}`
-                      : ""}
-                  </p>
+                  <p className="font-medium">{selectedTask.phaseName}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Status</p>

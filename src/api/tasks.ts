@@ -34,14 +34,7 @@ export type TaskStatus =
 
 export type TaskPhaseSummary = Pick<
   PhaseResponse,
-  | "phaseId"
-  | "name"
-  | "sequenceOrder"
-  | "status"
-  | "baselineStart"
-  | "baselineEnd"
-  | "workCategoryId"
-  | "workCategoryName"
+  "phaseId" | "name" | "sequenceOrder" | "status" | "baselineStart" | "baselineEnd"
 >;
 
 export type TaskResponse = {

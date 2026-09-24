@@ -39,7 +39,6 @@ import { Route as AppSiteReportRouteImport } from './routes/app.site.report'
 import { Route as AppSiteAttendanceRouteImport } from './routes/app.site.attendance'
 import { Route as AppProjectsIdRouteImport } from './routes/app.projects.$id'
 import { Route as AppPortalIdRouteImport } from './routes/app.portal.$id'
-import { Route as AppAdminWorkCategoriesRouteImport } from './routes/app.admin.work-categories'
 import { Route as AppAdminWbsRouteImport } from './routes/app.admin.wbs'
 import { Route as AppAdminWarehousesRouteImport } from './routes/app.admin.warehouses'
 import { Route as AppAdminThresholdsRouteImport } from './routes/app.admin.thresholds'
@@ -196,11 +195,6 @@ const AppPortalIdRoute = AppPortalIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => AppPortalRoute,
 } as any)
-const AppAdminWorkCategoriesRoute = AppAdminWorkCategoriesRouteImport.update({
-  id: '/admin/work-categories',
-  path: '/admin/work-categories',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppAdminWbsRoute = AppAdminWbsRouteImport.update({
   id: '/admin/wbs',
   path: '/admin/wbs',
@@ -254,7 +248,6 @@ export interface FileRoutesByFullPath {
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
-  '/app/admin/work-categories': typeof AppAdminWorkCategoriesRoute
   '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
@@ -290,7 +283,6 @@ export interface FileRoutesByTo {
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
-  '/app/admin/work-categories': typeof AppAdminWorkCategoriesRoute
   '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
@@ -329,7 +321,6 @@ export interface FileRoutesById {
   '/app/admin/thresholds': typeof AppAdminThresholdsRoute
   '/app/admin/warehouses': typeof AppAdminWarehousesRoute
   '/app/admin/wbs': typeof AppAdminWbsRoute
-  '/app/admin/work-categories': typeof AppAdminWorkCategoriesRoute
   '/app/portal/$id': typeof AppPortalIdRoute
   '/app/projects/$id': typeof AppProjectsIdRoute
   '/app/site/attendance': typeof AppSiteAttendanceRoute
@@ -369,7 +360,6 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
-    | '/app/admin/work-categories'
     | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
@@ -405,7 +395,6 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
-    | '/app/admin/work-categories'
     | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
@@ -443,7 +432,6 @@ export interface FileRouteTypes {
     | '/app/admin/thresholds'
     | '/app/admin/warehouses'
     | '/app/admin/wbs'
-    | '/app/admin/work-categories'
     | '/app/portal/$id'
     | '/app/projects/$id'
     | '/app/site/attendance'
@@ -676,13 +664,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPortalIdRouteImport
       parentRoute: typeof AppPortalRoute
     }
-    '/app/admin/work-categories': {
-      id: '/app/admin/work-categories'
-      path: '/admin/work-categories'
-      fullPath: '/app/admin/work-categories'
-      preLoaderRoute: typeof AppAdminWorkCategoriesRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/app/admin/wbs': {
       id: '/app/admin/wbs'
       path: '/admin/wbs'
@@ -781,7 +762,6 @@ interface AppRouteChildren {
   AppAdminThresholdsRoute: typeof AppAdminThresholdsRoute
   AppAdminWarehousesRoute: typeof AppAdminWarehousesRoute
   AppAdminWbsRoute: typeof AppAdminWbsRoute
-  AppAdminWorkCategoriesRoute: typeof AppAdminWorkCategoriesRoute
   AppStaffNotificationsRoute: typeof AppStaffNotificationsRoute
   AppStaffUsersRoute: typeof AppStaffUsersRoute
   AppSupplierDashboardRoute: typeof AppSupplierDashboardRoute
@@ -809,7 +789,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminThresholdsRoute: AppAdminThresholdsRoute,
   AppAdminWarehousesRoute: AppAdminWarehousesRoute,
   AppAdminWbsRoute: AppAdminWbsRoute,
-  AppAdminWorkCategoriesRoute: AppAdminWorkCategoriesRoute,
   AppStaffNotificationsRoute: AppStaffNotificationsRoute,
   AppStaffUsersRoute: AppStaffUsersRoute,
   AppSupplierDashboardRoute: AppSupplierDashboardRoute,

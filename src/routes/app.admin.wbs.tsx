@@ -187,11 +187,6 @@ function WbsPage() {
                       #{phase.sequenceOrder}
                     </Badge>
                     <CardTitle className="text-base">{phase.name}</CardTitle>
-                    {phase.workCategoryName && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        {phase.workCategoryName}
-                      </Badge>
-                    )}
                     <Badge variant="outline" className={statusClass(phase.status)}>
                       {phase.status}
                     </Badge>
@@ -226,9 +221,6 @@ function WbsPage() {
                           {task.taskName}
                           <p className="text-xs font-normal text-muted-foreground">
                             {task.assignedToUserName || `User #${task.assignedToUserID}`}
-                            {task.phase?.workCategoryName
-                              ? ` · ${task.phase.workCategoryName}`
-                              : ""}
                           </p>
                         </TableCell>
                             <TableCell className="whitespace-nowrap text-xs">

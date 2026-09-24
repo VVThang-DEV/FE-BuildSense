@@ -134,8 +134,8 @@ function ProjectDetail() {
   const isOwningPm =
     session?.role === "PM" && !!session?.userId && project?.pmUserID === session.userId;
   const canViewRisks = session?.role === "ADMIN" || isOwningPm;
-  const tabCount =
-    5 + (session?.role === "PM" && !isClosedProject ? 1 : 0) + (canViewRisks ? 1 : 0);
+  const showAiPlanTab = session?.role === "PM" && !isClosedProject;
+  const tabCount = 5 + (showAiPlanTab ? 1 : 0) + (canViewRisks ? 1 : 0);
 
   const changeStatus = async (action: "start" | "pause" | "cancel" | "reopen" | "complete") => {
     if (!project) return;
@@ -439,9 +439,7 @@ function ProjectDetail() {
               <TabsTrigger value="tasks">Tasks</TabsTrigger>
               <TabsTrigger value="materials">Materials</TabsTrigger>
               <TabsTrigger value="budget">Budget</TabsTrigger>
-              {session?.role === "PM" && !isClosedProject && (
-                <TabsTrigger value="ai-plan">AI Plan</TabsTrigger>
-              )}
+              {showAiPlanTab && <TabsTrigger value="ai-plan">AI Plan</TabsTrigger>}
               {canViewRisks && <TabsTrigger value="risks">Risks</TabsTrigger>}
             </TabsList>
             <TabsContent value="overview">
